@@ -21,6 +21,7 @@ interface DKBankConfirmModalProps {
 }
 
 type Status = "idle" | "processing" | "otp_required" | "success" | "failed";
+type PayMethod = "dkbank" | "credits";
 
 export function DKBankConfirmModal({
   isOpen,
@@ -31,6 +32,7 @@ export function DKBankConfirmModal({
   onSuccess,
   onFailure,
 }: DKBankConfirmModalProps) {
+  const [payMethod, setPayMethod] = useState<PayMethod>("credits");
   const [cidNumber, setCidNumber] = useState("");
   const [linkedCid, setLinkedCid] = useState<string | null>(null);
   const [customerName, setCustomerName] = useState("");
@@ -38,6 +40,7 @@ export function DKBankConfirmModal({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [pendingPaymentId, setPendingPaymentId] = useState("");
+  const [creditsBalance, setCreditsBalance] = useState<number | null>(null);
   const otpRef = useRef<HTMLInputElement>(null);
 
   const outcome = market.outcomes.find((o) => o.id === outcomeId);
@@ -52,6 +55,10 @@ export function DKBankConfirmModal({
           setCidNumber(u.dkCid);
           if (u.dkAccountName) setCustomerName(u.dkAccountName);
         }
+        setCreditsBalance(u.creditsBalance ?? 0);
+        // Default to credits if user has enough balance, else dkbank
+        const bal = u.creditsBalance ?? 0;
+        setPayMethod(bal >= amount ? "credits" : "dkbank");
       })
       .catch(() => {});
   }, [isOpen]);
@@ -71,6 +78,8 @@ export function DKBankConfirmModal({
     setStatus("idle");
     setError("");
     setPendingPaymentId("");
+    setCreditsBalance(null);
+    setPayMethod("credits");
   };
 
   const handleClose = () => {
@@ -79,7 +88,52 @@ export function DKBankConfirmModal({
     resetForm();
   };
 
-  const canPay = !!linkedCid && cidNumber === linkedCid && status === "idle";
+  const canPay =
+    !!linkedCid &&
+    cidNumber === linkedCid &&
+    status === "idle" &&
+    payMethod === "dkbank";
+  const hasEnoughCredits = creditsBalance !== null && creditsBalance >= amount;
+  const canPayWithCredits =
+    payMethod === "credits" && hasEnoughCredits && status === "idle";
+
+  const handlePayWithCredits = async () => {
+    if (!canPayWithCredits) return;
+    setStatus("processing");
+    setError("");
+    try {
+      const fresh = await getMe();
+      const freshBal = fresh.creditsBalance ?? 0;
+      setCreditsBalance(freshBal);
+      if (freshBal < amount) {
+        setError(
+          `Insufficient balance. Available: Nu ${freshBal.toLocaleString()}`,
+        );
+        setStatus("idle");
+        return;
+      }
+      setStatus("success");
+      setTimeout(() => {
+        // Fire onSuccess before onClose so parent's activeState is still set
+        onSuccess?.({
+          success: true,
+          paymentId: `credits-${Date.now()}`,
+          status: "success",
+          amount,
+          currency: "BTN",
+          method: "credits",
+          message: "Bet placed from Tara Credits",
+          timestamp: new Date().toISOString(),
+        } as PaymentResponse);
+        onClose();
+        resetForm();
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Failed to verify balance");
+      setStatus("failed");
+      onFailure?.(err.message || "Failed to verify balance");
+    }
+  };
 
   const pollStatus = async (
     paymentId: string,
@@ -93,9 +147,9 @@ export function DKBankConfirmModal({
         if (s.status === "success") {
           setStatus("success");
           setTimeout(() => {
+            onSuccess?.({ ...initiatedPayment, amount });
             onClose();
             resetForm();
-            onSuccess?.({ ...initiatedPayment, amount });
           }, 2500);
         } else if (s.status === "failed") {
           setError(s.failureReason || "Payment failed");
@@ -141,9 +195,9 @@ export function DKBankConfirmModal({
       } else if (payment.status === "success") {
         setStatus("success");
         setTimeout(() => {
+          onSuccess?.({ ...payment, amount });
           onClose();
           resetForm();
-          onSuccess?.({ ...payment, amount });
         }, 2500);
       } else {
         pollStatus(payment.paymentId, payment);
@@ -427,7 +481,7 @@ export function DKBankConfirmModal({
                   border: "1px solid var(--border)",
                   borderRadius: 12,
                   padding: "14px 16px",
-                  marginBottom: 12,
+                  marginBottom: 14,
                 }}
               >
                 <div
@@ -476,108 +530,222 @@ export function DKBankConfirmModal({
                 </div>
               </div>
 
-              {/* CID — locked if linked */}
-              <div style={{ marginBottom: 16 }}>
-                <div
+              {/* Payment method selector */}
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--text-subtle)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  marginBottom: 8,
+                }}
+              >
+                Pay with
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                {/* Tara Credits */}
+                <button
+                  onClick={() => setPayMethod("credits")}
                   style={{
+                    flex: 1,
+                    padding: "10px 10px",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    border:
+                      payMethod === "credits"
+                        ? "2px solid #10b981"
+                        : "1.5px solid var(--border)",
+                    background:
+                      payMethod === "credits"
+                        ? "rgba(16,185,129,0.12)"
+                        : "var(--bg-secondary)",
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
-                    marginBottom: 6,
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>💰</span>
+                  <div style={{ textAlign: "left" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color:
+                          payMethod === "credits"
+                            ? "#10b981"
+                            : "var(--text-muted)",
+                      }}
+                    >
+                      Tara Credits
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color:
+                          payMethod === "credits"
+                            ? "#6ee7b7"
+                            : "var(--text-subtle)",
+                      }}
+                    >
+                      {creditsBalance !== null
+                        ? `Nu ${Number(creditsBalance).toLocaleString()}`
+                        : "…"}
+                    </div>
+                  </div>
+                </button>
+                {/* DK Bank */}
+                <button
+                  onClick={() => setPayMethod("dkbank")}
+                  style={{
+                    flex: 1,
+                    padding: "10px 10px",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    border:
+                      payMethod === "dkbank"
+                        ? "2px solid #2563eb"
+                        : "1.5px solid var(--border)",
+                    background:
+                      payMethod === "dkbank"
+                        ? "rgba(37,99,235,0.12)"
+                        : "var(--bg-secondary)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
                   }}
                 >
                   <span
                     style={{
                       background: "#fff",
-                      borderRadius: 5,
-                      padding: "2px 6px",
+                      borderRadius: 4,
+                      padding: "2px 5px",
                       display: "inline-flex",
                       alignItems: "center",
                     }}
                   >
                     <img
                       src={dkBankLogo}
-                      alt="DK Bank"
+                      alt="DK"
                       style={{ height: 14, width: "auto" }}
                     />
                   </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      color: "var(--text-subtle)",
-                    }}
-                  >
-                    CID
-                  </span>
-                </div>
-                {linkedCid ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      background: "rgba(22,163,74,0.1)",
-                      border: "1.5px solid #86efac",
-                      borderRadius: 12,
-                      padding: "12px 14px",
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#16a34a"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                  <div style={{ textAlign: "left" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color:
+                          payMethod === "dkbank"
+                            ? "#60a5fa"
+                            : "var(--text-muted)",
+                      }}
                     >
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: 800,
-                          fontSize: 15,
-                          color: "var(--text-main)",
-                          letterSpacing: "0.05em",
-                        }}
-                      >
-                        {linkedCid}
-                      </div>
-                      {customerName && (
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "#16a34a",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {customerName}
-                        </div>
-                      )}
+                      DK Bank
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-subtle)" }}>
+                      Deposit & bet
                     </div>
                   </div>
-                ) : (
-                  <div
-                    style={{
-                      background: "rgba(220,38,38,0.1)",
-                      border: "1px solid #fecaca",
-                      borderRadius: 12,
-                      padding: "12px 14px",
-                      fontSize: 13,
-                      color: "#dc2626",
-                      fontWeight: 600,
-                    }}
-                  >
-                    No DK Bank account linked. Please link your account first.
-                  </div>
-                )}
+                </button>
               </div>
+
+              {/* Credits: show insufficient warning */}
+              {payMethod === "credits" && !hasEnoughCredits && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    background: "rgba(239,68,68,0.1)",
+                    border: "1px solid rgba(239,68,68,0.3)",
+                    color: "#ef4444",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    marginBottom: 12,
+                  }}
+                >
+                  ⚠️ Insufficient balance (Nu{" "}
+                  {creditsBalance?.toLocaleString() ?? 0}). Switch to DK Bank to
+                  deposit.
+                </div>
+              )}
+
+              {/* DK Bank: show CID */}
+              {payMethod === "dkbank" && (
+                <div style={{ marginBottom: 14 }}>
+                  {linkedCid ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        background: "rgba(22,163,74,0.1)",
+                        border: "1.5px solid #86efac",
+                        borderRadius: 12,
+                        padding: "12px 14px",
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#16a34a"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect
+                          x="3"
+                          y="11"
+                          width="18"
+                          height="11"
+                          rx="2"
+                          ry="2"
+                        />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                      <div>
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 15,
+                            color: "var(--text-main)",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          {linkedCid}
+                        </div>
+                        {customerName && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#16a34a",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {customerName}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: "rgba(220,38,38,0.1)",
+                        border: "1px solid #fecaca",
+                        borderRadius: 12,
+                        padding: "12px 14px",
+                        fontSize: 13,
+                        color: "#dc2626",
+                        fontWeight: 600,
+                      }}
+                    >
+                      No DK Bank account linked. Please link your account first.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {error && (
                 <div
@@ -609,23 +777,49 @@ export function DKBankConfirmModal({
                 >
                   Cancel
                 </button>
-                <button
-                  onClick={handlePay}
-                  disabled={!canPay}
-                  style={{
-                    flex: 2,
-                    padding: "14px",
-                    borderRadius: 12,
-                    border: "none",
-                    background: canPay ? "#3b82f6" : "var(--bg-secondary)",
-                    color: canPay ? "#fff" : "var(--text-subtle)",
-                    fontSize: 15,
-                    fontWeight: 700,
-                    cursor: canPay ? "pointer" : "not-allowed",
-                  }}
-                >
-                  {canPay ? `Pay ${formatBTN(amount)}` : "No linked account"}
-                </button>
+                {payMethod === "credits" ? (
+                  <button
+                    onClick={handlePayWithCredits}
+                    disabled={!canPayWithCredits}
+                    style={{
+                      flex: 2,
+                      padding: "14px",
+                      borderRadius: 12,
+                      border: "none",
+                      background: canPayWithCredits
+                        ? "#059669"
+                        : "var(--bg-secondary)",
+                      color: canPayWithCredits ? "#fff" : "var(--text-subtle)",
+                      fontSize: 15,
+                      fontWeight: 700,
+                      cursor: canPayWithCredits ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    {canPayWithCredits
+                      ? `Place Bet — ${formatBTN(amount)}`
+                      : "Insufficient Balance"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handlePay}
+                    disabled={!canPay}
+                    style={{
+                      flex: 2,
+                      padding: "14px",
+                      borderRadius: 12,
+                      border: "none",
+                      background: canPay ? "#3b82f6" : "var(--bg-secondary)",
+                      color: canPay ? "#fff" : "var(--text-subtle)",
+                      fontSize: 15,
+                      fontWeight: 700,
+                      cursor: canPay ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    {canPay
+                      ? `Pay ${formatBTN(amount)} via DK`
+                      : "No linked account"}
+                  </button>
+                )}
               </div>
             </div>
           )}

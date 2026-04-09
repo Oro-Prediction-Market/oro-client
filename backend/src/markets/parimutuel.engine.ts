@@ -98,6 +98,12 @@ export class ParimutuelEngine implements OnModuleInit {
     // Acquire a distributed Redis lock so concurrent bets on the same market
     // are serialised at the application layer before touching the DB.
     let lockToken: string | null = null;
+    let completedPosition: Position | null = null;
+    let betMarket: Market | null = null;
+    let betOutcome: Outcome | null = null;
+    let betUser: User | null = null;
+    let balanceAfterBet = 0;
+
     try {
       lockToken = await this.redis.acquireLockWithRetry(
         `market:${marketId}`,
@@ -115,7 +121,7 @@ export class ParimutuelEngine implements OnModuleInit {
     }
 
     try {
-      return await this.dataSource.transaction(async (em) => {
+      completedPosition = await this.dataSource.transaction(async (em) => {
         // Pessimistic write lock ensures only one DB transaction modifies this
         // market's pool at a time, even if the Redis lock is unavailable.
         // 1. Lock the market record (using QueryBuilder to avoid eager joins)
@@ -142,6 +148,12 @@ export class ParimutuelEngine implements OnModuleInit {
 
         const user = await em.findOne(User, { where: { id: userId } });
         if (!user) throw new BadRequestException("User not found");
+
+        // Store user reference for notification
+        betUser = user;
+        betMarket = market;
+        betOutcome = outcome;
+
         const balanceBefore = await this.getCreditsBalance(em, userId);
         this.logger.log(
           `[placePosition] user=${userId} credits=${balanceBefore} betAmount=${amount}`,
@@ -221,8 +233,30 @@ export class ParimutuelEngine implements OnModuleInit {
           }),
         );
 
+        // Store balance after bet for notification
+        balanceAfterBet = balanceBefore - amount;
+
         return savedPosition;
       });
+
+      // Send Telegram notification after successful bet placement
+      if (completedPosition && betUser && betMarket && betOutcome) {
+        this.sendBetPlacementNotification(
+          betUser,
+          betMarket,
+          betOutcome,
+          amount,
+          balanceAfterBet,
+        ).catch((err: any) => {
+          this.logger.error(
+            `Failed to send bet placement notification: ${err.message}`,
+          );
+        });
+      }
+
+      return completedPosition!;
+    } catch (err) {
+      throw err;
     } finally {
       if (lockToken)
         await this.redis.releaseLock(`market:${marketId}`, lockToken);
@@ -507,6 +541,54 @@ export class ParimutuelEngine implements OnModuleInit {
       });
       return em.save(Settlement, settlement);
     });
+  }
+
+  // ── Bet placement notification ─────────────────────────────────────────────
+
+  private async sendBetPlacementNotification(
+    user: User,
+    market: Market,
+    outcome: Outcome,
+    amount: number,
+    balanceAfter: number,
+  ): Promise<void> {
+    if (!user.telegramId) {
+      this.logger.debug(
+        `[BetNotification] User ${user.id} has no Telegram ID, skipping notification`,
+      );
+      return;
+    }
+
+    const chatId = parseInt(user.telegramId, 10);
+    if (isNaN(chatId)) {
+      this.logger.warn(
+        `[BetNotification] Invalid Telegram ID for user ${user.id}: ${user.telegramId}`,
+      );
+      return;
+    }
+
+    const message = `
+✅ <b>Bet Placed Successfully!</b>
+
+📊 <b>Market:</b> ${market.title}
+🎯 <b>Outcome:</b> ${outcome.label}
+💰 <b>Amount:</b> Nu ${amount.toLocaleString()}
+
+💳 <b>New Balance:</b> Nu ${balanceAfter.toLocaleString()}
+
+Good luck! 🍀
+    `.trim();
+
+    try {
+      await this.telegramSimple.sendMessage(chatId, message);
+      this.logger.log(
+        `[BetNotification] Sent to user ${user.id} for bet of Nu ${amount}`,
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `[BetNotification] Failed to send to user ${user.id}: ${error.message}`,
+      );
+    }
   }
 
   // ── Post-settlement: reputation recalc + individual DM notifications ────────

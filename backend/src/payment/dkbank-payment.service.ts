@@ -333,11 +333,6 @@ export class DKBankPaymentService {
     await this.redis.del(`tara:tg-otp:${paymentId}`);
 
     // ── Step 2: Call DK Bank to actually debit the user's account ────────────
-    // account_auth  → DK generates a bfsTxnId (no SMS sent, we already have Telegram OTP)
-    // debit_request → DK pulls money from user DK account → merchant vault
-    // STAGING BYPASS: skip real DK debit and credit balance directly.
-    // DK staging sends the pull-payment OTP to placeholder "17000000" which
-    // nobody can receive, so real staging deposits are impossible via OTP.
     const isStagingDepositBypass =
       this.configService.get<string>("DK_STAGING_DEPOSIT_BYPASS") === "true";
 

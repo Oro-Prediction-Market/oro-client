@@ -1,11 +1,10 @@
 import { FC, useState, useEffect } from "react";
 import { Spinner } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
-import { getMarkets, getMyBets, placeBet, type Market } from "@/api/client";
+import { getMarkets, getMyBets, type Market } from "@/api/client";
 import { useAuth } from "@/tma/hooks/useAuth";
-import { TmaPaymentModal } from "@/tma/components/TmaPaymentModal";
+import { TmaBetModal } from "@/tma/components/TmaBetModal";
 import { Link } from "@/tma/components/Link/Link";
-import type { PaymentResponse } from "@/types/payment";
 
 function outcomeColor(rank: number, total: number): string {
   if (rank === 0) return "#22c55e";
@@ -445,27 +444,8 @@ export const TmaFeedPage: FC = () => {
     }
   }, []);
 
-  const handlePaymentSuccess = async (_payment: PaymentResponse) => {
+  const handlePaymentSuccess = async () => {
     if (!activeBet) return;
-    const betAmt = _payment?.amount ?? 0;
-
-    setMarkets((prev) =>
-      prev.map((m) => {
-        if (m.id !== activeBet.marketId) return m;
-        return {
-          ...m,
-          totalPool: String(Number(m.totalPool) + betAmt),
-          outcomes: m.outcomes.map((o) =>
-            o.id === activeBet.outcomeId
-              ? {
-                  ...o,
-                  totalBetAmount: String(Number(o.totalBetAmount) + betAmt),
-                }
-              : o,
-          ),
-        };
-      }),
-    );
 
     const bet = activeBet;
     setActiveBet(null);
@@ -473,15 +453,7 @@ export const TmaFeedPage: FC = () => {
     // Mark this market as bet so the signal reveals immediately on the feed
     setBettedMarketIds((prev) => new Set([...prev, bet.marketId]));
 
-    const market = markets.find((m) => m.id === bet.marketId);
-    if (market && user) {
-      try {
-        await placeBet(market.id, { outcomeId: bet.outcomeId, amount: betAmt });
-      } catch (e: any) {
-        console.warn(e.message);
-      }
-    }
-
+    // Refresh markets to get updated pool/odds
     getMarkets()
       .then((d) => {
         setMarkets(
@@ -933,13 +905,13 @@ export const TmaFeedPage: FC = () => {
       </div>
 
       {activeMarket && activeBet && (
-        <TmaPaymentModal
+        <TmaBetModal
           isOpen={true}
           onClose={() => setActiveBet(null)}
           market={activeMarket}
           outcomeId={activeBet.outcomeId}
           onSuccess={handlePaymentSuccess}
-          onFailure={(e) => console.error(e)}
+          onFailure={(e: string) => console.error(e)}
         />
       )}
     </Page>

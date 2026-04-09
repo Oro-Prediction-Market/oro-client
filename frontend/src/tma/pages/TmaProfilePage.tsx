@@ -123,6 +123,13 @@ export const TmaProfilePage: FC = () => {
       .finally(() => setFreshLoading(false));
   }, []);
 
+  // Re-fetch balance whenever a bet or deposit fires from any page
+  useEffect(() => {
+    const handler = () => refreshWallet();
+    window.addEventListener("tara:balance-changed", handler);
+    return () => window.removeEventListener("tara:balance-changed", handler);
+  }, []);
+
   const refreshWallet = () => {
     setBalanceLoading(true);
     getMe()
@@ -1050,7 +1057,7 @@ export const TmaProfilePage: FC = () => {
                     style={{
                       background: "#fff",
                       borderRadius: 5,
-                      padding: "2px 7px",
+                      padding: "2px 6px",
                       display: "inline-flex",
                       alignItems: "center",
                     }}
@@ -1058,7 +1065,7 @@ export const TmaProfilePage: FC = () => {
                     <img
                       src={dkBankLogo}
                       alt="DK Bank"
-                      style={{ height: 18, width: "auto" }}
+                      style={{ height: 14, width: "auto" }}
                     />
                   </span>
                 </span>
@@ -1204,6 +1211,7 @@ export const TmaProfilePage: FC = () => {
                       margin: "12px 0 4px",
                       fontWeight: 700,
                       fontSize: 16,
+                      color: "#1f2937",
                     }}
                   >
                     Check your Telegram
@@ -1212,7 +1220,7 @@ export const TmaProfilePage: FC = () => {
                     style={{
                       margin: 0,
                       fontSize: 13,
-                      color: "var(--text-muted)",
+                      color: "#6b7280",
                       textAlign: "center",
                     }}
                   >

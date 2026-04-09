@@ -792,18 +792,16 @@ describe("ParimutuelEngine.resolveMarket → settleMarket", () => {
         save: jest.fn().mockImplementation((o: any) => Promise.resolve(o)),
       } as any,
       {
-        find: jest
-          .fn()
-          .mockResolvedValue(
-            bets.map((b) => ({
-              ...b,
-              user: {
-                id: b.userId,
-                telegramId: null,
-                reputationTier: "newcomer",
-              },
-            })),
-          ),
+        find: jest.fn().mockResolvedValue(
+          bets.map((b) => ({
+            ...b,
+            user: {
+              id: b.userId,
+              telegramId: null,
+              reputationTier: "newcomer",
+            },
+          })),
+        ),
       } as any,
       null as any,
       null as any,
@@ -811,12 +809,10 @@ describe("ParimutuelEngine.resolveMarket → settleMarket", () => {
       { find: jest.fn().mockResolvedValue([]) } as any,
       {
         transaction: (cb: Function) => cb(mockEm),
-        getRepository: jest
-          .fn()
-          .mockReturnValue({
-            findBy: jest.fn().mockResolvedValue([]),
-            update: jest.fn(),
-          }),
+        getRepository: jest.fn().mockReturnValue({
+          findBy: jest.fn().mockResolvedValue([]),
+          update: jest.fn(),
+        }),
       } as any,
       null as any,
       null as any,
@@ -928,15 +924,13 @@ describe("ParimutuelEngine.resolveMarket → settleMarket", () => {
 
     const engine = new ParimutuelEngine(
       {
-        findOne: jest
-          .fn()
-          .mockResolvedValue({
-            ...market,
-            outcomes: [
-              winnerOutcome,
-              ...market.outcomes.filter((o: any) => o.id !== winnerOutcome.id),
-            ],
-          }),
+        findOne: jest.fn().mockResolvedValue({
+          ...market,
+          outcomes: [
+            winnerOutcome,
+            ...market.outcomes.filter((o: any) => o.id !== winnerOutcome.id),
+          ],
+        }),
         findOneBy: jest.fn().mockResolvedValue(market),
         save: jest.fn().mockImplementation((m: any) => Promise.resolve(m)),
       } as any,
@@ -944,18 +938,16 @@ describe("ParimutuelEngine.resolveMarket → settleMarket", () => {
         save: jest.fn().mockImplementation((o: any) => Promise.resolve(o)),
       } as any,
       {
-        find: jest
-          .fn()
-          .mockResolvedValue(
-            bets.map((b) => ({
-              ...b,
-              user: {
-                id: b.userId,
-                telegramId: null,
-                reputationTier: "newcomer",
-              },
-            })),
-          ),
+        find: jest.fn().mockResolvedValue(
+          bets.map((b) => ({
+            ...b,
+            user: {
+              id: b.userId,
+              telegramId: null,
+              reputationTier: "newcomer",
+            },
+          })),
+        ),
       } as any,
       null as any,
       null as any,
@@ -963,12 +955,10 @@ describe("ParimutuelEngine.resolveMarket → settleMarket", () => {
       { find: jest.fn().mockResolvedValue([]) } as any,
       {
         transaction: (cb: Function) => cb(mockEm),
-        getRepository: jest
-          .fn()
-          .mockReturnValue({
-            findBy: jest.fn().mockResolvedValue([]),
-            update: jest.fn(),
-          }),
+        getRepository: jest.fn().mockReturnValue({
+          findBy: jest.fn().mockResolvedValue([]),
+          update: jest.fn(),
+        }),
       } as any,
       null as any,
       null as any,
@@ -1283,7 +1273,7 @@ describe("ParimutuelEngine.dispatchDkPayouts", () => {
       expect.objectContaining({
         accountNumber: "110146039368",
         amount: 300,
-        reference: "TARA-PAYOUT-pos-1",
+        reference: "pos-1",
       }),
     );
 
@@ -1292,7 +1282,7 @@ describe("ParimutuelEngine.dispatchDkPayouts", () => {
       expect.objectContaining({
         accountNumber: "110111222333",
         amount: 200,
-        reference: "TARA-PAYOUT-pos-2",
+        reference: "pos-2",
       }),
     );
   });
@@ -1385,13 +1375,11 @@ describe("ParimutuelEngine.dispatchDkPayouts", () => {
     const winnerOutcome = market.outcomes[0];
 
     const mockDkGateway = {
-      transferToAccount: jest
-        .fn()
-        .mockResolvedValue({
-          txnId: "TXN-X",
-          status: "SUCCESS",
-          statusDesc: "OK",
-        }),
+      transferToAccount: jest.fn().mockResolvedValue({
+        txnId: "TXN-X",
+        status: "SUCCESS",
+        statusDesc: "OK",
+      }),
     };
 
     const stagingConfigService = {
@@ -1428,16 +1416,14 @@ describe("ParimutuelEngine.dispatchDkPayouts", () => {
         save: jest.fn().mockImplementation((o: any) => Promise.resolve(o)),
       } as any,
       {
-        find: jest
-          .fn()
-          .mockResolvedValue(
-            bets.map((b) => ({
-              ...b,
-              status: BetStatus.WON,
-              payout: b.amount,
-              user: b.user,
-            })),
-          ),
+        find: jest.fn().mockResolvedValue(
+          bets.map((b) => ({
+            ...b,
+            status: BetStatus.WON,
+            payout: b.amount,
+            user: b.user,
+          })),
+        ),
       } as any,
       null as any,
       null as any,
@@ -1445,12 +1431,10 @@ describe("ParimutuelEngine.dispatchDkPayouts", () => {
       { find: jest.fn().mockResolvedValue([]) } as any,
       {
         transaction: (cb: Function) => cb(mockEm),
-        getRepository: jest
-          .fn()
-          .mockReturnValue({
-            findBy: jest.fn().mockResolvedValue([]),
-            update: jest.fn(),
-          }),
+        getRepository: jest.fn().mockReturnValue({
+          findBy: jest.fn().mockResolvedValue([]),
+          update: jest.fn(),
+        }),
       } as any,
       null as any,
       null as any,

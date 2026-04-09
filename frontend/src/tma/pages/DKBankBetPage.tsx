@@ -67,6 +67,7 @@ export const DKBankBetPage: FC = () => {
           outcomeId: selectedOutcomeId,
           amount: parseFloat(amount),
         });
+        window.dispatchEvent(new CustomEvent("tara:balance-changed"));
       } catch (betErr: any) {
         console.warn("Bet registration warning:", betErr.message);
       }

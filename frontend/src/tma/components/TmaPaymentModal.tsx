@@ -35,7 +35,7 @@ export function TmaPaymentModal({
   onSuccess,
   onFailure,
 }: TmaPaymentModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<"dkbank" | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<"dkbank" | "credits" | null>(null);
   const [amountStr, setAmountStr] = useState(() =>
     initialAmount ? String(initialAmount) : "100",
   );
@@ -47,6 +47,7 @@ export function TmaPaymentModal({
   const [error, setError] = useState("");
   const [pendingPaymentId, setPendingPaymentId] = useState("");
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [creditsBalance, setCreditsBalance] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch user's linked CID when modal opens — auto-fill and lock
@@ -59,6 +60,7 @@ export function TmaPaymentModal({
           setCidNumber(u.dkCid);
           if (u.dkAccountName) setCustomerName(u.dkAccountName);
         }
+        setCreditsBalance(u.creditsBalance ?? 0);
       })
       .catch(() => {});
   }, [isOpen]);
@@ -95,6 +97,12 @@ export function TmaPaymentModal({
     status === "idle" &&
     selectedMethod === "dkbank";
 
+  // Credits bet is allowed when user has sufficient balance
+  const hasEnoughCredits =
+    creditsBalance !== null && creditsBalance >= betAmount;
+  const canPayWithCredits =
+    isValidAmount && selectedMethod === "credits" && hasEnoughCredits && status === "idle";
+
   const estPayout = (() => {
     if (!isValidAmount || !outcome) return 0;
     const houseEdge = parseFloat(market.houseEdgePct) || 0;
@@ -122,6 +130,7 @@ export function TmaPaymentModal({
     setStatus("idle");
     setError("");
     setPendingPaymentId("");
+    setCreditsBalance(null);
   };
 
   const handleClose = () => {
@@ -215,6 +224,45 @@ export function TmaPaymentModal({
       }
     };
     poll();
+  };
+
+  /** Pay directly from Tara credits balance (no DK Bank debit needed). */
+  const handlePayWithCredits = async () => {
+    if (!canPayWithCredits || !outcomeId) return;
+    setStatus("processing");
+    setError("");
+    try {
+      // Verify balance is still sufficient (re-fetch to prevent stale reads)
+      const fresh = await getMe();
+      const freshBal = fresh.creditsBalance ?? 0;
+      setCreditsBalance(freshBal);
+      if (freshBal < betAmount) {
+        setError(`Insufficient balance. You have Nu ${freshBal.toLocaleString()}, need Nu ${betAmount.toLocaleString()}.`);
+        setStatus("idle");
+        return;
+      }
+      setStatus("success");
+      setTimeout(() => {
+        // onSuccess MUST fire before onClose so the parent's activeBet is
+        // still set when handlePaymentSuccess reads it to call placeBet.
+        onSuccess?.({
+          success: true,
+          paymentId: `credits-${Date.now()}`,
+          status: "success",
+          amount: betAmount,
+          currency: "BTN",
+          method: "credits",
+          message: "Bet placed from Tara Credits",
+          timestamp: new Date().toISOString(),
+        } as PaymentResponse);
+        onClose();
+        resetForm();
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Failed to verify balance");
+      setStatus("failed");
+      onFailure?.(err.message || "Failed to verify balance");
+    }
   };
 
   return (
@@ -820,6 +868,68 @@ export function TmaPaymentModal({
                     </div>
                   </div>
                 </div>
+
+                {/* Tara Credits button */}
+                <button
+                  onClick={() => setSelectedMethod("credits")}
+                  className="pay-method-btn"
+                  style={{
+                    flex: 1,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    border:
+                      selectedMethod === "credits"
+                        ? "2px solid #10b981"
+                        : "1.5px solid rgba(255,255,255,0.18)",
+                    background:
+                      selectedMethod === "credits"
+                        ? "rgba(16,185,129,0.15)"
+                        : "rgba(255,255,255,0.09)",
+                    boxShadow:
+                      selectedMethod === "credits"
+                        ? "0 0 0 3px rgba(16,185,129,0.2), 0 4px 14px rgba(16,185,129,0.25)"
+                        : "0 3px 8px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.12)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 28,
+                      height: 22,
+                      borderRadius: 5,
+                      background: "linear-gradient(135deg, #10b981, #059669)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      fontSize: 13,
+                    }}
+                  >
+                    💰
+                  </div>
+                  <div style={{ textAlign: "left" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color:
+                          selectedMethod === "credits"
+                            ? "#6ee7b7"
+                            : "var(--text-muted)",
+                      }}
+                    >
+                      Tara Credits
+                    </div>
+                    <div style={{ fontSize: 10, color: selectedMethod === "credits" ? "#6ee7b7" : "var(--text-subtle)" }}>
+                      {creditsBalance !== null
+                        ? `Nu ${Number(creditsBalance).toLocaleString()}`
+                        : "Loading…"}
+                    </div>
+                  </div>
+                </button>
               </div>
 
               {/* Amount + CID */}
@@ -1124,6 +1234,133 @@ export function TmaPaymentModal({
                   </div>
                 </>
               )}
+
+              {/* ── Tara Credits form ── */}
+              {selectedMethod === "credits" && (
+                <>
+                  <div style={{ height: 1, background: "var(--glass-border)", marginBottom: 16 }} />
+
+                  {/* Balance display */}
+                  <div
+                    style={{
+                      padding: "14px 16px",
+                      borderRadius: 12,
+                      background: "rgba(16,185,129,0.08)",
+                      border: "1px solid rgba(16,185,129,0.3)",
+                      marginBottom: 16,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        Available Balance
+                      </div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "#10b981" }}>
+                        Nu {creditsBalance !== null ? Number(creditsBalance).toLocaleString() : "…"}
+                      </div>
+                    </div>
+                    {betAmount > 0 && creditsBalance !== null && (
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          After bet
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: hasEnoughCredits ? "var(--text-main)" : "#ef4444" }}>
+                          Nu {(creditsBalance - betAmount).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!hasEnoughCredits && betAmount > 0 && (
+                    <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+                      ⚠️ Insufficient balance. Deposit via DK Bank first.
+                    </div>
+                  )}
+
+                  {/* Amount */}
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                    Amount (Nu)
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    {QUICK_AMOUNTS.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setAmountStr(q.toString())}
+                        className="tma-outcome-btn"
+                        style={{
+                          flex: 1,
+                          padding: "10px 0",
+                          borderRadius: 12,
+                          border: amountStr === q.toString() ? "2px solid #10b981" : "1px solid var(--border)",
+                          borderBottomWidth: 2,
+                          background: amountStr === q.toString() ? "rgba(16,185,129,0.1)" : "var(--bg-secondary)",
+                          color: amountStr === q.toString() ? "#10b981" : "var(--text-main)",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ position: "relative", marginBottom: 16 }}>
+                    <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", fontSize: 13, fontWeight: 600, color: "var(--text-subtle)", pointerEvents: "none" }}>
+                      Nu
+                    </span>
+                    <input
+                      type="number"
+                      min={MIN_BET}
+                      value={amountStr}
+                      onChange={(e) => setAmountStr(e.target.value)}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "12px 14px 12px 34px",
+                        borderRadius: 10,
+                        border: isValidAmount || !betAmount ? "2px solid var(--glass-border)" : "2px solid #fca5a5",
+                        fontSize: 15,
+                        fontWeight: 600,
+                        color: "var(--text-main)",
+                        background: "var(--bg-main)",
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+
+                  {/* Estimated payout */}
+                  {isValidAmount && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: estProfit >= 0 ? "rgba(22,163,74,0.1)" : "var(--bg-main)", border: `1px solid ${estProfit >= 0 ? "#86efac" : "var(--glass-border)"}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Est. payout if win
+                        </div>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: estProfit >= 0 ? "#16a34a" : "var(--text-muted)" }}>
+                          {estProfit >= 0 ? `Nu ${estPayout.toFixed(2)}` : "—"}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Est. profit
+                        </div>
+                        {estProfit >= 0 ? (
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "#16a34a" }}>
+                            +Nu {estProfit.toFixed(2)}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: "var(--text-subtle)", maxWidth: 120, textAlign: "right" }}>
+                            Grows as more bets join
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isValidAmount && <PayoutBreakdown market={market} outcomeId={outcomeId} betAmount={betAmount} />}
+                </>
+              )}
             </div>
 
             {/* FIXED FOOTER */}
@@ -1145,6 +1382,43 @@ export function TmaPaymentModal({
                 </div>
               )}
 
+              {selectedMethod === "credits" ? (
+                <button
+                  onClick={handlePayWithCredits}
+                  disabled={!canPayWithCredits}
+                  style={{
+                    width: "100%",
+                    padding: "16px",
+                    background: canPayWithCredits
+                      ? "linear-gradient(135deg, #059669, #047857)"
+                      : "var(--glass-border)",
+                    color: canPayWithCredits ? "#fff" : "var(--text-subtle)",
+                    border: "none",
+                    borderRadius: 12,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: canPayWithCredits ? "pointer" : "not-allowed",
+                    boxShadow: canPayWithCredits ? "0 4px 14px rgba(5,150,105,0.4)" : "none",
+                    transition: "all 0.15s ease",
+                    letterSpacing: "0.01em",
+                  }}
+                >
+                  {status === "processing" ? (
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 0.8s linear infinite" }}>
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                      Placing Bet…
+                    </span>
+                  ) : !isValidAmount ? (
+                    `Min Nu ${MIN_BET}`
+                  ) : !hasEnoughCredits ? (
+                    "Insufficient Balance"
+                  ) : (
+                    `Place Bet — Nu ${betAmount.toLocaleString()}`
+                  )}
+                </button>
+              ) : (
               <button
                 onClick={handlePay}
                 disabled={!canPay}
@@ -1222,6 +1496,7 @@ export function TmaPaymentModal({
                   "Select payment method above"
                 ) : null}
               </button>
+              )}
             </div>
           </div>
         )}
