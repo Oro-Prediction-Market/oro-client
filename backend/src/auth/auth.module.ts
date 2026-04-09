@@ -11,8 +11,10 @@ import { AuthMethod } from "../entities/auth-method.entity";
 import { Payment } from "../entities/payment.entity";
 import { Transaction } from "../entities/transaction.entity";
 import { DKGatewayAuthToken } from "../entities/dk-gateway-auth-token.entity";
+import { AuditLog } from "../entities/audit-log.entity";
 import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
 import { TelegramModule } from "../telegram/telegram.module";
+import { AuditService } from "../admin/audit.service";
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { TelegramModule } from "../telegram/telegram.module";
       Payment,
       Transaction,
       DKGatewayAuthToken,
+      AuditLog, // Add AuditLog entity
     ]),
     PassportModule,
     JwtModule.registerAsync({
@@ -40,7 +43,7 @@ import { TelegramModule } from "../telegram/telegram.module";
     }),
     TelegramModule,
   ],
-  providers: [AuthService, JwtStrategy, DKGatewayService],
+  providers: [AuthService, JwtStrategy, DKGatewayService, AuditService], // Add AuditService
   controllers: [AuthController],
   exports: [AuthService, JwtModule],
 })

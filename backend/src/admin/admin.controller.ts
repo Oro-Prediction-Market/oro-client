@@ -65,6 +65,7 @@ export class AdminController {
     const market = await this.marketsService.create(dto);
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.MARKET_CREATE,
       entityType: "market",
       entityId: market.id,
@@ -117,6 +118,7 @@ export class AdminController {
     const result = await this.marketsService.transition(id, dto.status);
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.MARKET_TRANSITION,
       entityType: "market",
       entityId: id,
@@ -150,6 +152,7 @@ export class AdminController {
     );
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.MARKET_PROPOSE,
       entityType: "market",
       entityId: id,
@@ -188,6 +191,7 @@ export class AdminController {
       before.outcomes?.reduce((s, o) => s + Number(o.totalBetAmount), 0) ?? 0;
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.MARKET_RESOLVE,
       entityType: "market",
       entityId: id,
@@ -219,7 +223,10 @@ export class AdminController {
   @ApiOperation({ summary: "List all disputes across all markets" })
   @ApiResponse({ status: 200, type: [Dispute] })
   async getAllDisputes() {
-    const data = await this.disputeRepo.find({ order: { createdAt: "DESC" }, take: 500 });
+    const data = await this.disputeRepo.find({
+      order: { createdAt: "DESC" },
+      take: 500,
+    });
     return { data, total: data.length };
   }
 
@@ -231,6 +238,7 @@ export class AdminController {
     const result = await this.marketsService.cancel(id);
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.MARKET_CANCEL,
       entityType: "market",
       entityId: id,
@@ -249,6 +257,7 @@ export class AdminController {
     const before = await this.marketsService.findOne(id);
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.MARKET_DELETE,
       entityType: "market",
       entityId: id,
@@ -375,7 +384,10 @@ export class AdminController {
     // ── Full-text search ────────────────────────────────────────────────────
     if (search && search.trim()) {
       // Escape LIKE special chars so user input cannot wildcard-scan arbitrary data
-      const safe = search.trim().toLowerCase().replace(/[%_\\]/g, "\\$&");
+      const safe = search
+        .trim()
+        .toLowerCase()
+        .replace(/[%_\\]/g, "\\$&");
       const term = `%${safe}%`;
       qb.andWhere(
         `(
@@ -444,6 +456,7 @@ export class AdminController {
     await this.userRepo.update(userId, { isAdmin: dto.isAdmin });
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true, // Admin controller - all users are admins
       action: AuditAction.USER_ADMIN_TOGGLE,
       entityType: "user",
       entityId: userId,
@@ -477,7 +490,11 @@ export class AdminController {
   @ApiQuery({ name: "entityType", required: false })
   @ApiQuery({ name: "search", required: false })
   @ApiQuery({ name: "from", required: false, description: "YYYY-MM-DD" })
-  @ApiQuery({ name: "to", required: false, description: "YYYY-MM-DD inclusive" })
+  @ApiQuery({
+    name: "to",
+    required: false,
+    description: "YYYY-MM-DD inclusive",
+  })
   getAuditLogs(
     @Query("page") page?: string,
     @Query("limit") limit?: string,

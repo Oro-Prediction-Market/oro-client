@@ -8,9 +8,18 @@ import { AuthMethod, AuthProvider } from "../entities/auth-method.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+import { AuditService } from "../admin/audit.service";
+import { AuditAction } from "../entities/audit-log.entity";
 
-function stripSensitiveFields(user: User): Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber"> {
-  const { dkPhoneHash: _a, telegramPhoneHash: _b, phoneNumber: _c, ...safe } = user as any;
+function stripSensitiveFields(
+  user: User,
+): Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber"> {
+  const {
+    dkPhoneHash: _a,
+    telegramPhoneHash: _b,
+    phoneNumber: _c,
+    ...safe
+  } = user as any;
   return safe;
 }
 
@@ -37,6 +46,7 @@ export class AuthService {
     private jwtService: JwtService,
     private dkGateway: DKGatewayService,
     private telegramVerification: TelegramVerificationService,
+    private auditService: AuditService,
   ) {}
 
   // ── HMAC-SHA-256 Telegram initData validation ──────────────────────────────
@@ -167,6 +177,21 @@ export class AuthService {
       isAdmin: freshUser!.isAdmin,
     });
 
+    // Log user login in audit log
+    await this.auditService.log({
+      adminId: freshUser!.id,
+      username: freshUser!.username || freshUser!.firstName || "Unknown",
+      isAdmin: freshUser!.isAdmin,
+      action: AuditAction.USER_LOGIN,
+      entityType: "user",
+      entityId: freshUser!.id,
+      meta: {
+        provider: "telegram",
+        telegramId: providerId,
+        username: freshUser!.username,
+      },
+    });
+
     return { token, user: stripSensitiveFields(freshUser!) };
   }
 
@@ -275,7 +300,11 @@ export class AuthService {
         });
         const updatedUser = await this.userRepo.findOneBy({ id: callerUserId });
         const { phoneNumber: _p1, ...safeDkAccount1 } = account;
-        return { token, user: stripSensitiveFields(updatedUser!), dkAccount: safeDkAccount1 };
+        return {
+          token,
+          user: stripSensitiveFields(updatedUser!),
+          dkAccount: safeDkAccount1,
+        };
       }
     }
     // ────────────────────────────────────────────────────────────────────────
@@ -350,7 +379,11 @@ export class AuthService {
           isAdmin: freshUser!.isAdmin,
         });
         const { phoneNumber: _p2, ...safeDkAccount2 } = account;
-        return { token, user: stripSensitiveFields(freshUser!), dkAccount: safeDkAccount2 };
+        return {
+          token,
+          user: stripSensitiveFields(freshUser!),
+          dkAccount: safeDkAccount2,
+        };
       }
 
       // Brand new user — create account linked to DK Bank identity
@@ -420,6 +453,10 @@ export class AuthService {
     });
 
     const { phoneNumber: _p3, ...safeDkAccount3 } = account;
-    return { token, user: stripSensitiveFields(freshUser!), dkAccount: safeDkAccount3 };
+    return {
+      token,
+      user: stripSensitiveFields(freshUser!),
+      dkAccount: safeDkAccount3,
+    };
   }
 }

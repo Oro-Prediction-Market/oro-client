@@ -6,6 +6,11 @@ import {
   Index,
 } from "typeorm";
 
+export enum RoleType {
+  ADMIN = "admin",
+  USER = "user",
+}
+
 export enum AuditAction {
   // Market lifecycle
   MARKET_CREATE = "market.create",
@@ -23,6 +28,7 @@ export enum AuditAction {
   // User management
   USER_ADMIN_TOGGLE = "user.admin_toggle",
   USER_VIEW = "user.view",
+  USER_LOGIN = "user.login", // User login
 }
 
 @Entity("audit_logs")
@@ -36,7 +42,11 @@ export class AuditLog {
   adminId: string;
 
   @Column({ type: "varchar", nullable: true })
-  adminUsername: string;
+  username: string;
+
+  /** Role type of the user performing the action (admin or regular user) */
+  @Column({ type: "varchar" })
+  roleType: RoleType;
 
   /** What action was performed */
   @Column({ type: "varchar" })

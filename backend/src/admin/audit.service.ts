@@ -1,11 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { AuditLog, AuditAction } from "../entities/audit-log.entity";
+import { AuditLog, AuditAction, RoleType } from "../entities/audit-log.entity";
+
+// Re-export for convenience
+export { RoleType, AuditAction };
 
 interface AuditParams {
   adminId: string;
-  adminUsername?: string;
+  username?: string;
+  isAdmin: boolean; // Use isAdmin boolean to determine roleType
   action: AuditAction | string;
   entityType?: string;
   entityId?: string;
@@ -20,10 +24,11 @@ export interface FindPaginatedParams {
   limit?: number;
   action?: string;
   adminId?: string;
-  entityType?: string;
+  entityType?: string; // Filter by entity type
+  roleType?: RoleType | string; // Filter by role type
   search?: string;
   from?: string; // YYYY-MM-DD
-  to?: string;   // YYYY-MM-DD (inclusive)
+  to?: string; // YYYY-MM-DD (inclusive)
 }
 
 @Injectable()
@@ -34,9 +39,19 @@ export class AuditService {
   ) {}
 
   async log(params: AuditParams): Promise<void> {
+    console.log("[AuditService] Attempting to log audit:", {
+      adminId: params.adminId,
+      username: params.username,
+      isAdmin: params.isAdmin,
+      roleType: params.isAdmin ? RoleType.ADMIN : RoleType.USER,
+      action: params.action,
+      entityType: params.entityType,
+    });
+
     const entry = this.repo.create({
       adminId: params.adminId,
-      adminUsername: params.adminUsername,
+      username: params.username,
+      roleType: params.isAdmin ? RoleType.ADMIN : RoleType.USER, // Determine from isAdmin boolean
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId,
@@ -47,15 +62,19 @@ export class AuditService {
       },
       ipAddress: params.ipAddress,
     });
+
+    console.log("[AuditService] Created entry:", entry);
+
     // Fire-and-forget — never block the main request
     await this.repo
       .save(entry)
-      .catch((err) =>
-        console.error(
-          "[AuditService] Failed to write audit log:",
-          err?.message,
-        ),
-      );
+      .then(() => console.log("[AuditService] Successfully saved audit log"))
+      .catch((err: any) => {
+        console.error("[AuditService] Failed to write audit log:");
+        console.error("Error message:", err?.message);
+        console.error("Error details:", err);
+        console.error("Full error:", JSON.stringify(err, null, 2));
+      });
   }
 
   async findPaginated(params: FindPaginatedParams) {
@@ -74,6 +93,9 @@ export class AuditService {
       qb.andWhere("log.entityType = :entityType", {
         entityType: params.entityType,
       });
+    }
+    if (params.roleType && params.roleType !== "all") {
+      qb.andWhere("log.roleType = :roleType", { roleType: params.roleType });
     }
     if (params.search) {
       const s = `%${params.search.toLowerCase()}%`;
@@ -135,5 +157,14 @@ export class AuditService {
       where: { entityId },
       order: { createdAt: "DESC" },
     });
+  }
+
+  /**
+   * Helper method to determine role type from isAdmin boolean
+   * @param isAdmin - boolean indicating if the user is an admin
+   * @returns RoleType enum value (ADMIN or USER)
+   */
+  getRoleTypeFromIsAdmin(isAdmin: boolean): RoleType {
+    return isAdmin ? RoleType.ADMIN : RoleType.USER;
   }
 }

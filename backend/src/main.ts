@@ -61,6 +61,5 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`🚀 Tara backend running on http://localhost:${port}`);
   console.log(`📖 Swagger docs: http://localhost:${port}/docs`);
-
 }
 bootstrap();
