@@ -51,8 +51,8 @@ export class MarketsService {
   ) {}
 
   private async invalidateMarketCache(marketId?: string): Promise<void> {
-    const keys = ["tara:cache:markets:all"];
-    if (marketId) keys.push(`tara:cache:market:${marketId}`);
+    const keys = ["oro:cache:markets:all"];
+    if (marketId) keys.push(`oro:cache:market:${marketId}`);
     await this.redis.del(...keys);
   }
 
@@ -91,7 +91,7 @@ export class MarketsService {
         resolutionCriteria: dto.resolutionCriteria ?? undefined,
         opensAt: dto.opensAt ? new Date(dto.opensAt) : undefined,
         closesAt: dto.closesAt ? new Date(dto.closesAt) : undefined,
-        houseEdgePct: dto.houseEdgePct ?? 5,
+        houseEdgePct: dto.houseEdgePct ?? 8,
         mechanism: MarketMechanism.PARIMUTUEL,
         liquidityParam: liquidityParam,
         outcomes: outcomes,
@@ -111,8 +111,8 @@ export class MarketsService {
 
   async findAll(q?: string): Promise<Market[]> {
     const cacheKey = q
-      ? `tara:cache:markets:search:${q.toLowerCase().trim()}`
-      : "tara:cache:markets:all";
+      ? `oro:cache:markets:search:${q.toLowerCase().trim()}`
+      : "oro:cache:markets:all";
     const cached = await this.redis.getJson<Market[]>(cacheKey);
     if (cached) return cached;
 
@@ -138,7 +138,7 @@ export class MarketsService {
   }
 
   async findOne(id: string): Promise<Market> {
-    const cacheKey = `tara:cache:market:${id}`;
+    const cacheKey = `oro:cache:market:${id}`;
     const cached = await this.redis.getJson<Market>(cacheKey);
     if (cached) return cached;
     const market = await this.marketRepo.findOne({
@@ -239,10 +239,10 @@ export class MarketsService {
     return result;
   }
 
-  // ── Dispute constants ────────────────────────────────────────────────────
+  // Dispute constants 
   private readonly DISPUTE_MIN_PARTICIPANTS = 3;
-  private readonly DISPUTE_MIN_BOND = 10;          // Nu 10 floor
-  private readonly DISPUTE_BOND_PCT = 0.01;        // 1 % of pool
+  private readonly DISPUTE_MIN_BOND = 10;          
+  private readonly DISPUTE_BOND_PCT = 0.01;       
 
   async submitDispute(
     userId: string,
@@ -263,7 +263,7 @@ export class MarketsService {
     if (market.disputeDeadlineAt && new Date() > market.disputeDeadlineAt)
       throw new BadRequestException("Dispute window has closed");
 
-    // ── Guard 1: market must have at least 3 unique participants ─────────────
+    // Guard 1: market must have at least 3 unique participants 
     const { count: participantCount } = await this.dataSource
       .getRepository(Position)
       .createQueryBuilder("p")
@@ -275,7 +275,7 @@ export class MarketsService {
         `Disputes require at least ${this.DISPUTE_MIN_PARTICIPANTS} participants in the market`,
       );
 
-    // ── Guard 2: disputer must hold an active position in this market ────────
+    // Guard 2: disputer must hold an active position in this market 
     const hasPosition = await this.dataSource
       .getRepository(Position)
       .findOne({
@@ -290,7 +290,7 @@ export class MarketsService {
         "You must have an active position in this market to raise a dispute",
       );
 
-    // ── Guard 3: one dispute per user per market ──────────────────────────────
+    // Guard 3: one dispute per user per market
     const alreadyDisputed = await this.dataSource
       .getRepository(Dispute)
       .findOne({ where: { userId, marketId } });
@@ -299,7 +299,7 @@ export class MarketsService {
         "You have already submitted a dispute for this market",
       );
 
-    // ── Guard 4: minimum bond = max(MIN_BOND, pool × BOND_PCT) ───────────────
+    // Guard 4: minimum bond = max(MIN_BOND, pool × BOND_PCT)
     const pool = Number(market.totalPool);
     const minBond = Math.max(
       this.DISPUTE_MIN_BOND,
@@ -317,7 +317,7 @@ export class MarketsService {
       let bondAmount: number;
 
       if (dto.paymentId) {
-        // ── DK Bank path: verify a completed payment ──────────────────────────
+        //  DK Bank path: verify a completed payment
         const payment = await em.getRepository(Payment).findOne({
           where: {
             id: dto.paymentId,
@@ -359,7 +359,7 @@ export class MarketsService {
           }),
         );
       } else {
-        // ── Credits path: deduct from balance ─────────────────────────────────
+        // Credits path: deduct from balance
         bondAmount = dto.bondAmount!;
         const { balance } = await em
           .getRepository(Transaction)

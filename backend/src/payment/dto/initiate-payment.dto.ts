@@ -12,7 +12,7 @@ import {
 export class InitiatePaymentDto {
   @ApiProperty({
     description: "Payment description",
-    example: "Tara Credits top-up",
+    example: "Oro Credits top-up",
     minLength: 3,
     maxLength: 500,
   })

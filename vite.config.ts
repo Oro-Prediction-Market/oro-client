@@ -1,4 +1,4 @@
-import react from "@vitejs/plugin-react-swc";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import mkcert from "vite-plugin-mkcert";
 import tsconfigPaths from "vite-tsconfig-paths";
@@ -16,7 +16,7 @@ export default defineConfig({
   },
   plugins: [
     // Allows using React dev server along with building a React application with Vite.
-    // https://npmjs.com/package/@vitejs/plugin-react-swc
+    // https://npmjs.com/package/@vitejs/plugin-react
     react(),
     // Allows using the compilerOptions.paths property in tsconfig.json.
     // https://www.npmjs.com/package/vite-tsconfig-paths
@@ -24,14 +24,14 @@ export default defineConfig({
     // Creates a custom SSL certificate valid for the local machine.
     // Using this plugin requires admin rights on the first dev-mode launch.
     // https://www.npmjs.com/package/vite-plugin-mkcert
-    process.env.HTTPS && mkcert(),
+    ...(process.env.HTTPS ? [mkcert()] : []),
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "icons/*.png"],
       manifest: {
-        name: "Tara", // ← Your app name
-        short_name: "Tara", // ← Short name (home screen)
-        description: "Tara App", // ← Description
+        name: "Oro", // ← Your app name
+        short_name: "Oro", // ← Short name (home screen)
+        description: "Oro App", // ← Description
         theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",
@@ -83,7 +83,6 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://localhost:3000",
-        rewrite: (path) => path.replace(/^\/api/, ""),
         changeOrigin: true,
       },
     },

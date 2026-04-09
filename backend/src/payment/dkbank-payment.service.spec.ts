@@ -481,7 +481,7 @@ describe("DKBankPaymentService.confirmPayment", () => {
       }),
     );
 
-    // Step 3: Tara balance was credited
+    // Step 3: oro balance was credited
     expect(em.save).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ type: TransactionType.DEPOSIT }),
@@ -600,7 +600,7 @@ describe("DKBankPaymentService.confirmPayment", () => {
       expect.objectContaining({ type: TransactionType.DEPOSIT }),
     );
     // Redis OTP key was deleted after use
-    expect(redis.del).toHaveBeenCalledWith("tara:tg-otp:payment-1");
+    expect(redis.del).toHaveBeenCalledWith("oro:tg-otp:payment-1");
   });
 });
 

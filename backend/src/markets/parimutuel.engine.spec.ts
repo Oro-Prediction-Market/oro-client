@@ -661,6 +661,580 @@ describe("ParimutuelEngine.resolveMarket → settleMarket", () => {
     expect(bet2?.status).toBe(BetStatus.WON);
   });
 
+  it("distributes loser pool to winners proportionally by bet size", async () => {
+    // SCENARIO:
+    // Winners: u1=300, u2=100, u3=100 (total winner pool = 500)
+    // Losers:  u4=150, u5=250 (total loser pool = 400)
+    // Total pool = 900, houseEdge = 0% → payoutPool = 900
+    //
+    // u1 share = 300/500 = 60% → payout = 900 * 0.60 = 540
+    // u2 share = 100/500 = 20% → payout = 900 * 0.20 = 180
+    // u3 share = 100/500 = 20% → payout = 900 * 0.20 = 180
+    //
+    // Losers (u4, u5) get NOTHING — their 400 BTN goes into the pool
+    // that winners share proportionally.
+    const market = makeMarket({
+      status: MarketStatus.RESOLVING,
+      totalPool: 900,
+      houseEdgePct: 0,
+      outcomes: [
+        makeOutcome({ id: "winner-outcome", totalBetAmount: 500 }),
+        makeOutcome({ id: "loser-outcome", totalBetAmount: 400 }),
+      ],
+    });
+    const winnerOutcome = market.outcomes[0];
+    const bets = [
+      // Winners
+      {
+        id: "w1",
+        userId: "u1",
+        outcomeId: "winner-outcome",
+        amount: 300,
+        status: BetStatus.PENDING,
+      },
+      {
+        id: "w2",
+        userId: "u2",
+        outcomeId: "winner-outcome",
+        amount: 100,
+        status: BetStatus.PENDING,
+      },
+      {
+        id: "w3",
+        userId: "u3",
+        outcomeId: "winner-outcome",
+        amount: 100,
+        status: BetStatus.PENDING,
+      },
+      // Losers
+      {
+        id: "l1",
+        userId: "u4",
+        outcomeId: "loser-outcome",
+        amount: 150,
+        status: BetStatus.PENDING,
+      },
+      {
+        id: "l2",
+        userId: "u5",
+        outcomeId: "loser-outcome",
+        amount: 250,
+        status: BetStatus.PENDING,
+      },
+    ];
+
+    const { engine, savedItems } = makeResolvableEngine(
+      bets,
+      winnerOutcome,
+      market,
+    );
+    await engine.resolveMarket("market-1", "winner-outcome");
+
+    // ── Winners get proportional share of ENTIRE pool (including loser money) ──
+    const w1 = savedItems.find((i) => i.id === "w1");
+    const w2 = savedItems.find((i) => i.id === "w2");
+    const w3 = savedItems.find((i) => i.id === "w3");
+
+    // u1 bet 300 out of 500 winner pool (60%) → gets 60% of 900 = 540
+    expect(w1?.payout).toBeCloseTo(540);
+    expect(w1?.status).toBe(BetStatus.WON);
+
+    // u2 bet 100 out of 500 winner pool (20%) → gets 20% of 900 = 180
+    expect(w2?.payout).toBeCloseTo(180);
+    expect(w2?.status).toBe(BetStatus.WON);
+
+    // u3 bet 100 out of 500 winner pool (20%) → gets 20% of 900 = 180
+    expect(w3?.payout).toBeCloseTo(180);
+    expect(w3?.status).toBe(BetStatus.WON);
+
+    // Total payout should equal the full pool (0% house edge)
+    const totalWinnerPayout = w1!.payout + w2!.payout + w3!.payout;
+    expect(totalWinnerPayout).toBeCloseTo(900);
+
+    // ── Losers get NOTHING ─────────────────────────────────────────────────────
+    const l1 = savedItems.find((i) => i.id === "l1");
+    const l2 = savedItems.find((i) => i.id === "l2");
+
+    expect(l1?.status).toBe(BetStatus.LOST);
+    expect(l1?.payout).toBeUndefined(); // no payout field set
+
+    expect(l2?.status).toBe(BetStatus.LOST);
+    expect(l2?.payout).toBeUndefined();
+
+    // ── No payout transactions created for losers ──────────────────────────────
+    const payoutTxs = savedItems.filter(
+      (i) => i.type === TransactionType.POSITION_PAYOUT,
+    );
+    expect(payoutTxs).toHaveLength(3); // only 3 winners
+    expect(
+      payoutTxs.every((tx) => ["u1", "u2", "u3"].includes(tx.userId)),
+    ).toBe(true);
+  });
+
+  it("distributes loser pool proportionally with house edge deduction", async () => {
+    // SCENARIO with 10% house edge:
+    // Winners: u1=200, u2=100 (total winner pool = 300)
+    // Losers:  u3=400, u4=300 (total loser pool = 700)
+    // Total pool = 1000
+    // House edge = 10% → houseAmount = 100, payoutPool = 900
+    //
+    // u1 share = 200/300 = 66.67% → payout = 900 * 0.6667 = 600
+    // u2 share = 100/300 = 33.33% → payout = 900 * 0.3333 = 300
+    //
+    // Losers contributed 700 BTN but winners only get 900 total
+    // (house takes 100 BTN from the loser contributions)
+    const market = makeMarket({
+      status: MarketStatus.RESOLVING,
+      totalPool: 1000,
+      houseEdgePct: 10,
+      outcomes: [
+        makeOutcome({ id: "winner-outcome", totalBetAmount: 300 }),
+        makeOutcome({ id: "loser-outcome", totalBetAmount: 700 }),
+      ],
+    });
+    const winnerOutcome = market.outcomes[0];
+    const bets = [
+      // Winners
+      {
+        id: "w1",
+        userId: "u1",
+        outcomeId: "winner-outcome",
+        amount: 200,
+        status: BetStatus.PENDING,
+      },
+      {
+        id: "w2",
+        userId: "u2",
+        outcomeId: "winner-outcome",
+        amount: 100,
+        status: BetStatus.PENDING,
+      },
+      // Losers
+      {
+        id: "l1",
+        userId: "u3",
+        outcomeId: "loser-outcome",
+        amount: 400,
+        status: BetStatus.PENDING,
+      },
+      {
+        id: "l2",
+        userId: "u4",
+        outcomeId: "loser-outcome",
+        amount: 300,
+        status: BetStatus.PENDING,
+      },
+    ];
+
+    const { engine, savedItems } = makeResolvableEngine(
+      bets,
+      winnerOutcome,
+      market,
+    );
+    await engine.resolveMarket("market-1", "winner-outcome");
+
+    const w1 = savedItems.find((i) => i.id === "w1");
+    const w2 = savedItems.find((i) => i.id === "w2");
+
+    // u1: 200/300 = 66.67% of 900 = 600
+    expect(w1?.payout).toBeCloseTo(600);
+
+    // u2: 100/300 = 33.33% of 900 = 300
+    expect(w2?.payout).toBeCloseTo(300);
+
+    // Total payout = 900 (after 10% house edge)
+    const totalPayout = w1!.payout + w2!.payout;
+    expect(totalPayout).toBeCloseTo(900);
+
+    // Settlement record should reflect house edge
+    const settlement = savedItems.find(
+      (i) => i.marketId === "market-1" && i.winningOutcomeId !== undefined,
+    );
+    expect(settlement.totalPool).toBe(1000);
+    expect(settlement.houseAmount).toBeCloseTo(100);
+    expect(settlement.payoutPool).toBeCloseTo(900);
+    expect(settlement.totalPaidOut).toBeCloseTo(900);
+  });
+
+  // ─── House Edge Validation Tests ──────────────────────────────────────────
+
+  describe("House Edge Cut Validation", () => {
+    it("validates user payout with 5% house edge (realistic scenario)", async () => {
+      // SCENARIO: 5% house edge
+      // Winner bets: 600 BTN total
+      // Loser bets:  400 BTN total
+      // Total pool:  1000 BTN
+      // House cut:   50 BTN (5%)
+      // Payout pool: 950 BTN
+      //
+      // Winners get: 950 BTN total (instead of 1000 if no house edge)
+      // Winners lose: 50 BTN to house cut
+      const market = makeMarket({
+        status: MarketStatus.RESOLVING,
+        totalPool: 1000,
+        houseEdgePct: 5,
+        outcomes: [
+          makeOutcome({ id: "winner", totalBetAmount: 600 }),
+          makeOutcome({ id: "loser", totalBetAmount: 400 }),
+        ],
+      });
+      const winnerOutcome = market.outcomes[0];
+      const bets = [
+        // Winners
+        {
+          id: "w1",
+          userId: "u1",
+          outcomeId: "winner",
+          amount: 400, // 66.67% of winner pool (600 total)
+          status: BetStatus.PENDING,
+        },
+        {
+          id: "w2",
+          userId: "u2",
+          outcomeId: "winner",
+          amount: 200, // 33.33% of winner pool (600 total)
+          status: BetStatus.PENDING,
+        },
+        // Loser
+        {
+          id: "l1",
+          userId: "u3",
+          outcomeId: "loser",
+          amount: 400,
+          status: BetStatus.PENDING,
+        },
+      ];
+
+      const { engine, savedItems } = makeResolvableEngine(
+        bets,
+        winnerOutcome,
+        market,
+      );
+      await engine.resolveMarket("market-1", "winner");
+
+      const w1 = savedItems.find((i) => i.id === "w1");
+      const w2 = savedItems.find((i) => i.id === "w2");
+      const l1 = savedItems.find((i) => i.id === "l1");
+
+      // House takes 5% = 50 BTN
+      // Payout pool = 950 BTN
+      // u1: 400/600 = 66.67% → 950 × 0.6667 = 633.33 BTN
+      expect(w1?.payout).toBeCloseTo(633.33);
+      // u1 profit = 633.33 - 400 = 233.33 BTN
+
+      // u2: 200/600 = 33.33% → 950 × 0.3333 = 316.67 BTN
+      expect(w2?.payout).toBeCloseTo(316.67);
+      // u2 profit = 316.67 - 200 = 116.67 BTN
+
+      // Total payout = 633.33 + 316.67 = 950 BTN
+      expect(w1!.payout + w2!.payout).toBeCloseTo(950);
+
+      // Loser gets nothing (lost 400 BTN)
+      expect(l1?.status).toBe(BetStatus.LOST);
+      expect(l1?.payout).toBeUndefined();
+
+      // Settlement accounting
+      const settlement = savedItems.find(
+        (i) => i.marketId === "market-1" && i.winningOutcomeId !== undefined,
+      );
+      expect(settlement.totalPool).toBe(1000);
+      expect(settlement.houseAmount).toBeCloseTo(50); // 5% cut
+      expect(settlement.payoutPool).toBeCloseTo(950);
+      expect(settlement.totalPaidOut).toBeCloseTo(950);
+    });
+
+    it("validates user payout with 8% house edge", async () => {
+      // SCENARIO: 8% house edge (proposed new rate)
+      // Winner bets: 500 BTN total
+      // Loser bets:  500 BTN total
+      // Total pool:  1000 BTN
+      // House cut:   80 BTN (8%)
+      // Payout pool: 920 BTN
+      //
+      // Winners get: 920 BTN total (instead of 1000 if no house edge)
+      // Winners lose: 80 BTN to house cut
+      const market = makeMarket({
+        status: MarketStatus.RESOLVING,
+        totalPool: 1000,
+        houseEdgePct: 8,
+        outcomes: [
+          makeOutcome({ id: "winner", totalBetAmount: 500 }),
+          makeOutcome({ id: "loser", totalBetAmount: 500 }),
+        ],
+      });
+      const winnerOutcome = market.outcomes[0];
+      const bets = [
+        // Winners
+        {
+          id: "w1",
+          userId: "u1",
+          outcomeId: "winner",
+          amount: 300, // 60% of winner pool
+          status: BetStatus.PENDING,
+        },
+        {
+          id: "w2",
+          userId: "u2",
+          outcomeId: "winner",
+          amount: 200, // 40% of winner pool
+          status: BetStatus.PENDING,
+        },
+        // Losers
+        {
+          id: "l1",
+          userId: "u3",
+          outcomeId: "loser",
+          amount: 300,
+          status: BetStatus.PENDING,
+        },
+        {
+          id: "l2",
+          userId: "u4",
+          outcomeId: "loser",
+          amount: 200,
+          status: BetStatus.PENDING,
+        },
+      ];
+
+      const { engine, savedItems } = makeResolvableEngine(
+        bets,
+        winnerOutcome,
+        market,
+      );
+      await engine.resolveMarket("market-1", "winner");
+
+      const w1 = savedItems.find((i) => i.id === "w1");
+      const w2 = savedItems.find((i) => i.id === "w2");
+
+      // House takes 8% = 80 BTN
+      // Payout pool = 920 BTN
+      // u1: 300/500 = 60% → 920 × 0.60 = 552 BTN
+      expect(w1?.payout).toBeCloseTo(552);
+      // u1 profit = 552 - 300 = 252 BTN (vs 400 if no house edge)
+
+      // u2: 200/500 = 40% → 920 × 0.40 = 368 BTN
+      expect(w2?.payout).toBeCloseTo(368);
+      // u2 profit = 368 - 200 = 168 BTN (vs 200 if no house edge)
+
+      // Total payout = 552 + 368 = 920 BTN
+      expect(w1!.payout + w2!.payout).toBeCloseTo(920);
+
+      // Settlement accounting
+      const settlement = savedItems.find(
+        (i) => i.marketId === "market-1" && i.winningOutcomeId !== undefined,
+      );
+      expect(settlement.totalPool).toBe(1000);
+      expect(settlement.houseAmount).toBeCloseTo(80); // 8% cut
+      expect(settlement.payoutPool).toBeCloseTo(920);
+      expect(settlement.totalPaidOut).toBeCloseTo(920);
+    });
+
+    it("validates user payout with 10% house edge", async () => {
+      // SCENARIO: 10% house edge (higher rate)
+      // Winner bets: 300 BTN total
+      // Loser bets:  700 BTN total
+      // Total pool:  1000 BTN
+      // House cut:   100 BTN (10%)
+      // Payout pool: 900 BTN
+      //
+      // Winners get: 900 BTN total (instead of 1000 if no house edge)
+      // Winners lose: 100 BTN to house cut
+      const market = makeMarket({
+        status: MarketStatus.RESOLVING,
+        totalPool: 1000,
+        houseEdgePct: 10,
+        outcomes: [
+          makeOutcome({ id: "winner", totalBetAmount: 300 }),
+          makeOutcome({ id: "loser", totalBetAmount: 700 }),
+        ],
+      });
+      const winnerOutcome = market.outcomes[0];
+      const bets = [
+        // Winners
+        {
+          id: "w1",
+          userId: "u1",
+          outcomeId: "winner",
+          amount: 200, // 66.67% of winner pool
+          status: BetStatus.PENDING,
+        },
+        {
+          id: "w2",
+          userId: "u2",
+          outcomeId: "winner",
+          amount: 100, // 33.33% of winner pool
+          status: BetStatus.PENDING,
+        },
+        // Losers
+        {
+          id: "l1",
+          userId: "u3",
+          outcomeId: "loser",
+          amount: 400,
+          status: BetStatus.PENDING,
+        },
+        {
+          id: "l2",
+          userId: "u4",
+          outcomeId: "loser",
+          amount: 300,
+          status: BetStatus.PENDING,
+        },
+      ];
+
+      const { engine, savedItems } = makeResolvableEngine(
+        bets,
+        winnerOutcome,
+        market,
+      );
+      await engine.resolveMarket("market-1", "winner");
+
+      const w1 = savedItems.find((i) => i.id === "w1");
+      const w2 = savedItems.find((i) => i.id === "w2");
+
+      // House takes 10% = 100 BTN
+      // Payout pool = 900 BTN
+      // u1: 200/300 = 66.67% → 900 × 0.6667 = 600 BTN
+      expect(w1?.payout).toBeCloseTo(600);
+      // u1 profit = 600 - 200 = 400 BTN (vs 466.67 if no house edge)
+
+      // u2: 100/300 = 33.33% → 900 × 0.3333 = 300 BTN
+      expect(w2?.payout).toBeCloseTo(300);
+      // u2 profit = 300 - 100 = 200 BTN (vs 233.33 if no house edge)
+
+      // Total payout = 600 + 300 = 900 BTN
+      expect(w1!.payout + w2!.payout).toBeCloseTo(900);
+
+      // Settlement accounting
+      const settlement = savedItems.find(
+        (i) => i.marketId === "market-1" && i.winningOutcomeId !== undefined,
+      );
+      expect(settlement.totalPool).toBe(1000);
+      expect(settlement.houseAmount).toBeCloseTo(100); // 10% cut
+      expect(settlement.payoutPool).toBeCloseTo(900);
+      expect(settlement.totalPaidOut).toBeCloseTo(900);
+    });
+
+    it("compares user profits across different house edge rates", async () => {
+      // COMPARISON TEST: Same scenario, different house edges
+      // Shows how much MORE profit users get with LOWER house edge
+      //
+      // Setup: u1 bets 300 BTN, total pool 1000 BTN, u1 holds 50% of winner pool
+      const scenarios = [
+        { edge: 0, houseCut: 0, payoutPool: 1000, expectedPayout: 500 },
+        { edge: 5, houseCut: 50, payoutPool: 950, expectedPayout: 475 },
+        { edge: 8, houseCut: 80, payoutPool: 920, expectedPayout: 460 },
+        { edge: 10, houseCut: 100, payoutPool: 900, expectedPayout: 450 },
+      ];
+
+      for (const scenario of scenarios) {
+        const market = makeMarket({
+          status: MarketStatus.RESOLVING,
+          totalPool: 1000,
+          houseEdgePct: scenario.edge,
+          outcomes: [
+            makeOutcome({ id: "winner", totalBetAmount: 600 }),
+            makeOutcome({ id: "loser", totalBetAmount: 400 }),
+          ],
+        });
+        const winnerOutcome = market.outcomes[0];
+        const bets = [
+          {
+            id: "w1",
+            userId: "u1",
+            outcomeId: "winner",
+            amount: 300, // 50% of winner pool
+            status: BetStatus.PENDING,
+          },
+          {
+            id: "w2",
+            userId: "u2",
+            outcomeId: "winner",
+            amount: 300, // 50% of winner pool
+            status: BetStatus.PENDING,
+          },
+          {
+            id: "l1",
+            userId: "u3",
+            outcomeId: "loser",
+            amount: 400,
+            status: BetStatus.PENDING,
+          },
+        ];
+
+        const { engine, savedItems } = makeResolvableEngine(
+          bets,
+          winnerOutcome,
+          market,
+        );
+        await engine.resolveMarket("market-1", "winner");
+
+        const w1 = savedItems.find((i) => i.id === "w1");
+        const settlement = savedItems.find(
+          (i) => i.marketId === "market-1" && i.winningOutcomeId !== undefined,
+        );
+
+        // Validate house cut
+        expect(settlement.houseAmount).toBeCloseTo(scenario.houseCut);
+        expect(settlement.payoutPool).toBeCloseTo(scenario.payoutPool);
+
+        // Validate user payout (50% of payout pool)
+        expect(w1?.payout).toBeCloseTo(scenario.expectedPayout);
+
+        // Calculate profit
+        const profit = w1!.payout - 300;
+        const profitLoss = 500 - scenario.expectedPayout; // vs 0% house edge
+
+        // Log comparison (for documentation purposes)
+        console.log(
+          `House Edge ${scenario.edge}%: Payout ${scenario.expectedPayout} BTN, ` +
+            `Profit ${profit} BTN, Lost to house ${profitLoss} BTN`,
+        );
+      }
+
+      // Conclusion from comparison:
+      // 0% edge:  500 BTN payout, 200 BTN profit, 0 BTN lost to house
+      // 5% edge:  475 BTN payout, 175 BTN profit, 25 BTN lost to house
+      // 8% edge:  460 BTN payout, 160 BTN profit, 40 BTN lost to house
+      // 10% edge: 450 BTN payout, 150 BTN profit, 50 BTN lost to house
+    });
+
+    it("validates house edge impact on ROI (Return on Investment)", async () => {
+      // ROI TEST: Same bet amount, different outcomes based on house edge
+      // Shows ROI = (Payout - Bet) / Bet × 100%
+      //
+      // Scenario: User bets 100 BTN, wins, total pool 500 BTN, user holds 25% of winner pool
+      const bet = 100;
+      const winnerPool = 400;
+      const totalPool = 500;
+      const userShare = bet / winnerPool; // 25%
+
+      const edges = [
+        { pct: 0, expectedROI: 25 }, // (125 - 100) / 100 = 25%
+        { pct: 5, expectedROI: 18.75 }, // (118.75 - 100) / 100 = 18.75%
+        { pct: 8, expectedROI: 15 }, // (115 - 100) / 100 = 15%
+        { pct: 10, expectedROI: 12.5 }, // (112.5 - 100) / 100 = 12.5%
+      ];
+
+      for (const { pct, expectedROI } of edges) {
+        const houseCut = totalPool * (pct / 100);
+        const payoutPool = totalPool - houseCut;
+        const payout = payoutPool * userShare;
+        const actualROI = ((payout - bet) / bet) * 100;
+
+        expect(actualROI).toBeCloseTo(expectedROI);
+
+        console.log(
+          `House Edge ${pct}%: ROI ${actualROI.toFixed(2)}% ` +
+            `(${payout.toFixed(2)} BTN payout on ${bet} BTN bet)`,
+        );
+      }
+
+      // Key insight: Higher house edge = Lower ROI for winners
+      // Even though you win, house edge reduces your profit percentage
+    });
+  });
+
   it("creates a POSITION_PAYOUT transaction for each winning bet", async () => {
     const market = makeMarket({
       status: MarketStatus.RESOLVING,

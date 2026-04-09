@@ -174,7 +174,7 @@ export class TelegramChannelService {
 
   private async sendWelcomeMessage(): Promise<void> {
     const welcomeMessage = `
-🎯 <b>Welcome to Tara Prediction Markets!</b>
+🎯 <b>Welcome to Oro Prediction Markets!</b>
 
 📈 Get real-time market announcements
 🏆 Follow resolution results
@@ -240,7 +240,7 @@ export class TelegramChannelService {
       ],
       [
         {
-          text: "📈 Open Tara",
+          text: "📈 Open Oro",
           url: this.miniAppUrl,
         },
       ],
@@ -287,7 +287,7 @@ Keep predicting and winning! 🎯
       ],
       [
         {
-          text: "📊 Open Tara",
+          text: "📊 Open Oro",
           url: this.miniAppUrl,
         },
       ],
@@ -313,9 +313,9 @@ ${outcomes}
 💰 <b>Pool:</b> Nu ${Number(market.totalPool).toLocaleString()}
 
 👇 <b>Predict Now:</b>
-• <a href="${this.miniAppUrl}">Open Tara</a>
+• <a href="${this.miniAppUrl}">Open Oro</a>
 
-#PredictionMarkets #Tara
+#PredictionMarkets #Oro
     `.trim();
   }
 
@@ -336,9 +336,9 @@ ${winningOutcome?.label || "Pending"}
 ⏰ <b>Resolved:</b> ${resolvedAt}
 
 👇 <b>View Details:</b>
-• <a href="${this.miniAppUrl}">Open Tara</a>
+• <a href="${this.miniAppUrl}">Open Oro</a>
 
-#MarketResults #TaraPredictions
+#MarketResults #OroPredictions
     `.trim();
   }
 

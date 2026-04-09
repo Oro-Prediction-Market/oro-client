@@ -618,17 +618,17 @@ export class DKGatewayService {
       source_account_number: this.beneficiaryAccount, // merchant (source of funds)
       source_account_name: this.beneficiaryName, // merchant name
       bene_account_number: params.accountNumber, // destination (user)
-      bene_cust_name: params.accountName ?? "Tara User",
+      bene_cust_name: params.accountName ?? "Oro User",
       bene_bank_code: this.bankCode,
       transaction_amount: params.amount.toFixed(2),
       transaction_datetime: txDatetime,
       stan_number: stanNumber,
-      inquiry_id: `TARA-PAYOUT-${params.reference}-${stanNumber}`,
+      inquiry_id: `Oro-PAYOUT-${params.reference}-${stanNumber}`,
       currency: params.currency ?? "BTN",
       payment_type: "INTRA",
-      payment_desc: params.description ?? "Tara payout",
+      payment_desc: params.description ?? "Oro payout",
       source_app: this.sourceApp,
-      narration: params.description ?? "Tara platform payout",
+      narration: params.description ?? "Oro platform payout",
     };
 
     let raw: any;

@@ -222,7 +222,7 @@ export class BotPollingService
           const payload: Record<string, unknown> = {
             chat_id: chatId,
             text:
-              "🎯 <b>Welcome to Tara!</b>\n\n" +
+              "🎯 <b>Welcome to Oro!</b>\n\n" +
               "To enable secure payments, please verify your phone:\n" +
               "👉 Type /verify and share your phone number.\n\n" +
               "Other commands:\n" +
@@ -232,7 +232,7 @@ export class BotPollingService
           };
           if (miniAppUrl) {
             payload.reply_markup = {
-              inline_keyboard: [[{ text: "🚀 Open Tara", url: miniAppUrl }]],
+              inline_keyboard: [[{ text: "🚀 Open Oro", url: miniAppUrl }]],
             };
           }
           const res = await fetch(
@@ -372,7 +372,7 @@ export class BotPollingService
         chatId,
         "⚠️ <b>DK Bank CID not linked yet</b>\n\n" +
           "Before verifying your phone, you need to link your DK Bank CID:\n\n" +
-          "1️⃣ Open the <b>Tara Mini App</b>\n" +
+          "1️⃣ Open the <b>Oro Mini App</b>\n" +
           "2️⃣ Go to <b>Profile → Link DK Bank Account</b>\n" +
           "3️⃣ Enter your <b>11-digit CID number</b>\n" +
           "4️⃣ Come back here and type /verify again.",
@@ -400,7 +400,7 @@ export class BotPollingService
         chatId,
         "✅ <b>Your phone is already verified!</b>\n\n" +
           "Your Telegram account is securely linked to your DK Bank account.\n" +
-          "You're all set to make payments on Tara.",
+          "You're all set to make payments on <b>Oro</b>.",
       );
       return;
     }
@@ -413,7 +413,7 @@ export class BotPollingService
       chat_id: chatId,
       text:
         "🔐 <b>Phone Verification Required</b>\n\n" +
-        "To secure your payments, Tara needs to confirm your phone number matches " +
+        "To secure your payments, Oro needs to confirm your phone number matches " +
         "the one registered with DK Bank.\n\n" +
         "Tap the button below to share your phone number securely via Telegram.",
       parse_mode: "HTML",

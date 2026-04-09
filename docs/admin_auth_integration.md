@@ -1,6 +1,6 @@
 # Admin Authentication & Integration Guide
 
-This document explains how to authenticate as an admin to access the Tara Prediction Market admin endpoints.
+This document explains how to authenticate as an admin to access the Oro Prediction Market admin endpoints.
 
 ## 1. Authentication Flow
 
@@ -58,14 +58,14 @@ The backend protects admin routes using an `AdminGuard`. It checks for:
 
 ---
 
-## 5. Tara-admin Project Setup
+## 5. Oro-admin Project Setup
 
-If you are using the `tara-admin` companion project:
-1. Ensure the `Tara/backend` is running at `http://localhost:3000`.
-2. In `tara-admin/.env`, set `VITE_API_BASE_URL=http://localhost:3000/admin`.
-3. Launch `tara-admin` with `npm run dev`.
-4. The login screen will prompt you for your `ADMIN_DEV_SECRET` (from `Tara/backend/.env`).
+If you are using the `Oro-admin` companion project:
+1. Ensure the `Oro/backend` is running at `http://localhost:3000`.
+2. In `Oro-admin/.env`, set `VITE_API_BASE_URL=http://localhost:3000/admin`.
+3. Launch `Oro-admin` with `npm run dev`.
+4. The login screen will prompt you for your `ADMIN_DEV_SECRET` (from `Oro/backend/.env`).
 5. Once authenticated, the token will be stored in `localStorage` and managed automatically.
 
 > [!TIP]
-> If you encounter CORS errors, ensure `http://localhost:5173` (or your current admin URL) is included in the `enableCors` origin list in `Tara/backend/src/main.ts`.
+> If you encounter CORS errors, ensure `http://localhost:5173` (or your current admin URL) is included in the `enableCors` origin list in `Oro/backend/src/main.ts`.

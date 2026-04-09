@@ -262,11 +262,11 @@ export class ParimutuelEngine implements OnModuleInit {
         await this.redis.releaseLock(`market:${marketId}`, lockToken);
       // Invalidate market cache so subsequent reads reflect updated pool/odds
       await this.redis.del(
-        "tara:cache:markets:all",
-        `tara:cache:market:${marketId}`,
+        "oro:cache:markets:all",
+        `oro:cache:market:${marketId}`,
       );
       // Invalidate balance cache for the bettor
-      await this.redis.del(`tara:cache:balance:${userId}`);
+      await this.redis.del(`oro:cache:balance:${userId}`);
     }
   }
 
@@ -391,7 +391,7 @@ export class ParimutuelEngine implements OnModuleInit {
   }
 
   /**
-   * After settlement, push real BTN from the Tara merchant DK account to
+   * After settlement, push real BTN from the Oro merchant DK account to
    * each winner's DK Bank account (if they have one linked).
    *
    * This runs fire-and-forget after the ledger has already been updated,
@@ -445,7 +445,7 @@ export class ParimutuelEngine implements OnModuleInit {
           accountName: user.dkAccountName ?? undefined,
           amount: payout,
           reference: bet.id,
-          description: `Tara payout: ${outcomeLabel}`,
+          description: `Oro payout: ${outcomeLabel}`,
         });
 
         if (result.status === "SUCCESS") {

@@ -214,7 +214,7 @@ export class AuthService {
 
   // ── Login / Register via DK Bank CID ──────────────────────────────────────
   /**
-   * Links a DK Bank CID to a Tara account.
+   * Links a DK Bank CID to a Oro account.
    *
    * @param cid - The 11-digit national ID.
    * @param callerUserId - When called from the TMA (already JWT-authenticated),

@@ -122,7 +122,7 @@ export function DKBankConfirmModal({
           amount,
           currency: "BTN",
           method: "credits",
-          message: "Bet placed from Tara Credits",
+          message: "Bet placed from Oro Credits",
           timestamp: new Date().toISOString(),
         } as PaymentResponse);
         onClose();
@@ -186,7 +186,7 @@ export function DKBankConfirmModal({
         cid: cidNumber,
         customerName: customerName || undefined,
         description: `Predict: ${market.title} — ${outcome?.label}`,
-        merchantTxnId: `TARA_BET_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        merchantTxnId: `ORO_BET_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       };
       const payment = await initiateDKBankPayment(req);
       if (payment.otpRequired) {
@@ -544,7 +544,7 @@ export function DKBankConfirmModal({
                 Pay with
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                {/* Tara Credits */}
+                {/* Oro Credits */}
                 <button
                   onClick={() => setPayMethod("credits")}
                   style={{
@@ -577,7 +577,7 @@ export function DKBankConfirmModal({
                             : "var(--text-muted)",
                       }}
                     >
-                      Tara Credits
+                      Oro Credits
                     </div>
                     <div
                       style={{

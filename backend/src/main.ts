@@ -49,7 +49,7 @@ async function bootstrap() {
 
   // Swagger docs
   const config = new DocumentBuilder()
-    .setTitle("Tara Parimutuel API")
+    .setTitle("Oro Parimutuel API")
     .setDescription("Parimutuel prediction engine for Telegram Mini App")
     .setVersion("1.0")
     .addBearerAuth()
@@ -59,7 +59,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`🚀 Tara backend running on http://localhost:${port}`);
+  console.log(`🚀 Oro backend running on http://localhost:${port}`);
   console.log(`📖 Swagger docs: http://localhost:${port}/docs`);
 }
 bootstrap();

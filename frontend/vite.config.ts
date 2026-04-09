@@ -1,11 +1,11 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type UserConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vitejs.dev/config/
-export default defineConfig(async () => {
-  const extraPlugins = [];
+export default defineConfig(async (): Promise<UserConfig> => {
+  const extraPlugins: import("vite").PluginOption[] = [];
   if (process.env.HTTPS) {
     // Dynamically imported so axios (mkcert peer dep) is never loaded in production builds
     const { default: mkcert } = await import("vite-plugin-mkcert");
@@ -29,9 +29,9 @@ export default defineConfig(async () => {
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "icons/*.png"],
       manifest: {
-        name: "Tara", // ← Your app name
-        short_name: "Tara", // ← Short name (home screen)
-        description: "Tara App", // ← Description
+        name: "Oro", // ← Your app name
+        short_name: "Oro", // ← Short name (home screen)
+        description: "Oro App", // ← Description
         theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",

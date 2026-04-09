@@ -149,7 +149,7 @@ export function TmaPaymentModal({
         cid: cidNumber,
         customerName: customerName || undefined,
         description: `Predict: ${market.title} — ${outcome?.label}`,
-        merchantTxnId: `TARA_TMA_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        merchantTxnId: `ORO_TMA_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       };
       const payment = await initiateDKBankPayment(req);
       if (payment.otpRequired) {
@@ -226,7 +226,7 @@ export function TmaPaymentModal({
     poll();
   };
 
-  /** Pay directly from Tara credits balance (no DK Bank debit needed). */
+  /** Pay directly from Oro credits balance (no DK Bank debit needed). */
   const handlePayWithCredits = async () => {
     if (!canPayWithCredits || !outcomeId) return;
     setStatus("processing");
@@ -252,7 +252,7 @@ export function TmaPaymentModal({
           amount: betAmount,
           currency: "BTN",
           method: "credits",
-          message: "Bet placed from Tara Credits",
+          message: "Bet placed from Oro Credits",
           timestamp: new Date().toISOString(),
         } as PaymentResponse);
         onClose();
@@ -869,7 +869,7 @@ export function TmaPaymentModal({
                   </div>
                 </div>
 
-                {/* Tara Credits button */}
+                {/* Oro Credits button */}
                 <button
                   onClick={() => setSelectedMethod("credits")}
                   className="pay-method-btn"
@@ -921,7 +921,7 @@ export function TmaPaymentModal({
                             : "var(--text-muted)",
                       }}
                     >
-                      Tara Credits
+                      Oro Credits
                     </div>
                     <div style={{ fontSize: 10, color: selectedMethod === "credits" ? "#6ee7b7" : "var(--text-subtle)" }}>
                       {creditsBalance !== null
@@ -1235,7 +1235,7 @@ export function TmaPaymentModal({
                 </>
               )}
 
-              {/* ── Tara Credits form ── */}
+              {/* ── Oro Credits form ── */}
               {selectedMethod === "credits" && (
                 <>
                   <div style={{ height: 1, background: "var(--glass-border)", marginBottom: 16 }} />

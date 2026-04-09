@@ -126,8 +126,8 @@ export const TmaProfilePage: FC = () => {
   // Re-fetch balance whenever a bet or deposit fires from any page
   useEffect(() => {
     const handler = () => refreshWallet();
-    window.addEventListener("tara:balance-changed", handler);
-    return () => window.removeEventListener("tara:balance-changed", handler);
+    window.addEventListener("oro:balance-changed", handler);
+    return () => window.removeEventListener("oro:balance-changed", handler);
   }, []);
 
   const refreshWallet = () => {
@@ -857,7 +857,7 @@ export const TmaProfilePage: FC = () => {
               ) : (
                 <>
                   <p style={styles.hint}>
-                    After linking your DK Bank CID above, go to the Tara bot and
+                    After linking your DK Bank CID above, go to the Oro bot and
                     send <strong>/verify</strong> to verify your phone number.
                   </p>
                   <div style={styles.steps}>
@@ -869,7 +869,7 @@ export const TmaProfilePage: FC = () => {
                     <Step
                       n={2}
                       done={false}
-                      text='Open Tara bot → send "/verify"'
+                      text='Open Oro bot → send "/verify"'
                     />
                     <Step
                       n={3}
@@ -1211,7 +1211,7 @@ export const TmaProfilePage: FC = () => {
                       margin: "12px 0 4px",
                       fontWeight: 700,
                       fontSize: 16,
-                      color: "#1f2937",
+                      color: "var(--text-main)",
                     }}
                   >
                     Check your Telegram
@@ -1220,7 +1220,7 @@ export const TmaProfilePage: FC = () => {
                     style={{
                       margin: 0,
                       fontSize: 13,
-                      color: "#6b7280",
+                      color: "var(--text-muted)",
                       textAlign: "center",
                     }}
                   >

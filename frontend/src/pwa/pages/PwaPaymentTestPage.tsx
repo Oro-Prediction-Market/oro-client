@@ -78,7 +78,7 @@ export function PwaPaymentTestPage() {
           lineHeight: 1.6,
           marginBottom: "20px",
         }}>
-          This page demonstrates the DK Bank payment integration for the Tara platform. 
+          This page demonstrates the DK Bank payment integration for the Oro platform. 
           Select a payment method below to test the payment flow with staging credentials.
         </p>
 
@@ -97,7 +97,7 @@ export function PwaPaymentTestPage() {
           </h3>
           <div style={{ fontSize: "0.9rem", color: "#708499" }}>
             <div><strong>Amount:</strong> Nu. {testAmount}</div>
-            <div><strong>Description:</strong> Test payment for Tara platform</div>
+            <div><strong>Description:</strong> Test payment for Oro platform</div>
             <div><strong>Environment:</strong> Staging (DK Bank)</div>
           </div>
         </div>
@@ -127,7 +127,7 @@ export function PwaPaymentTestPage() {
 
         <PwaPaymentSelector
           amount={testAmount}
-          description="Test payment for Tara platform"
+          description="Test payment for Oro platform"
           onPaymentSuccess={handlePaymentSuccess}
           onPaymentFailure={handlePaymentFailure}
         />

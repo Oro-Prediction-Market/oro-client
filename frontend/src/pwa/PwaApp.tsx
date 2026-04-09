@@ -69,7 +69,7 @@ function PwaLayout() {
           </svg>
           <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
             <span style={{ fontWeight: 800, fontSize: "1.2rem", color: "var(--text-main)", letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>
-              Tara
+              Oro
             </span>
             <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
               Parimutuel Predictions

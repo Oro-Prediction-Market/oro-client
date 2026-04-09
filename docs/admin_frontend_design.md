@@ -1,6 +1,6 @@
 # Admin Frontend Design & Integration Guide
 
-This document outlines the recommended structure and integration patterns for building an admin dashboard for the Tara Prediction Market.
+This document outlines the recommended structure and integration patterns for building an admin dashboard for the Oro Prediction Market.
 
 ## 1. Page Architecture
 

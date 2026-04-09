@@ -128,7 +128,7 @@ export class PaymentController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Step 1: Initiate withdrawal from Tara balance → DK Bank account",
+    summary: "Step 1: Initiate withdrawal from Oro balance → DK Bank account",
   })
   @ApiBody({ type: InitiateWithdrawalDto })
   @ApiResponse({
@@ -291,7 +291,7 @@ export class PaymentController {
         },
         {
           id: "credits",
-          name: "Tara Credits",
+          name: "Oro Credits",
           type: "credits",
           currency: "CREDITS",
           enabled: true,

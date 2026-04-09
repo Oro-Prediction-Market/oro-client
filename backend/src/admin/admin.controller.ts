@@ -531,7 +531,7 @@ export class AdminController {
     });
 
     // Bust the cached balance so the next /me call reflects immediately
-    await this.redis.del(`tara:cache:balance:${userId}`);
+    await this.redis.del(`oro:cache:balance:${userId}`);
 
     await this.auditService.log({
       adminId: req.user.userId,

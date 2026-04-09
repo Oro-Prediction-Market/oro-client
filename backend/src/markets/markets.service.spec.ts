@@ -44,7 +44,7 @@ function makeMarket(overrides: any = {}) {
     title: "Test",
     status: "open",
     totalPool: 0,
-    houseEdgePct: 5,
+    houseEdgePct: 8,
     liquidityParam: 1000,
     category: "sports",
     outcomes: [makeOutcome("o1"), makeOutcome("o2")],

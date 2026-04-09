@@ -1,10 +1,10 @@
-# Tara Keeperbot Implementation Guide
+# Oro Keeperbot Implementation Guide
 
-This guide describes how to implement automated "Keepers" (Bots) in the Tara backend. Keepers are background tasks that monitor market states and trigger lifecycle events (Watch, Detect, Act).
+This guide describes how to implement automated "Keepers" (Bots) in the Oro backend. Keepers are background tasks that monitor market states and trigger lifecycle events (Watch, Detect, Act).
 
 ## 1. Architecture Overview
 
-Tara uses **NestJS** and the **`@nestjs/schedule`** package to manage background automation.
+Oro uses **NestJS** and the **`@nestjs/schedule`** package to manage background automation.
 
 - **Watch**: The bot polls the database (e.g., Every minute).
 - **Detect**: The bot evaluates conditions (e.g., `closesAt < now`).

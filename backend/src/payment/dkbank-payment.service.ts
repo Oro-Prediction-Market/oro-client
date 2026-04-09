@@ -32,7 +32,7 @@ interface OtpSession {
   userId: string;
 }
 
-const otpSessionKey = (paymentId: string) => `tara:otp:${paymentId}`;
+const otpSessionKey = (paymentId: string) => `Oro:otp:${paymentId}`;
 
 /** OTP window: 10 minutes to match typical DK Bank OTP validity. */
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -203,7 +203,7 @@ export class DKBankPaymentService {
       const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
 
       await this.redis.setJsonEx<{ otp: string; userId: string }>(
-        `tara:tg-otp:${payment.id}`,
+        `oro:tg-otp:${payment.id}`,
         TG_OTP_TTL_S,
         { otp: generatedOtp, userId },
       );
@@ -247,7 +247,7 @@ export class DKBankPaymentService {
       await this.telegramService
         .sendMessage(
           Number(user.telegramId),
-          `🔐 <b>Tara Payment OTP</b>\n\nHi ${firstName}, your one-time code for a <b>Nu ${amount.toLocaleString()}</b> deposit:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires at ${expiresAtStr} (1 min)\n\n⚠️ <b>Tara will never ask for this code.</b> Do not share it with anyone.`,
+          `🔐 <b>Oro Payment OTP</b>\n\nHi ${firstName}, your one-time code for a <b>Nu ${amount.toLocaleString()}</b> deposit:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires at ${expiresAtStr} (1 min)\n\n⚠️ <b>Oro will never ask for this code.</b> Do not share it with anyone.`,
         )
         .catch((err) =>
           this.logger.warn(`Failed to send OTP via Telegram: ${err.message}`),
@@ -271,7 +271,7 @@ export class DKBankPaymentService {
   /**
    * Step 2: Submit the OTP to complete the payment.
    * Validates Telegram OTP, then executes debit_request on DK Bank to actually debit the account.
-   * Polls DK for final status and credits Tara balance on SUCCESS.
+   * Polls DK for final status and credits Oro balance on SUCCESS.
    */
   async confirmPayment(
     userId: string,
@@ -304,7 +304,7 @@ export class DKBankPaymentService {
     const tgOtpSession = await this.redis.getJson<{
       otp: string;
       userId: string;
-    }>(`tara:tg-otp:${paymentId}`);
+    }>(`oro:tg-otp:${paymentId}`);
 
     if (!tgOtpSession) {
       throw new BadRequestException(
@@ -330,7 +330,7 @@ export class DKBankPaymentService {
     this.logger.log(`[OTP] Telegram OTP verified for payment ${payment.id}`);
 
     // Clear Telegram OTP from Redis immediately after validation
-    await this.redis.del(`tara:tg-otp:${paymentId}`);
+    await this.redis.del(`oro:tg-otp:${paymentId}`);
 
     // ── Step 2: Call DK Bank to actually debit the user's account ────────────
     const isStagingDepositBypass =
@@ -393,9 +393,9 @@ export class DKBankPaymentService {
       }
     }
 
-    // ── Step 3: Credit Tara balance ───────────────────────────────────────────
+    // ── Step 3: Credit Oro balance ───────────────────────────────────────────
     this.logger.log(
-      `[Payment] Crediting Tara balance for payment ${payment.id}`,
+      `[Payment] Crediting Oro balance for payment ${payment.id}`,
     );
 
     await this.applyDKStatusUpdate({
@@ -413,7 +413,7 @@ export class DKBankPaymentService {
       await this.otpRepo.save(otpRecord);
     }
     await this.redis.del(otpSessionKey(payment.id));
-    await this.redis.del(`tara:cache:balance:${userId}`);
+    await this.redis.del(`oro:cache:balance:${userId}`);
 
     return {
       success: true,
@@ -634,7 +634,7 @@ export class DKBankPaymentService {
         );
 
         // Invalidate cached balance so the next /users/me returns the updated value
-        await this.redis.del(`tara:cache:balance:${params.userId}`);
+        await this.redis.del(`oro:cache:balance:${params.userId}`);
       } else if (mapped === PaymentStatus.FAILED) {
         payment.status = PaymentStatus.FAILED;
         payment.failureReason = params.dkStatusDesc || "Payment failed";
@@ -722,7 +722,7 @@ export class DKBankPaymentService {
     const now = new Date();
 
     await this.redis.setJsonEx<{ otp: string; userId: string }>(
-      `tara:tg-otp:${payment.id}`,
+      `oro:tg-otp:${payment.id}`,
       TG_OTP_TTL_S,
       { otp: generatedOtp, userId },
     );
@@ -745,7 +745,7 @@ export class DKBankPaymentService {
     await this.telegramService
       .sendMessage(
         Number(user.telegramId),
-        `🏦 <b>Tara Withdrawal OTP</b>\n\nHi ${firstName}, your one-time code to withdraw <b>Nu ${amount.toLocaleString()}</b> to your DK Bank account:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires in 1 minute\n\n⚠️ <b>Tara will never ask for this code.</b> Do not share it with anyone.`,
+        `🏦 <b>Oro Withdrawal OTP</b>\n\nHi ${firstName}, your one-time code to withdraw <b>Nu ${amount.toLocaleString()}</b> to your DK Bank account:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires in 1 minute\n\n⚠️ <b>Oro will never ask for this code.</b> Do not share it with anyone.`,
       )
       .catch((err) =>
         this.logger.warn(
@@ -808,7 +808,7 @@ export class DKBankPaymentService {
     const tgOtpSession = await this.redis.getJson<{
       otp: string;
       userId: string;
-    }>(`tara:tg-otp:${paymentId}`);
+    }>(`oro:tg-otp:${paymentId}`);
     if (!tgOtpSession) {
       throw new BadRequestException(
         "OTP has expired. Please initiate a new withdrawal.",
@@ -834,7 +834,7 @@ export class DKBankPaymentService {
     }
 
     // OTP is valid — delete it immediately to prevent replay
-    await this.redis.del(`tara:tg-otp:${paymentId}`);
+    await this.redis.del(`oro:tg-otp:${paymentId}`);
 
     // ── Atomic: balance re-check + DK transfer + ledger debit ────────────────
     const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -910,7 +910,7 @@ export class DKBankPaymentService {
           amount: withdrawalAmount,
           currency: "BTN",
           reference: lockedPayment.id,
-          description: `Tara withdrawal for user ${userId}`,
+          description: `oro withdrawal for user ${userId}`,
         });
       }
 
@@ -957,8 +957,8 @@ export class DKBankPaymentService {
       otpRecord.verifiedAt = new Date();
       await this.otpRepo.save(otpRecord);
     }
-    await this.redis.del(`tara:otp:${paymentId}`);
-    await this.redis.del(`tara:cache:balance:${userId}`);
+    await this.redis.del(`oro:otp:${paymentId}`);
+    await this.redis.del(`oro:cache:balance:${userId}`);
 
     if (result.status === "failed") {
       await this.paymentRepo.save(

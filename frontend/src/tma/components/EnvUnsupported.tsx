@@ -22,7 +22,7 @@ export function EnvUnsupported() {
       platform={["macos", "ios"].includes(platform) ? "ios" : "base"}
     >
       <Placeholder
-        header="Tara - Parmutuel Betting"
+        header="Oro - Parmutuel Prediction Markets"
         description="This app is only available through Telegram. Please open it in the Telegram app."
       >
         <img
@@ -37,7 +37,7 @@ export function EnvUnsupported() {
         />
         <div style={{ marginTop: "2rem", padding: "0 1rem" }}>
           <p style={{ fontSize: "0.9rem", lineHeight: "1.5", color: "#888" }}>
-            To access Tara betting platform:
+            To access Oro prediction platform:
           </p>
           <ol
             style={{
@@ -50,7 +50,7 @@ export function EnvUnsupported() {
           >
             <li>Open Telegram on your device</li>
             <li>
-              Search for <strong>@Tara_parimutuel_bot</strong>
+              Search for <strong>@OroPredictBot</strong>
             </li>
             <li>Start the bot and tap "Open App"</li>
           </ol>

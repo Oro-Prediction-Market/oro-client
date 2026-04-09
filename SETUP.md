@@ -1,11 +1,11 @@
-# 🛠 Tara App — Setup Guide
+# 🛠 Oro App — Setup Guide
 
 ## Step 1: Fill in your details in `src/config.ts`
 
 Open `src/config.ts` and replace the placeholder values:
 
 ```ts
-appName: 'Tara',                          // Your app display name
+appName: 'Oro',                          // Your app display name
 botUsername: 'YourBotUsername',           // Your bot's username (without @)
 botToken: 'YOUR_BOT_TOKEN_HERE',          // From @BotFather
 appUrl: 'https://YOUR_DEPLOYMENT_URL',    // Where your app is hosted
@@ -39,7 +39,7 @@ Your app will be live at `https://<your-github-username>.github.io/<repo-name>`
 
 1. Go to https://vercel.com and import your GitHub repo
 2. Set **Output Directory** to `dist`
-3. Deploy — Vercel gives you a URL like `https://tara.vercel.app`
+3. Deploy — Vercel gives you a URL like `https://Oro.vercel.app`
 
 ---
 
@@ -47,20 +47,20 @@ Your app will be live at `https://<your-github-username>.github.io/<repo-name>`
 
 1. Open Telegram and search for **@BotFather**
 2. Send `/newapp`
-3. Select your bot (e.g. `@YourTaraBot`)
+3. Select your bot (e.g. `@YourOroBot`)
 4. Enter your app details:
-   - **Title**: Tara
+   - **Title**: Oro
    - **Description**: Your app description
    - **Photo**: Upload a 640×360px image
    - **Demo GIF**: (optional)
    - **Web App URL**: Paste your deployment URL from Step 3
-5. BotFather will confirm with a link like `https://t.me/YourTaraBot/app`
+5. BotFather will confirm with a link like `https://t.me/YourOroBot/app`
 
 ---
 
 ## Step 5: Test it
 
-- Open the link `https://t.me/YourTaraBot/app` in Telegram
+- Open the link `https://t.me/YourOroBot/app` in Telegram
 - Or add a menu button to your bot with `/setmenubutton` in BotFather
 
 ---
