@@ -93,6 +93,12 @@ function makeTelegramVerification() {
   };
 }
 
+function makeAuditService() {
+  return {
+    log: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 // ─── validateTelegramInitData ─────────────────────────────────────────────────
 
 describe("AuthService.validateTelegramInitData", () => {
@@ -107,6 +113,7 @@ describe("AuthService.validateTelegramInitData", () => {
       makeJwtService(),
       makeDkGateway() as any,
       makeTelegramVerification() as any,
+      makeAuditService() as any,
     );
   });
 
@@ -173,6 +180,7 @@ describe("AuthService.loginWithTelegram", () => {
       makeJwtService(),
       makeDkGateway() as any,
       makeTelegramVerification() as any,
+      makeAuditService() as any,
     );
   });
 
@@ -249,6 +257,7 @@ describe("AuthService.loginWithTelegram", () => {
       makeJwtService(),
       makeDkGateway() as any,
       makeTelegramVerification() as any,
+      makeAuditService() as any,
     );
 
     authMethodRepo.findOne.mockResolvedValue(null);
@@ -275,6 +284,7 @@ describe("AuthService.loginWithTelegram", () => {
       makeJwtService(),
       makeDkGateway() as any,
       makeTelegramVerification() as any,
+      makeAuditService() as any,
     );
 
     authMethodRepo.findOne.mockResolvedValue(null);
@@ -323,6 +333,7 @@ describe("AuthService.loginWithDKBank", () => {
       makeJwtService(),
       dkGateway as any,
       telegramVerification as any,
+      makeAuditService() as any,
     );
   });
 

@@ -535,6 +535,7 @@ export class AdminController {
 
     await this.auditService.log({
       adminId: req.user.userId,
+      isAdmin: true,
       action: AuditAction.USER_ADMIN_TOGGLE, // closest existing action; rename later if needed
       entityType: "user",
       entityId: userId,
