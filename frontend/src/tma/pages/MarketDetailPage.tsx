@@ -1,5 +1,4 @@
 import { FC, useEffect, useState } from "react";
-import dkBankLogo from "../../../assets/dk blue.png";
 import { useParams } from "react-router-dom";
 import { Spinner, Placeholder } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
@@ -658,108 +657,7 @@ export const MarketDetailPage: FC = () => {
             </div>
           )}
 
-          {/* Betting Options */}
-          {isOpen && (
-            <div
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--glass-border)",
-                borderRadius: "var(--radius-lg)",
-                padding: "20px",
-                boxShadow: "var(--shadow-premium)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 800,
-                  color: "var(--text-subtle)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  marginBottom: 16,
-                }}
-              >
-                Payment Method
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: 10,
-                }}
-              >
-                <Link
-                  to={`/dkbank-bet/${market.id}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "12px 8px",
-                      background: "#fff",
-                      border: "2px solid #ff8c00",
-                      borderRadius: 12,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px rgba(255,140,0,0.25)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <img
-                      src={dkBankLogo}
-                      alt="DK Bank"
-                      style={{ height: 18, width: "auto" }}
-                    />
-                  </button>
-                </Link>
-                <Link
-                  to={`/ton-bet/${market.id}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "16px 8px",
-                      background: "linear-gradient(135deg, #00b4ed, #0072bc)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 12,
-                      fontSize: "0.75rem",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px rgba(0,180,237,0.3)",
-                    }}
-                  >
-                    TON
-                  </button>
-                </Link>
-                <Link
-                  to={`/market/${market.id}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "16px 8px",
-                      background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 12,
-                      fontSize: "0.75rem",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px rgba(59,130,246,0.3)",
-                    }}
-                  >
-                    CREDITS
-                  </button>
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {/* Outcomes */}
+          {/* Outcomes — each row is the predict CTA */}
           <div
             style={{
               background: "var(--bg-card)",
@@ -769,6 +667,12 @@ export const MarketDetailPage: FC = () => {
               boxShadow: "var(--shadow-premium)",
             }}
           >
+            <style>{`
+              @keyframes shimmer-slide {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(250%); }
+              }
+            `}</style>
             <div
               style={{
                 display: "flex",
@@ -786,7 +690,7 @@ export const MarketDetailPage: FC = () => {
                   textTransform: "uppercase",
                 }}
               >
-                Outcomes
+                Pick your outcome
               </div>
               {(() => {
                 const meta = (market as any).signalMeta;
@@ -879,101 +783,152 @@ export const MarketDetailPage: FC = () => {
                 ];
                 const color = colors[idx % colors.length];
                 const signal = outcome.reputationSignal;
+                const barWidth = Math.max(4, Math.min(100, pct));
                 return (
-                  <div key={outcome.id}>
+                  <Link
+                    key={outcome.id}
+                    to={isOpen ? `/dkbank-bet/${market.id}?outcomeId=${outcome.id}` : "#"}
+                    style={{ textDecoration: "none", display: "block" }}
+                  >
                     <div
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "baseline",
-                        marginBottom: 6,
+                        position: "relative",
+                        borderRadius: 14,
+                        overflow: "hidden",
+                        background: "var(--bg-secondary)",
+                        border: `1.5px solid ${color}30`,
+                        boxShadow: `0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 1px ${color}18`,
+                        cursor: isOpen ? "pointer" : "default",
+                        transition: "transform 0.12s ease, box-shadow 0.15s ease",
+                      }}
+                      onMouseDown={(e) => {
+                        if (!isOpen) return;
+                        const el = e.currentTarget as HTMLDivElement;
+                        el.style.transform = "scale(0.982)";
+                        el.style.boxShadow = `inset 3px 3px 8px rgba(0,0,0,0.28), inset 0 0 0 1px ${color}50`;
+                      }}
+                      onMouseUp={(e) => {
+                        const el = e.currentTarget as HTMLDivElement;
+                        el.style.transform = "scale(1)";
+                        el.style.boxShadow = `0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 1px ${color}18`;
+                      }}
+                      onMouseLeave={(e) => {
+                        const el = e.currentTarget as HTMLDivElement;
+                        el.style.transform = "scale(1)";
+                        el.style.boxShadow = `0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 1px ${color}18`;
                       }}
                     >
-                      <span
-                        style={{
-                          fontWeight: 800,
-                          color: "var(--text-main)",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        {outcome.label}
-                      </span>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          gap: 6,
-                        }}
-                      >
-                        {delta !== null && delta !== 0 && (
-                          <span
-                            style={{
+                      {/* probability fill */}
+                      <div style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        width: `${barWidth}%`,
+                        background: `linear-gradient(90deg, ${color}55 0%, ${color}28 60%, transparent 100%)`,
+                        borderRadius: "14px 0 0 14px",
+                        transition: "width 1s ease",
+                        pointerEvents: "none",
+                      }} />
+
+                      {/* shimmer sweep — only on open markets */}
+                      {isOpen && (
+                        <div style={{
+                          position: "absolute",
+                          inset: 0,
+                          overflow: "hidden",
+                          borderRadius: 14,
+                          pointerEvents: "none",
+                        }}>
+                          <div style={{
+                            position: "absolute",
+                            top: 0,
+                            bottom: 0,
+                            width: "40%",
+                            background: `linear-gradient(90deg, transparent, ${color}18, transparent)`,
+                            animation: "shimmer-slide 2.4s ease-in-out infinite",
+                          }} />
+                        </div>
+                      )}
+
+                      {/* content */}
+                      <div style={{
+                        position: "relative",
+                        padding: "13px 16px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                          <span style={{
+                            fontSize: "0.92rem",
+                            fontWeight: 800,
+                            color: "var(--text-main)",
+                            letterSpacing: "-0.01em",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}>
+                            {outcome.label}
+                          </span>
+                          {signal != null && hasBet && (
+                            <span style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              color: "#f59e0b",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 3,
+                            }}>
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="#f59e0b" stroke="none">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                              </svg>
+                              Experts {Math.round(signal * 100)}%
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          {delta !== null && delta !== 0 && (
+                            <span style={{
                               fontSize: "0.65rem",
                               fontWeight: 700,
                               color: delta > 0 ? "#22c55e" : "#ef4444",
-                            }}
-                          >
-                            {delta > 0 ? "+" : ""}
-                            {delta}%
-                          </span>
-                        )}
-                        <span
-                          style={{
-                            fontWeight: 900,
+                            }}>
+                              {delta > 0 ? "+" : ""}{delta}%
+                            </span>
+                          )}
+                          <div style={{
+                            background: `${color}22`,
+                            border: `1.5px solid ${color}50`,
                             color: color,
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          {pct.toFixed(0)}%
-                        </span>
+                            fontSize: "1rem",
+                            fontWeight: 900,
+                            padding: "4px 14px",
+                            borderRadius: 99,
+                            letterSpacing: "-0.01em",
+                          }}>
+                            {pct.toFixed(0)}%
+                          </div>
+                          {isOpen && (
+                            <div style={{
+                              background: color,
+                              color: "#fff",
+                              fontSize: "0.65rem",
+                              fontWeight: 800,
+                              padding: "4px 10px",
+                              borderRadius: 99,
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                            }}>
+                              Predict
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div
-                      style={{
-                        background: "var(--bg-secondary)",
-                        height: 8,
-                        borderRadius: 10,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          background: color,
-                          width: `${pct}%`,
-                          height: "100%",
-                          borderRadius: 10,
-                          transition: "width 1s",
-                        }}
-                      />
-                    </div>
-                    {signal != null && hasBet && (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          marginTop: 5,
-                          fontSize: "0.72rem",
-                          color: "var(--text-subtle)",
-                          fontWeight: 600,
-                        }}
-                      >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="#f59e0b"
-                          stroke="none"
-                        >
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                        Top predictors lean {outcome.label} ·{" "}
-                        <span style={{ color: "#f59e0b", fontWeight: 800 }}>
-                          {Math.round(signal * 100)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  </Link>
                 );
               })}
             </div>

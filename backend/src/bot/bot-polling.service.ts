@@ -195,10 +195,17 @@ export class BotPollingService
     if (message.contact) {
       const contact = message.contact;
       try {
+        // contact.user_id is optional in the Telegram API — fall back to
+        // the sender's ID so the security check in linkTelegramPhone always
+        // passes for a user sharing their own contact via request_contact.
+        const contactUserId =
+          contact.user_id != null
+            ? String(contact.user_id)
+            : String(message.from.id);
         const result = await this.telegramVerification.linkTelegramPhone(
           String(message.from.id),
           String(chatId),
-          String(contact.user_id),
+          contactUserId,
           contact.phone_number,
         );
         await this.telegramSimple.sendMessage(chatId, result.message);
@@ -425,11 +432,14 @@ export class BotPollingService
     });
 
     try {
-      await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+      const res = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
       });
+      if (!res.ok) {
+        this.logger.error(`[Bot] sendPhoneRequest failed ${res.status}: ${await res.text()}`);
+      }
     } catch (err: any) {
       this.logger.error(`[Bot] Failed to send phone request: ${err.message}`);
     }

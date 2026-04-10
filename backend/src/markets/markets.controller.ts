@@ -53,6 +53,13 @@ export class MarketsController {
     return this.marketsService.getResolvedMarkets();
   }
 
+  @Get("activity")
+  @Public()
+  @ApiOperation({ summary: "Recent bet/win events for the live activity ticker" })
+  getRecentActivity() {
+    return this.marketsService.getRecentActivity(20);
+  }
+
   @Get(":id")
   @Public()
   @ApiOperation({ summary: "Get market by ID with outcomes & live odds" })

@@ -242,6 +242,19 @@ export function submitDispute(
   });
 }
 
+export interface ActivityEvent {
+  type: "bet" | "win";
+  userName: string;
+  outomeLabel: string;  // note: matches backend spelling
+  marketTitle: string;
+  amount: number;
+  placedAt: string;
+}
+
+export function getRecentActivity(): Promise<ActivityEvent[]> {
+  return request<ActivityEvent[]>("/markets/activity");
+}
+
 export function getMarkets(q?: string): Promise<Market[]> {
   const qs = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
   return request<Market[]>(`/markets${qs}`);

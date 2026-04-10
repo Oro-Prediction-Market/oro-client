@@ -1,10 +1,120 @@
 import { FC, useState, useEffect } from "react";
 import { Spinner } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
-import { getMarkets, getMyBets, type Market } from "@/api/client";
+import { getMarkets, getMyBets, getRecentActivity, type Market, type ActivityEvent } from "@/api/client";
 import { useAuth } from "@/tma/hooks/useAuth";
 import { TmaBetModal } from "@/tma/components/TmaBetModal";
 import { Link } from "@/tma/components/Link/Link";
+
+// ── Live Activity Ticker ──────────────────────────────────────────────────────
+
+function formatActivityEvent(e: ActivityEvent): string {
+  const amt = `Nu ${Number(e.amount).toLocaleString()}`;
+  if (e.type === "win") return `${e.userName} won ${amt} on ${e.outomeLabel} 🎉`;
+  return `${e.userName} just bet ${amt} on ${e.outomeLabel} 🔥`;
+}
+
+function LiveTicker() {
+  const [items, setItems] = useState<string[]>([]);
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    // ── PRODUCTION: fetch real activity from the database ──────────────────
+    getRecentActivity()
+      .then((events) => {
+        if (events.length > 0) {
+          setItems(events.map(formatActivityEvent));
+        }
+      })
+      .catch(() => {
+        // silently fall through to sample data below
+      });
+
+    // ── SAMPLE DATA: comment out this block before going to production ──────
+    // Remove the block below once getRecentActivity() returns real data.
+    /*
+    const SAMPLE_NAMES = ["Tashi","Karma","Pema","Sonam","Dorji","Rinzin","Deki","Ugyen"];
+    const SAMPLE: ActivityEvent[] = [
+      { type:"bet", userName:"Tashi",  outomeLabel:"Yes",     marketTitle:"...", amount:200, placedAt:"" },
+      { type:"win", userName:"Karma",  outomeLabel:"Brazil",  marketTitle:"...", amount:450, placedAt:"" },
+      { type:"bet", userName:"Pema",   outomeLabel:"No",      marketTitle:"...", amount:100, placedAt:"" },
+      { type:"win", userName:"Sonam",  outomeLabel:"Germany", marketTitle:"...", amount:600, placedAt:"" },
+      { type:"bet", userName:"Dorji",  outomeLabel:"Yes",     marketTitle:"...", amount:150, placedAt:"" },
+      { type:"bet", userName:"Rinzin", outomeLabel:"Draw",    marketTitle:"...", amount:300, placedAt:"" },
+      { type:"win", userName:"Deki",   outomeLabel:"No",      marketTitle:"...", amount:250, placedAt:"" },
+      { type:"bet", userName:"Ugyen",  outomeLabel:"Yes",     marketTitle:"...", amount: 80, placedAt:"" },
+    ];
+    setItems(SAMPLE.map(formatActivityEvent));
+    */
+    // ── END SAMPLE DATA ────────────────────────────────────────────────────
+  }, []);
+
+  useEffect(() => {
+    if (items.length < 2) return;
+    const cycle = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx((i) => (i + 1) % items.length);
+        setVisible(true);
+      }, 350);
+    }, 3500);
+    return () => clearInterval(cycle);
+  }, [items.length]);
+
+  if (!items.length) return null;
+
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      background: "var(--bg-card)",
+      border: "1px solid var(--glass-border)",
+      borderRadius: 10,
+      padding: "7px 12px",
+      marginBottom: 14,
+      overflow: "hidden",
+    }}>
+      <style>{`
+        @keyframes ticker-pulse {
+          0%,100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.6; transform: scale(0.85); }
+        }
+        @keyframes ticker-ring {
+          0%   { transform: scale(1);   opacity: 0.4; }
+          70%  { transform: scale(2.2); opacity: 0; }
+          100% { transform: scale(2.2); opacity: 0; }
+        }
+      `}</style>
+      {/* pulsing red dot */}
+      <span style={{ position: "relative", flexShrink: 0, width: 8, height: 8 }}>
+        <span style={{
+          position: "absolute", inset: 0, borderRadius: "50%",
+          background: "#ef4444", animation: "ticker-pulse 1.4s ease-in-out infinite",
+        }} />
+        <span style={{
+          position: "absolute", inset: 0, borderRadius: "50%",
+          background: "#ef4444", opacity: 0.4,
+          animation: "ticker-ring 1.4s ease-in-out infinite",
+        }} />
+      </span>
+      <span style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: "var(--text-subtle)",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(-6px)",
+        transition: "opacity 0.3s ease, transform 0.3s ease",
+      }}>
+        {items[idx]}
+      </span>
+    </div>
+  );
+}
 
 function outcomeColor(rank: number, total: number): string {
   if (rank === 0) return "#22c55e";
@@ -45,11 +155,12 @@ function MarketCard({
   market,
   onBet,
   hasBet,
+  telegramId,
 }: {
   market: Market;
   onBet: (outcomeId: string) => void;
-  /** True when the current user already has a position in this market */
   hasBet: boolean;
+  telegramId?: string | number | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   const isUpcoming = market.status === "upcoming";
@@ -58,6 +169,23 @@ function MarketCard({
     isUpcoming ? (market.opensAt ?? null) : market.closesAt,
   );
   const totalPool = Number(market.totalPool);
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const refLink = `https://t.me/OroPredictBot/app?startapp=ref_${telegramId || ""}`;
+    // Pick the top outcome the user (or crowd) is backing
+    const topOutcome = [...market.outcomes].sort(
+      (a, b) => (b.lmsrProbability ?? 0) - (a.lmsrProbability ?? 0),
+    )[0];
+    const outcomeLabel = topOutcome?.label ?? "an outcome";
+    const text = `🔥 I just called it — betting on *${outcomeLabel}* in:\n"${market.title}"\n\nThink you can predict better? Prove it 👇\n${refLink}`;
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`;
+    if (window.Telegram?.WebApp?.openTelegramLink) {
+      window.Telegram.WebApp.openTelegramLink(shareUrl);
+    } else {
+      window.open(shareUrl, "_blank");
+    }
+  };
 
   const sentiment = (() => {
     const raw = market.outcomes.map((o) => ({
@@ -87,17 +215,18 @@ function MarketCard({
     <div
       style={{
         background: "var(--bg-card)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: "var(--radius-lg)",
-        padding: "16px",
-        marginBottom: 12,
+        border: "none",
+        borderRadius: 20,
+        padding: "18px 16px",
+        marginBottom: 14,
         display: "flex",
         flexDirection: "column",
         gap: 12,
         position: "relative",
-        boxShadow: "var(--shadow-sm)",
+        boxShadow: "6px 6px 16px rgba(0,0,0,0.35), -3px -3px 10px rgba(255,255,255,0.04)",
       }}
     >
+      <style>{`@keyframes shimmer-slide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}`}</style>
       <div
         style={{
           fontSize: 15,
@@ -198,51 +327,69 @@ function MarketCard({
                 style={{
                   width: "100%",
                   padding: "0",
-                  borderRadius: 14,
-                  background: "var(--bg-main)",
-                  border: `1.5px solid ${s.color}40`,
+                  borderRadius: 16,
+                  background: "var(--bg-card)",
+                  border: "none",
                   cursor: "pointer",
                   overflow: "hidden",
-                  boxShadow: "none",
-                  transition: "transform 0.12s ease",
+                  boxShadow: `4px 4px 10px rgba(0,0,0,0.25), -2px -2px 8px rgba(255,255,255,0.04), inset 0 0 0 1px ${s.color}30`,
+                  transition: "box-shadow 0.15s ease, transform 0.12s ease",
                   display: "block",
                   textAlign: "left",
                   position: "relative",
                 }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.transform =
-                    "scale(1.01)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.transform =
-                    "scale(1)";
-                }}
                 onMouseDown={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.transform =
-                    "scale(0.98)";
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.boxShadow = `inset 3px 3px 8px rgba(0,0,0,0.3), inset -1px -1px 4px rgba(255,255,255,0.03), inset 0 0 0 1px ${s.color}50`;
+                  el.style.transform = "scale(0.985)";
                 }}
                 onMouseUp={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.transform =
-                    "scale(1.01)";
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.boxShadow = `4px 4px 10px rgba(0,0,0,0.25), -2px -2px 8px rgba(255,255,255,0.04), inset 0 0 0 1px ${s.color}30`;
+                  el.style.transform = "scale(1)";
+                }}
+                onMouseLeave={(e) => {
+                  const el = e.currentTarget as HTMLButtonElement;
+                  el.style.boxShadow = `4px 4px 10px rgba(0,0,0,0.25), -2px -2px 8px rgba(255,255,255,0.04), inset 0 0 0 1px ${s.color}30`;
+                  el.style.transform = "scale(1)";
                 }}
               >
-                {/* Progress bar fill behind content */}
+                {/* Pool fill — solid left edge fading right, width = probability */}
                 <div
                   style={{
                     position: "absolute",
-                    inset: 0,
+                    top: 0,
+                    left: 0,
+                    bottom: 0,
                     width: `${barWidth}%`,
-                    background: `${s.color}12`,
-                    borderRadius: 14,
-                    transition: "width 0.8s ease",
+                    background: `linear-gradient(90deg, ${s.color}55 0%, ${s.color}28 60%, transparent 100%)`,
+                    borderRadius: "16px 0 0 16px",
+                    transition: "width 1s ease",
                     pointerEvents: "none",
                   }}
                 />
+                {/* Shimmer sweep */}
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  overflow: "hidden",
+                  borderRadius: 16,
+                  pointerEvents: "none",
+                }}>
+                  <div style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    width: "40%",
+                    background: `linear-gradient(90deg, transparent, ${s.color}18, transparent)`,
+                    animation: "shimmer-slide 2.4s ease-in-out infinite",
+                  }} />
+                </div>
                 {/* Button content */}
                 <div
                   style={{
                     position: "relative",
-                    padding: "12px 14px",
+                    padding: "13px 16px",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
@@ -250,17 +397,10 @@ function MarketCard({
                   }}
                 >
                   {/* Left: label + reputation signal */}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                      minWidth: 0,
-                    }}
-                  >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
                     <span
                       style={{
-                        fontSize: "0.88rem",
+                        fontSize: "0.9rem",
                         fontWeight: 800,
                         color: "var(--text-main)",
                         letterSpacing: "-0.01em",
@@ -282,13 +422,7 @@ function MarketCard({
                           gap: 3,
                         }}
                       >
-                        <svg
-                          width="8"
-                          height="8"
-                          viewBox="0 0 24 24"
-                          fill="#f59e0b"
-                          stroke="none"
-                        >
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="#f59e0b" stroke="none">
                           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                         </svg>
                         Experts {Math.round(s.reputationSignal * 100)}%
@@ -296,43 +430,22 @@ function MarketCard({
                     )}
                   </div>
 
-                  {/* Right: percentage + predict pill */}
+                  {/* Right: neumorphic percentage badge */}
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
+                      background: `${s.color}22`,
+                      border: `1.5px solid ${s.color}50`,
+                      boxShadow: `2px 2px 6px rgba(0,0,0,0.2), -1px -1px 4px rgba(255,255,255,0.04)`,
+                      color: s.color,
+                      fontSize: "1rem",
+                      fontWeight: 900,
+                      padding: "4px 14px",
+                      borderRadius: 99,
+                      letterSpacing: "-0.01em",
                       flexShrink: 0,
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "1.15rem",
-                        fontWeight: 900,
-                        color: s.color,
-                        letterSpacing: "-0.02em",
-                        minWidth: 42,
-                        textAlign: "right",
-                      }}
-                    >
-                      {s.pct.toFixed(0)}%
-                    </span>
-                    <span
-                      style={{
-                        background: s.color,
-                        color: "#fff",
-                        fontSize: "0.65rem",
-                        fontWeight: 800,
-                        padding: "5px 10px",
-                        borderRadius: 99,
-                        letterSpacing: "0.04em",
-                        textTransform: "uppercase",
-                        whiteSpace: "nowrap",
-                        boxShadow: `0 2px 6px ${s.color}55`,
-                      }}
-                    >
-                      Predict
-                    </span>
+                    {s.pct.toFixed(0)}%
                   </div>
                 </div>
               </button>
@@ -381,21 +494,38 @@ function MarketCard({
         <div style={{ color: "#22c55e" }}>
           Nu {totalPool.toLocaleString()} Pool
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            {!isUpcoming && !isResolving ? countdown : "Closed"}
+          </div>
+          {/* Share button */}
+          <button
+            onClick={handleShare}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: "none",
+              border: "1px solid var(--glass-border)",
+              borderRadius: 8,
+              padding: "3px 8px",
+              cursor: "pointer",
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--text-subtle)",
+            }}
           >
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          {!isUpcoming && !isResolving ? countdown : "Closed"}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+            Share
+          </button>
         </div>
       </div>
     </div>
@@ -561,6 +691,9 @@ export const TmaFeedPage: FC = () => {
         }}
       >
         <div className="mesh-bg" />
+
+        {/* ── Live activity ticker ── */}
+        <LiveTicker />
 
         {/* ── Search bar ── */}
         <div style={{ position: "relative", marginBottom: 20 }}>
@@ -808,6 +941,7 @@ export const TmaFeedPage: FC = () => {
                 key={market.id}
                 market={market}
                 hasBet={bettedMarketIds.has(market.id)}
+                telegramId={user?.telegramId}
                 onBet={(outcomeId) =>
                   setActiveBet({ marketId: market.id, outcomeId })
                 }
@@ -852,6 +986,7 @@ export const TmaFeedPage: FC = () => {
                 key={market.id}
                 market={market}
                 hasBet={bettedMarketIds.has(market.id)}
+                telegramId={user?.telegramId}
                 onBet={(outcomeId) =>
                   setActiveBet({ marketId: market.id, outcomeId })
                 }
@@ -896,6 +1031,7 @@ export const TmaFeedPage: FC = () => {
                 key={market.id}
                 market={market}
                 hasBet={bettedMarketIds.has(market.id)}
+                telegramId={user?.telegramId}
                 onBet={(outcomeId) =>
                   setActiveBet({ marketId: market.id, outcomeId })
                 }

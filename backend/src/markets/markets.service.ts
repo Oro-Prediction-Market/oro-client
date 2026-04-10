@@ -50,6 +50,52 @@ export class MarketsService {
     private reputationService: ReputationService,
   ) {}
 
+  /**
+   * Returns the last N position events for the live activity ticker.
+   * Each item has enough info to render "Tashi just bet Nu 200 on Yes in <market>"
+   * or "Karma won Nu 450 on Germany in <market>".
+   *
+   * Returns both pending (bets) and won (payouts) positions so the ticker
+   * shows a mix of activity.
+   */
+  async getRecentActivity(limit = 20): Promise<{
+    type: "bet" | "win";
+    userName: string;
+    outomeLabel: string;
+    marketTitle: string;
+    amount: number;
+    placedAt: Date;
+  }[]> {
+    const positions = await this.dataSource
+      .getRepository(Position)
+      .createQueryBuilder("p")
+      .leftJoinAndSelect("p.user", "u")
+      .leftJoinAndSelect("p.outcome", "o")
+      .leftJoinAndSelect("p.market", "m")
+      .where("p.status IN (:...statuses)", { statuses: ["pending", "won"] })
+      .orderBy("p.placedAt", "DESC")
+      .limit(limit)
+      .getMany();
+
+    return positions.map((p) => {
+      const displayName =
+        p.user?.username
+          ? `@${p.user.username}`
+          : p.user?.firstName
+            ? p.user.firstName
+            : "Someone";
+
+      return {
+        type: p.status === "won" ? "win" : "bet",
+        userName: displayName,
+        outomeLabel: p.outcome?.label ?? "an outcome",
+        marketTitle: p.market?.title ?? "a market",
+        amount: Number(p.status === "won" ? (p.payout ?? p.amount) : p.amount),
+        placedAt: p.placedAt,
+      };
+    });
+  }
+
   private async invalidateMarketCache(marketId?: string): Promise<void> {
     const keys = ["oro:cache:markets:all"];
     if (marketId) keys.push(`oro:cache:market:${marketId}`);
