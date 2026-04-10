@@ -20,6 +20,7 @@ import { LMSRService } from "./lmsr.service";
 import { ReputationService } from "./reputation.service";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
+import { StreakService, STREAK_BONUS_MULT } from "../users/streak.service";
 
 // ─── Valid state machine transitions ────────────────────────────────────────
 const VALID_TRANSITIONS: Record<MarketStatus, MarketStatus[]> = {
@@ -59,6 +60,7 @@ export class ParimutuelEngine implements OnModuleInit {
     private telegramSimple: TelegramSimpleService,
     private dkGateway: DKGatewayService,
     private configService: ConfigService,
+    private streakService: StreakService,
   ) {}
 
   private async getCreditsBalance(
@@ -91,7 +93,7 @@ export class ParimutuelEngine implements OnModuleInit {
     marketId: string,
     outcomeId: string,
     amount: number,
-  ): Promise<Position> {
+  ): Promise<Position & { streak?: { count: number; dayInCycle: number; boostActive: boolean } }> {
     if (amount <= 0)
       throw new BadRequestException("Position amount must be positive");
 
@@ -254,7 +256,30 @@ export class ParimutuelEngine implements OnModuleInit {
         });
       }
 
-      return completedPosition!;
+      // ── Update daily bet streak (non-blocking) ───────────────────────────
+      const streakResult = await this.streakService.updateStreak(userId).catch(() => null);
+
+      // If day-7 boost is active, credit the bonus payout immediately
+      if (streakResult?.boostActive && completedPosition) {
+        const bonusAmount = Math.round(amount * (STREAK_BONUS_MULT - 1) * 100) / 100;
+        this.streakService
+          .creditStreakBonus(userId, completedPosition.id, bonusAmount)
+          .catch((err: any) =>
+            this.logger.error(`Streak bonus credit failed: ${err.message}`),
+          );
+      }
+
+      const result = completedPosition! as Position & {
+        streak?: { count: number; dayInCycle: number; boostActive: boolean };
+      };
+      if (streakResult) {
+        result.streak = {
+          count: streakResult.newStreak,
+          dayInCycle: streakResult.dayInCycle,
+          boostActive: streakResult.boostActive,
+        };
+      }
+      return result;
     } catch (err) {
       throw err;
     } finally {

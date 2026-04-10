@@ -16,6 +16,7 @@ import { Payment } from "../entities/payment.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { Position, PositionStatus } from "../entities/position.entity";
 import { RedisService } from "../redis/redis.service";
+import { StreakService } from "./streak.service";
 
 // ─── Response schemas for Swagger ────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ export class UsersController {
     private transactionRepo: Repository<Transaction>,
     @InjectRepository(Position) private betRepo: Repository<Position>,
     private readonly redis: RedisService,
+    private readonly streakService: StreakService,
   ) {}
 
   @Get("me")
@@ -147,6 +149,10 @@ export class UsersController {
 
     // Derive boolean flags — never send raw hashes to the client
     const { dkPhoneHash, telegramPhoneHash, ...safeUser } = user as any;
+
+    // Streak info (cached key reused from balance; separate small query)
+    const streakInfo = await this.streakService.getStreakInfo(userId);
+
     return {
       ...safeUser,
       creditsBalance,
@@ -156,6 +162,7 @@ export class UsersController {
         dkPhoneHash &&
         telegramPhoneHash === dkPhoneHash
       ),
+      ...streakInfo,
     };
   }
 

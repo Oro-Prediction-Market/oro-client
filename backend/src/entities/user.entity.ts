@@ -24,6 +24,23 @@ export class User {
   @Column({ type: "int", nullable: true })
   telegramStreak: number | null;
 
+  // ── Daily bet streak ──────────────────────────────────────────────────────
+
+  /** How many consecutive calendar days the user has placed at least one bet. */
+  @Column({ default: 0 })
+  betStreakCount: number;
+
+  /** UTC calendar date (YYYY-MM-DD) of the last day a bet was placed. */
+  @Column({ type: "date", nullable: true })
+  betStreakLastAt: string | null;
+
+  /**
+   * True once the 1.2x day-7 boost payout has been applied for the current
+   * 7-day cycle. Reset to false when the cycle restarts (day 1 of next cycle).
+   */
+  @Column({ default: false })
+  streakBoostUsed: boolean;
+
   @Column({ type: "varchar", nullable: true })
   firstName: string | null;
 

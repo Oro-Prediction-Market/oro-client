@@ -4,6 +4,7 @@ import { Page } from "@/tma/components/Page";
 import { getMarkets, Market } from "@/api/client";
 import { useAuth } from "@/tma/hooks/useAuth";
 import { Link } from "@/tma/components/Link/Link";
+import { StreakBanner } from "@/tma/components/StreakBanner";
 
 export const MarketsPage: FC = () => {
   const { user } = useAuth();
@@ -156,6 +157,16 @@ export const MarketsPage: FC = () => {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Daily Bet Streak reminder */}
+          {user && (user.betStreakCount ?? 0) > 0 && (
+            <StreakBanner
+              streakCount={user.betStreakCount ?? 0}
+              dayInCycle={user.dayInCycle ?? 0}
+              nextBoostInDays={user.nextBoostInDays ?? 7}
+              boostJustActivated={false}
+            />
           )}
 
           {/* Open Markets */}

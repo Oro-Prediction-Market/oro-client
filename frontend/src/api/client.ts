@@ -105,6 +105,11 @@ export interface AuthUser {
   contrarianAttempts?: number;
   // Win streak
   telegramStreak?: number | null;
+  // Daily bet streak
+  betStreakCount?: number;
+  dayInCycle?: number;
+  nextBoostInDays?: number;
+  boostReady?: boolean;
 }
 
 export interface AuthResponse {
@@ -292,8 +297,20 @@ export interface PlaceBetPayload {
   amount: number;
 }
 
-export function placeBet(marketId: string, payload: PlaceBetPayload) {
-  return request(`/markets/${marketId}/bets`, {
+export interface BetStreak {
+  count: number;
+  dayInCycle: number;
+  boostActive: boolean;
+}
+
+export interface PlaceBetResult {
+  id: string;
+  streak?: BetStreak;
+  [key: string]: any;
+}
+
+export function placeBet(marketId: string, payload: PlaceBetPayload): Promise<PlaceBetResult> {
+  return request<PlaceBetResult>(`/markets/${marketId}/bets`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

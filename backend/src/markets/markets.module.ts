@@ -17,6 +17,7 @@ import { KeeperService } from "./keeper.service";
 import { ReputationService } from "./reputation.service";
 import { TelegramModule } from "../telegram/telegram.module";
 import { PaymentModule } from "../payment/payment.module";
+import { UsersModule } from "../users/users.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { PaymentModule } from "../payment/payment.module";
     ]),
     TelegramModule,
     PaymentModule,
+    UsersModule,
   ],
   providers: [
     MarketsService,

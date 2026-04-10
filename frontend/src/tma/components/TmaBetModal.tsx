@@ -1,10 +1,16 @@
 import { useState, useEffect } from "react";
+import { hapticFeedback } from "@tma.js/sdk-react";
+import confetti from "canvas-confetti";
 import { getMe, placeBet } from "@/api/client";
-import type { Market } from "@/api/client";
+import type { Market, BetStreak } from "@/api/client";
 import { PayoutBreakdown } from "@/components/PayoutBreakdown";
 import { ShareCTA } from "@/tma/components/ShareCTA";
+import { BetShareCard } from "@/tma/components/BetShareCard";
+import { ChallengeAFriend } from "@/tma/components/ChallengeAFriend";
+import { StreakBanner } from "@/tma/components/StreakBanner";
+import { useAuth } from "@/tma/hooks/useAuth";
 
-const QUICK_AMOUNTS = [50, 100, 200, 500];
+const QUICK_AMOUNTS = [100, 500, 1000];
 const MIN_BET = 50;
 
 interface TmaBetModalProps {
@@ -35,6 +41,8 @@ export function TmaBetModal({
   const [error, setError] = useState("");
   const [creditsBalance, setCreditsBalance] = useState<number | null>(null);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [streak, setStreak] = useState<BetStreak | null>(null);
+  const { user } = useAuth();
 
   // Fetch user's balance when modal opens
   useEffect(() => {
@@ -91,6 +99,7 @@ export function TmaBetModal({
     setStatus("idle");
     setError("");
     setCreditsBalance(null);
+    setStreak(null);
   };
 
   const handleClose = () => {
@@ -119,11 +128,23 @@ export function TmaBetModal({
       }
 
       // Place the bet - this will deduct from credits balance on backend
-      await placeBet(market.id, { outcomeId, amount: betAmount });
+      const result = await placeBet(market.id, { outcomeId, amount: betAmount });
+      if (result?.streak) setStreak(result.streak);
 
       setStatus("success");
       onSuccess?.();
       window.dispatchEvent(new CustomEvent("tara:balance-changed"));
+
+      // Trigger Celebration
+      if (hapticFeedback.impactOccurred.isAvailable()) {
+        hapticFeedback.impactOccurred("medium");
+      }
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 },
+        zIndex: 2000,
+      });
     } catch (err: any) {
       setError(err.message || "Failed to place bet");
       setStatus("failed");
@@ -264,7 +285,7 @@ export function TmaBetModal({
                 border: "1px solid rgba(16,185,129,0.25)",
                 borderRadius: 12,
                 padding: "12px 16px",
-                marginBottom: 4,
+                marginBottom: 8,
                 animation: "tmaFadeIn 0.35s ease 0.45s both",
               }}
             >
@@ -290,8 +311,54 @@ export function TmaBetModal({
               </div>
             </div>
 
-            {/* Share CTA */}
-            <div style={{ animation: "tmaFadeIn 0.35s ease 0.6s both" }}>
+            {/* ── Streak Banner ── */}
+            {streak && (
+              <div style={{ animation: "tmaFadeIn 0.35s ease 0.5s both" }}>
+                <StreakBanner
+                  streakCount={streak.count}
+                  dayInCycle={streak.dayInCycle}
+                  nextBoostInDays={7 - streak.dayInCycle}
+                  boostJustActivated={streak.boostActive}
+                />
+              </div>
+            )}
+
+            {/* ── Bet Share Card ── */}
+            <div style={{ animation: "tmaFadeIn 0.35s ease 0.55s both", marginTop: 12 }}>
+              <BetShareCard
+                userName={
+                  user?.username
+                    ? `@${user.username}`
+                    : user?.firstName ?? "You"
+                }
+                userPhotoUrl={user?.photoUrl}
+                marketTitle={market.title}
+                outcomePicked={outcome?.label ?? ""}
+                stakeAmount={betAmount}
+                outcomeColor={outcomeColor}
+                referralId={String(user?.telegramId ?? user?.id ?? "")}
+              />
+            </div>
+
+            {/* ── Challenge a Friend ── */}
+            {(() => {
+              const otherOutcomes = market.outcomes.filter((o) => o.id !== outcomeId);
+              const opposing = otherOutcomes.length === 1 ? otherOutcomes[0].label : undefined;
+              return (
+                <div style={{ animation: "tmaFadeIn 0.35s ease 0.65s both", marginTop: 10 }}>
+                  <ChallengeAFriend
+                    pickedOutcomeLabel={outcome?.label ?? ""}
+                    opposingOutcomeLabel={opposing}
+                    marketTitle={market.title}
+                    marketId={market.id}
+                    referralId={String(user?.telegramId ?? user?.id ?? "")}
+                  />
+                </div>
+              );
+            })()}
+
+            {/* ── Legacy Share CTA ── */}
+            <div style={{ animation: "tmaFadeIn 0.35s ease 0.7s both", marginTop: 4 }}>
               <ShareCTA
                 type="bet"
                 amount={betAmount}
@@ -710,10 +777,10 @@ export function TmaBetModal({
                       style={{
                         fontSize: 18,
                         fontWeight: 800,
-                        color: estProfit >= 0 ? "#16a34a" : "var(--text-muted)",
+                        color: "#16a34a",
                       }}
                     >
-                      {estProfit >= 0 ? `Nu ${estPayout.toFixed(2)}` : "—"}
+                      Nu {estPayout.toFixed(2)}
                     </div>
                   </div>
                   <div style={{ textAlign: "right" }}>
@@ -728,28 +795,15 @@ export function TmaBetModal({
                     >
                       Est. profit
                     </div>
-                    {estProfit >= 0 ? (
-                      <div
-                        style={{
-                          fontSize: 15,
-                          fontWeight: 700,
-                          color: "#16a34a",
-                        }}
-                      >
-                        +Nu {estProfit.toFixed(2)}
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "var(--text-muted)",
-                          maxWidth: 120,
-                          textAlign: "right",
-                        }}
-                      >
-                        Grows as more bets join
-                      </div>
-                    )}
+                    <div
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: estProfit >= 0 ? "#16a34a" : "var(--text-muted)",
+                      }}
+                    >
+                      {estProfit >= 0 ? "+" : ""}Nu {estProfit.toFixed(2)}
+                    </div>
                   </div>
                 </div>
               )}

@@ -16,6 +16,7 @@ import {
   formatBTN,
 } from "@/api/dkbank";
 import { Page } from "@/tma/components/Page";
+import { StreakBanner } from "@/tma/components/StreakBanner";
 import {
   CheckCircle2,
   XCircle,
@@ -882,6 +883,19 @@ export const TmaProfilePage: FC = () => {
 
         {/* ── Collectible Badges ────────────────────────────── */}
         <div style={{ padding: "0 16px" }}>
+
+          {/* Daily Bet Streak */}
+          {(user?.betStreakCount ?? 0) > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <StreakBanner
+                streakCount={user?.betStreakCount ?? 0}
+                dayInCycle={user?.dayInCycle ?? 0}
+                nextBoostInDays={user?.nextBoostInDays ?? 7}
+                boostJustActivated={user?.boostReady ?? false}
+              />
+            </div>
+          )}
+
           <BadgeGrid
             totalPredictions={user?.totalPredictions ?? 0}
             correctPredictions={user?.correctPredictions ?? 0}

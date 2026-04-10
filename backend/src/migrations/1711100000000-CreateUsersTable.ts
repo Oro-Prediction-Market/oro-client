@@ -31,6 +31,9 @@ export class CreateUsersTable1711100000000 implements MigrationInterface {
         "contrarianWins" integer NOT NULL DEFAULT 0,
         "contrarianAttempts" integer NOT NULL DEFAULT 0,
         "contrarianBadge" character varying,
+        "betStreakCount" integer NOT NULL DEFAULT 0,
+        "betStreakLastAt" DATE,
+        "streakBoostUsed" boolean NOT NULL DEFAULT false,
         "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
         "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_users" PRIMARY KEY ("id")
