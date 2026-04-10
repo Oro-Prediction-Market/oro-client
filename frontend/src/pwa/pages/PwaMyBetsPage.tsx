@@ -159,7 +159,7 @@ export function PwaMyBetsPage() {
           color: "var(--text-main)",
         }}
       >
-        My Predictions
+        My Positions
       </h1>
       <p
         style={{

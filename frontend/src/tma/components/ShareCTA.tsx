@@ -2,6 +2,16 @@ import { FC } from "react";
 import { Share, Send, Trophy, Sparkles } from "lucide-react";
 import { useAuth } from "@/tma/hooks/useAuth";
 
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        openTelegramLink?: (url: string) => void;
+      };
+    };
+  }
+}
+
 interface ShareCTAProps {
   type: "win" | "bet" | "profile";
   amount?: number;
@@ -9,30 +19,39 @@ interface ShareCTAProps {
   reputation?: string;
 }
 
-export const ShareCTA: FC<ShareCTAProps> = ({ type, amount, marketTitle, reputation }) => {
+export const ShareCTA: FC<ShareCTAProps> = ({
+  type,
+  amount,
+  marketTitle,
+  reputation,
+}) => {
   const { user } = useAuth();
 
   // e.g., https://t.me/OroPredictBot/app?startapp=ref_user123
-  const botUsername = "OroPredictBot"; 
+  const botUsername = "OroPredictBot";
   const refLink = `https://t.me/${botUsername}/app?startapp=ref_${user?.telegramId || user?.id || ""}`;
 
   const handleShare = () => {
     let shareText = "";
-    
+
     if (type === "win") {
       shareText = `🔥 Just bagged Nu ${amount?.toLocaleString() || "some money"} on Oro! 💸\n\nMarket: "${marketTitle}"\n\nThink you can predict better? Prove it 👇\n${refLink}`;
     } else if (type === "bet") {
       shareText = `🧠 I'm calling it! Just dropped Nu ${amount?.toLocaleString() || ""} on:\n"${marketTitle}"\n\nLet's see who's got the best foresight. Join the pool 👇\n${refLink}`;
     } else if (type === "profile") {
       const tierLabel =
-        reputation === "expert" ? "Legend" :
-        reputation === "reliable" ? "Hot Hand" :
-        reputation === "regular" ? "Sharpshooter" : "Rookie";
+        reputation === "expert"
+          ? "Legend"
+          : reputation === "reliable"
+            ? "Hot Hand"
+            : reputation === "regular"
+              ? "Sharpshooter"
+              : "Rookie";
       shareText = `🏆 My prediction rank on Oro: ${tierLabel} 👑\n\nCan you beat my stats? Start building your own streak 👇\n${refLink}`;
     }
 
     const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(shareText)}`;
-    
+
     if (window.Telegram?.WebApp && window.Telegram.WebApp.openTelegramLink) {
       window.Telegram.WebApp.openTelegramLink(shareUrl);
     } else {
@@ -43,14 +62,14 @@ export const ShareCTA: FC<ShareCTAProps> = ({ type, amount, marketTitle, reputat
   return (
     <div style={styles.container}>
       <div style={styles.glowBg} />
-      
+
       <div style={styles.content}>
         <div style={styles.iconWrapper}>
           {type === "win" && <Trophy size={20} color="#f59e0b" />}
           {type === "bet" && <Sparkles size={20} color="#3b82f6" />}
           {type === "profile" && <Share size={20} color="#10b981" />}
         </div>
-        
+
         <div style={styles.textSection}>
           <h4 style={styles.title}>
             {type === "win" && "Share Your Win!"}
@@ -92,7 +111,8 @@ const styles: Record<string, React.CSSProperties> = {
     left: "-50%",
     width: "200%",
     height: "200%",
-    background: "radial-gradient(circle at center, rgba(59, 130, 246, 0.15) 0%, transparent 70%)",
+    background:
+      "radial-gradient(circle at center, rgba(59, 130, 246, 0.15) 0%, transparent 70%)",
     pointerEvents: "none",
   },
   content: {
@@ -142,5 +162,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: "pointer",
     transition: "transform 0.1s ease, background 0.2s ease",
-  }
+  },
 };
