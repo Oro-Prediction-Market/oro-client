@@ -9,6 +9,7 @@ import {
 import { getMe } from "@/api/client";
 import type { Market } from "@/api/client";
 import type { DKBankPaymentRequest, PaymentResponse } from "@/types/payment";
+import { ShareCTA } from "@/tma/components/ShareCTA";
 
 interface DKBankConfirmModalProps {
   isOpen: boolean;
@@ -310,13 +311,15 @@ export function DKBankConfirmModal({
               >
                 Payment Confirmed!
               </div>
-              <div style={{ fontSize: 13, color: "var(--text-subtle)" }}>
+              <div style={{ fontSize: 13, color: "var(--text-subtle)", marginBottom: 20 }}>
                 Your position on{" "}
                 <strong style={{ color: "var(--text-main)" }}>
                   {outcome?.label}
                 </strong>{" "}
                 is now open.
               </div>
+              
+              <ShareCTA type="bet" amount={amount} marketTitle={market.title} />
             </div>
           )}
 

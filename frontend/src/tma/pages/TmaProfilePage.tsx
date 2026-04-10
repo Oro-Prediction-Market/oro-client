@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, ReactNode } from "react";
+import { FC, useState, useEffect } from "react";
 import dkBankLogo from "../../../assets/dk blue.png";
 import { useAuth } from "@/tma/hooks/useAuth";
 import {
@@ -16,7 +16,6 @@ import {
   formatBTN,
 } from "@/api/dkbank";
 import { Page } from "@/tma/components/Page";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   CheckCircle2,
   XCircle,
@@ -38,10 +37,57 @@ import {
   Clock,
   X,
   Send,
+  Medal,
+  ChevronDown,
+  Flame,
+  Lightbulb,
+  TrendingUp,
+  Activity,
+  Award,
+  ThumbsUp,
+  Eye,
+  EyeOff,
+  Crosshair,
+  Sparkles,
+  Zap,
+  Star,
+  Hash,
+  Brain,
+  Dumbbell,
+  Sprout,
+  Swords,
+  Building2,
+  BarChart2,
 } from "lucide-react";
 
 type LinkStep = "idle" | "loading" | "success" | "error";
-type ActiveTab = "profile" | "wallet";
+
+const AnimatedCounter = ({ value }: { value: number }) => {
+  const [displayValue, setDisplayValue] = useState(value);
+
+  useEffect(() => {
+    let startTimestamp: number;
+    const duration = 1000;
+    const startValue = displayValue;
+
+    if (value === startValue) return;
+
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setDisplayValue(startValue + (value - startValue) * easeProgress);
+
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      }
+    };
+
+    window.requestAnimationFrame(step);
+  }, [value]);
+
+  return <>{Math.round(displayValue).toLocaleString()}</>;
+};
 type PaymentModalType = "deposit" | "withdraw" | null;
 type PaymentStep = "amount" | "otp" | "success" | "failed";
 
@@ -108,7 +154,6 @@ function TxRow({ tx }: { tx: Transaction }) {
 export const TmaProfilePage: FC = () => {
   const { user: authUser, loading: authLoading, retry } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>("profile");
   const [freshUser, setFreshUser] = useState<AuthUser | null>(null);
   const [freshLoading, setFreshLoading] = useState(true);
   const [txs, setTxs] = useState<Transaction[]>([]);
@@ -145,13 +190,15 @@ export const TmaProfilePage: FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === "wallet") {
-      refreshWallet();
-    }
-  }, [activeTab]);
+    refreshWallet();
+  }, []);
 
   const user = freshUser ?? authUser;
   const loading = authLoading && freshLoading;
+
+  const [badgesOpen, setBadgesOpen] = useState(false);
+  const [showAllTxs, setShowAllTxs] = useState(false);
+  const [balanceHidden, setBalanceHidden] = useState(true);
 
   const [cid, setCid] = useState("");
   const [step, setStep] = useState<LinkStep>("idle");
@@ -289,734 +336,603 @@ export const TmaProfilePage: FC = () => {
     .filter((t) => Number(t.amount) < 0)
     .reduce((s, t) => s + Number(t.amount), 0);
 
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  const weeklyProfit = txs
+    .filter((tx) => new Date(tx.createdAt) >= oneWeekAgo)
+    .reduce((acc, tx) => {
+      if (tx.type === "bet_payout") return acc + Math.abs(Number(tx.amount));
+      if (tx.type === "bet_placed") return acc - Math.abs(Number(tx.amount));
+      return acc;
+    }, 0);
+
   return (
     <Page>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       <div style={styles.container}>
-        {/* Top Header Layer: Toggles */}
-        <div
-          style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}
-        >
-          <ThemeToggle />
-        </div>
-
-        {/* ── Avatar / Name ──────────────────────────────────── */}
-        <div style={styles.avatarSection}>
-          {user?.photoUrl ? (
-            <img src={user.photoUrl} alt="avatar" style={styles.avatar} />
-          ) : (
-            <div style={styles.avatarPlaceholder}>
-              {(user?.firstName?.[0] || "?").toUpperCase()}
-            </div>
-          )}
-          <h2 style={styles.name}>
-            {user?.firstName} {user?.lastName || ""}
-          </h2>
-          {user?.username && <p style={styles.username}>@{user.username}</p>}
-        </div>
-
-        {/* ── Tab Switcher ───────────────────────────────────── */}
-        <div style={styles.tabBar}>
-          <button
+        {/* ── Hero: Avatar + Balance ────────────────────────── */}
+        <div style={styles.heroCard}>
+          {/* Avatar + name */}
+          <div
             style={{
-              ...styles.tab,
-              ...(activeTab === "profile" ? styles.tabActive : {}),
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              marginBottom: 20,
             }}
-            onClick={() => setActiveTab("profile")}
           >
-            Profile
-          </button>
-          <button
-            style={{
-              ...styles.tab,
-              ...(activeTab === "wallet" ? styles.tabActive : {}),
-            }}
-            onClick={() => setActiveTab("wallet")}
-          >
-            <Wallet size={14} style={{ marginRight: 5 }} />
-            Wallet
-          </button>
-        </div>
-
-        {/* ── Profile Tab ────────────────────────────────────── */}
-        {activeTab === "profile" && (
-          <>
-            {/* ── Status badges ──────────────────────────────────── */}
-            <div style={styles.badgeRow}>
-              <StatusBadge
-                label={
-                  <img
-                    src={dkBankLogo}
-                    alt="DK Bank"
-                    style={{
-                      height: 13,
-                      width: "auto",
-                      mixBlendMode: "multiply",
-                    }}
-                  />
-                }
-                active={hasDKBank}
-                activeText={user?.dkAccountName || user?.dkCid || "Linked"}
-                inactiveText="Not linked"
-              />
-              <StatusBadge
-                label="Phone"
-                active={hasPhoneVerified}
-                activeText="Verified"
-                inactiveText="Not verified"
-              />
-            </div>
-
-            {/* ── Reputation Card ────────────────────────────────── */}
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>
-                <span style={styles.titleRow}>
-                  <Trophy size={16} color="#f59e0b" />
-                  Prediction Reputation
-                </span>
-              </h3>
-              {(user?.totalPredictions ?? 0) === 0 ? (
+            {user?.photoUrl ? (
+              <img src={user.photoUrl} alt="avatar" style={styles.heroAvatar} />
+            ) : (
+              <div style={styles.heroAvatarPlaceholder}>
+                {(user?.firstName?.[0] || "?").toUpperCase()}
+              </div>
+            )}
+            <div>
+              <div
+                style={{
+                  fontSize: 17,
+                  fontWeight: 800,
+                  color: "#fff",
+                  lineHeight: 1.2,
+                }}
+              >
+                {user?.firstName} {user?.lastName || ""}
+              </div>
+              {user?.username && (
                 <div
                   style={{
                     fontSize: 13,
-                    color: "var(--text-subtle)",
-                    lineHeight: 1.5,
+                    color: "rgba(255,255,255,0.65)",
+                    marginTop: 2,
                   }}
                 >
-                  <p style={{ margin: "0 0 8px" }}>
-                    Make your first prediction to start building your reputation
-                    score.
-                  </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 12,
-                      color: "var(--text-subtle)",
-                    }}
-                  >
-                    Top predictors earn an Expert badge and their predictions
-                    carry more weight in market probabilities.
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        padding: "2px 10px",
-                        borderRadius: 99,
-                        background:
-                          user?.reputationTier === "expert"
-                            ? "#fef3c7"
-                            : user?.reputationTier === "reliable"
-                              ? "#d1fae5"
-                              : user?.reputationTier === "regular"
-                                ? "#dbeafe"
-                                : "#f3f4f6",
-                        color:
-                          user?.reputationTier === "expert"
-                            ? "#92400e"
-                            : user?.reputationTier === "reliable"
-                              ? "#065f46"
-                              : user?.reputationTier === "regular"
-                                ? "#1e40af"
-                                : "#374151",
-                        textTransform: "capitalize",
-                      }}
-                    >
-                      {user?.reputationTier === "expert"
-                        ? "Expert"
-                        : user?.reputationTier === "reliable"
-                          ? "Reliable"
-                          : user?.reputationTier === "regular"
-                            ? "Regular"
-                            : "Newcomer"}
-                    </span>
-                    {user?.reputationScore != null && (
-                      <span
-                        style={{ fontSize: 13, color: "var(--text-subtle)" }}
-                        title="Confidence-adjusted score — grows more accurate as you make more predictions"
-                      >
-                        {Math.round(user.reputationScore * 100)}% confidence
-                        score
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 20,
-                      fontSize: 12,
-                      color: "var(--text-subtle)",
-                    }}
-                  >
-                    <span>
-                      <strong
-                        style={{ color: "var(--text-primary)", fontSize: 14 }}
-                      >
-                        {user?.totalPredictions ?? 0}
-                      </strong>{" "}
-                      predictions
-                    </span>
-                    <span>
-                      <strong
-                        style={{ color: "var(--text-primary)", fontSize: 14 }}
-                      >
-                        {user?.correctPredictions ?? 0}
-                      </strong>{" "}
-                      correct
-                    </span>
-                  </div>
-
-                  {/* ── Tier progress bar ─────────────────────────── */}
-                  {(() => {
-                    const total = user?.totalPredictions ?? 0;
-                    const correct = user?.correctPredictions ?? 0;
-                    const accuracy = total > 0 ? correct / total : 0;
-                    const tier = user?.reputationTier ?? "newcomer";
-
-                    // Already at the top — show a completion state
-                    if (tier === "expert") {
-                      return (
-                        <div style={{ marginTop: 14 }}>
-                          <div
-                            style={{
-                              background: "var(--bg-secondary)",
-                              borderRadius: 99,
-                              height: 6,
-                              overflow: "hidden",
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                borderRadius: 99,
-                                background:
-                                  "linear-gradient(90deg, #f59e0b, #fbbf24)",
-                              }}
-                            />
-                          </div>
-                          <div
-                            style={{
-                              marginTop: 6,
-                              fontSize: 11,
-                              color: "#92400e",
-                              fontWeight: 700,
-                            }}
-                          >
-                            🏆 Maximum tier reached
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // Compute progress toward next tier
-                    // Tiers: newcomer (<10) → regular (10–49) → reliable (50+, ≥65%) → expert (100+, ≥75%)
-                    type TierInfo = {
-                      label: string;
-                      color: string;
-                      progressPct: number;
-                      hint: string;
-                    };
-
-                    let info: TierInfo;
-
-                    if (tier === "newcomer") {
-                      // Need 10 predictions to reach Regular
-                      const progressPct = Math.min((total / 10) * 100, 100);
-                      const remaining = 10 - total;
-                      info = {
-                        label: "Regular",
-                        color: "#3b82f6",
-                        progressPct,
-                        hint: `${remaining} more prediction${remaining !== 1 ? "s" : ""} to reach Regular`,
-                      };
-                    } else if (tier === "regular") {
-                      // Need 50 predictions AND ≥65% accuracy to reach Reliable
-                      const predProgress = Math.min(total / 50, 1);
-                      const accProgress = Math.min(accuracy / 0.65, 1);
-                      // Weight both equally
-                      const progressPct =
-                        ((predProgress + accProgress) / 2) * 100;
-                      const predRemaining = Math.max(0, 50 - total);
-                      const accNeeded = accuracy < 0.65;
-                      const hint =
-                        predRemaining > 0 && accNeeded
-                          ? `${predRemaining} more predictions & ${Math.round(accuracy * 100)}% → 65% accuracy for Reliable`
-                          : predRemaining > 0
-                            ? `${predRemaining} more predictions to reach Reliable`
-                            : `Reach 65% accuracy to unlock Reliable (currently ${Math.round(accuracy * 100)}%)`;
-                      info = {
-                        label: "Reliable",
-                        color: "#059669",
-                        progressPct,
-                        hint,
-                      };
-                    } else {
-                      // reliable → need 100 predictions AND ≥75% accuracy for Expert
-                      const predProgress = Math.min(total / 100, 1);
-                      const accProgress = Math.min(accuracy / 0.75, 1);
-                      const progressPct =
-                        ((predProgress + accProgress) / 2) * 100;
-                      const predRemaining = Math.max(0, 100 - total);
-                      const accNeeded = accuracy < 0.75;
-                      const hint =
-                        predRemaining > 0 && accNeeded
-                          ? `${predRemaining} more predictions & ${Math.round(accuracy * 100)}% → 75% accuracy for Expert`
-                          : predRemaining > 0
-                            ? `${predRemaining} more predictions to reach Expert`
-                            : `Reach 75% accuracy to unlock Expert (currently ${Math.round(accuracy * 100)}%)`;
-                      info = {
-                        label: "Expert",
-                        color: "#f59e0b",
-                        progressPct,
-                        hint,
-                      };
-                    }
-
-                    return (
-                      <div style={{ marginTop: 14 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: 5,
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: "var(--text-subtle)",
-                            }}
-                          >
-                            Progress to{" "}
-                            <span style={{ color: info.color }}>
-                              {info.label}
-                            </span>
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 800,
-                              color: info.color,
-                            }}
-                          >
-                            {Math.round(info.progressPct)}%
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            background: "var(--bg-secondary)",
-                            borderRadius: 99,
-                            height: 6,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${info.progressPct}%`,
-                              height: "100%",
-                              borderRadius: 99,
-                              background: info.color,
-                              transition: "width 0.8s ease",
-                            }}
-                          />
-                        </div>
-                        <div
-                          style={{
-                            marginTop: 5,
-                            fontSize: 11,
-                            color: "var(--text-subtle)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {info.hint}
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  @{user.username}
                 </div>
               )}
-            </div>
-
-            {/* ── DK Bank link form ──────────────────────────────── */}
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>
-                <span style={styles.titleRow}>
-                  {hasDKBank ? (
-                    <CheckCircle2 size={16} color="#059669" />
-                  ) : (
-                    <Link2 size={16} color="#2775d0" />
-                  )}
-                  {hasDKBank ? (
+              {/* Status chips */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  marginTop: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    background: hasDKBank
+                      ? "rgba(16,185,129,0.25)"
+                      : "rgba(239,68,68,0.25)",
+                    color: hasDKBank ? "#6ee7b7" : "#fca5a5",
+                    border: `1px solid ${hasDKBank ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"}`,
+                  }}
+                >
+                  {hasDKBank ? "✓ DK Bank" : "DK Bank"}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    background: hasPhoneVerified
+                      ? "rgba(16,185,129,0.25)"
+                      : "rgba(239,68,68,0.25)",
+                    color: hasPhoneVerified ? "#6ee7b7" : "#fca5a5",
+                    border: `1px solid ${hasPhoneVerified ? "rgba(16,185,129,0.4)" : "rgba(239,68,68,0.4)"}`,
+                  }}
+                >
+                  {hasPhoneVerified ? "✓ Phone" : "Phone"}
+                </span>
+                {(() => {
+                  const tier = user?.reputationTier ?? "newcomer";
+                  const label =
+                    tier === "expert"
+                      ? "Legend"
+                      : tier === "reliable"
+                        ? "Hot Hand"
+                        : tier === "regular"
+                          ? "Sharpshooter"
+                          : "Rookie";
+                  const bg =
+                    tier === "expert"
+                      ? "rgba(245,158,11,0.25)"
+                      : tier === "reliable"
+                        ? "rgba(16,185,129,0.25)"
+                        : tier === "regular"
+                          ? "rgba(59,130,246,0.25)"
+                          : "rgba(255,255,255,0.12)";
+                  const color =
+                    tier === "expert"
+                      ? "#fbbf24"
+                      : tier === "reliable"
+                        ? "#6ee7b7"
+                        : tier === "regular"
+                          ? "#93c5fd"
+                          : "rgba(255,255,255,0.6)";
+                  const border =
+                    tier === "expert"
+                      ? "rgba(245,158,11,0.4)"
+                      : tier === "reliable"
+                        ? "rgba(16,185,129,0.4)"
+                        : tier === "regular"
+                          ? "rgba(59,130,246,0.4)"
+                          : "rgba(255,255,255,0.2)";
+                  const tierIcon =
+                    tier === "expert" ? (
+                      <Trophy size={11} />
+                    ) : tier === "reliable" ? (
+                      <Flame size={11} />
+                    ) : tier === "regular" ? (
+                      <Swords size={11} />
+                    ) : (
+                      <Sprout size={11} />
+                    );
+                  return (
                     <span
                       style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 99,
+                        background: bg,
+                        color,
+                        border: `1px solid ${border}`,
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: 6,
+                        gap: 4,
                       }}
                     >
-                      <span
-                        style={{
-                          background: "#fff",
-                          borderRadius: 4,
-                          padding: "1px 5px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                        }}
-                      >
-                        <img
-                          src={dkBankLogo}
-                          alt="DK Bank"
-                          style={{ height: 14, width: "auto" }}
-                        />
-                      </span>
-                      Linked
+                      {tierIcon}
+                      {label}
                     </span>
-                  ) : (
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+
+          {/* Balance */}
+          <div style={{ marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "rgba(255,255,255,0.6)",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                marginBottom: 4,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              Available Balance
+              <button
+                onClick={() => setBalanceHidden((h) => !h)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  color: "rgba(255,255,255,0.55)",
+                  display: "flex",
+                  alignItems: "center",
+                  lineHeight: 1,
+                }}
+                aria-label={balanceHidden ? "Show balance" : "Hide balance"}
+              >
+                {balanceHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 6,
+                opacity: balanceLoading ? 0.5 : 1,
+                transition: "opacity 0.3s",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "rgba(255,255,255,0.8)",
+                }}
+              >
+                BTN
+              </span>
+              <span
+                style={{
+                  fontSize: 36,
+                  fontWeight: 900,
+                  color: "#fff",
+                  letterSpacing: "-1px",
+                  filter: balanceHidden ? "blur(10px)" : "none",
+                  userSelect: balanceHidden ? "none" : "auto",
+                  transition: "filter 0.2s ease",
+                }}
+              >
+                <AnimatedCounter
+                  value={Number(
+                    freshUser?.creditsBalance ?? user?.creditsBalance ?? 0,
+                  )}
+                />
+              </span>
+            </div>
+          </div>
+
+          {/* Stats row */}
+          <div
+            style={{
+              display: "flex",
+              gap: 0,
+              borderTop: "1px solid rgba(255,255,255,0.15)",
+              paddingTop: 14,
+              marginTop: 8,
+            }}
+          >
+            {[
+              {
+                label: "Total In",
+                value: `+${totalIn.toLocaleString()}`,
+                color: "#6ee7b7",
+              },
+              {
+                label: "Total Out",
+                value: Math.abs(totalOut).toLocaleString(),
+                color: "rgba(255,255,255,0.7)",
+              },
+              {
+                label: "This Week",
+                value: `${weeklyProfit >= 0 ? "+" : ""}${weeklyProfit.toLocaleString()}`,
+                color: weeklyProfit >= 0 ? "#6ee7b7" : "#fca5a5",
+              },
+            ].map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  borderLeft:
+                    i > 0 ? "1px solid rgba(255,255,255,0.12)" : "none",
+                  paddingLeft: i > 0 ? 14 : 0,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "rgba(255,255,255,0.55)",
+                    fontWeight: 600,
+                    marginBottom: 3,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {s.label}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: s.color }}>
+                  {s.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Quick Actions ─────────────────────────────────── */}
+        <div style={styles.actionsRow}>
+          <button
+            style={styles.actionBtnPrimary}
+            onClick={() => openPaymentModal("deposit")}
+          >
+            <Plus size={16} />
+            Deposit
+          </button>
+          <button
+            style={styles.actionBtnSecondary}
+            onClick={() => openPaymentModal("withdraw")}
+          >
+            <ArrowUpCircle size={16} />
+            Withdraw
+          </button>
+        </div>
+
+        {/* ── DK Bank ── only show if not fully linked, or if linked but phone not yet verified */}
+        {(!hasDKBank || !hasPhoneVerified) && (
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>
+              <span style={styles.titleRow}>
+                {hasDKBank ? (
+                  <CheckCircle2 size={16} color="#059669" />
+                ) : (
+                  <Link2 size={16} color="#2775d0" />
+                )}
+                {hasDKBank ? (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        background: "#fff",
+                        borderRadius: 4,
+                        padding: "1px 5px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                      }}
+                    >
+                      <img
+                        src={dkBankLogo}
+                        alt="DK Bank"
+                        style={{ height: 14, width: "auto" }}
+                      />
+                    </span>
+                    Linked
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    Link
+                    <img
+                      src={dkBankLogo}
+                      alt="DK Bank"
+                      style={{
+                        height: 14,
+                        width: "auto",
+                        mixBlendMode: "multiply",
+                      }}
+                    />
+                    Account
+                  </span>
+                )}
+              </span>
+            </h3>
+            {hasDKBank ? (
+              <div style={styles.linkedInfo}>
+                <p style={styles.linkedRow}>
+                  <span style={styles.label}>CID</span>
+                  <span style={styles.value}>{user?.dkCid}</span>
+                </p>
+                <p style={styles.linkedRow}>
+                  <span style={styles.label}>Account</span>
+                  <span style={styles.value}>{user?.dkAccountName || "—"}</span>
+                </p>
+                <p style={styles.linkedRow}>
+                  <span style={styles.label}>Phone</span>
+                  <span style={{ ...styles.value, ...styles.inlineIcon }}>
+                    {user?.isDkPhoneLinked ? (
+                      <>
+                        <ShieldCheck size={13} color="#059669" /> Registered
+                      </>
+                    ) : (
+                      <span style={{ color: "#d97706", ...styles.inlineIcon }}>
+                        <AlertCircle size={13} color="#d97706" /> No phone on DK
+                        Bank record
+                      </span>
+                    )}
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <>
+                <p style={styles.hint}>
+                  Enter your 11-digit Bhutanese National ID (CID) to link your
+                  DK Bank account.
+                </p>
+                <input
+                  style={styles.input}
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="11-digit CID number"
+                  maxLength={11}
+                  value={cid}
+                  onChange={(e) => {
+                    setCid(e.target.value.replace(/\D/g, ""));
+                    setStep("idle");
+                    setErrorMsg("");
+                  }}
+                />
+                {step === "error" && (
+                  <p style={{ ...styles.error, ...styles.inlineIcon }}>
+                    <XCircle size={14} color="#dc2626" />
+                    {errorMsg}
+                  </p>
+                )}
+                {step === "success" && (
+                  <p style={{ ...styles.success, ...styles.inlineIcon }}>
+                    <CheckCircle2 size={14} color="#059669" />
                     <span
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: 6,
+                        gap: 5,
                       }}
                     >
-                      Link
                       <img
                         src={dkBankLogo}
                         alt="DK Bank"
                         style={{
-                          height: 14,
+                          height: 13,
                           width: "auto",
                           mixBlendMode: "multiply",
                         }}
                       />
-                      Account
+                      account linked
                     </span>
-                  )}
-                </span>
-              </h3>
-
-              {hasDKBank ? (
-                <div style={styles.linkedInfo}>
-                  <p style={styles.linkedRow}>
-                    <span style={styles.label}>CID</span>
-                    <span style={styles.value}>{user?.dkCid}</span>
+                    {linkedName ? ` as ${linkedName}` : ""}!
                   </p>
-                  <p style={styles.linkedRow}>
-                    <span style={styles.label}>Account</span>
-                    <span style={styles.value}>
-                      {user?.dkAccountName || "—"}
-                    </span>
-                  </p>
-                  <p style={styles.linkedRow}>
-                    <span style={styles.label}>Phone</span>
-                    <span style={{ ...styles.value, ...styles.inlineIcon }}>
-                      {user?.isDkPhoneLinked ? (
-                        <>
-                          <ShieldCheck size={13} color="#059669" />
-                          Registered
-                        </>
-                      ) : (
-                        <span
-                          style={{ color: "#d97706", ...styles.inlineIcon }}
-                        >
-                          <AlertCircle size={13} color="#d97706" />
-                          No phone on DK Bank record
-                        </span>
-                      )}
-                    </span>
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <p style={styles.hint}>
-                    Enter your 11-digit Bhutanese National ID (CID) to link your
-                    DK Bank account. This stores a secure hash of your
-                    registered phone number so payments can be verified.
-                  </p>
-                  <input
-                    style={styles.input}
-                    type="tel"
-                    inputMode="numeric"
-                    placeholder="11-digit CID number"
-                    maxLength={11}
-                    value={cid}
-                    onChange={(e) => {
-                      setCid(e.target.value.replace(/\D/g, ""));
-                      setStep("idle");
-                      setErrorMsg("");
-                    }}
-                  />
-                  {step === "error" && (
-                    <p style={{ ...styles.error, ...styles.inlineIcon }}>
-                      <XCircle size={14} color="#dc2626" />
-                      {errorMsg}
-                    </p>
-                  )}
-                  {step === "success" && (
-                    <p style={{ ...styles.success, ...styles.inlineIcon }}>
-                      <CheckCircle2 size={14} color="#059669" />
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <img
-                          src={dkBankLogo}
-                          alt="DK Bank"
-                          style={{
-                            height: 13,
-                            width: "auto",
-                            mixBlendMode: "multiply",
-                          }}
+                )}
+                <button
+                  style={{
+                    ...styles.btn,
+                    opacity: step === "loading" || cid.length !== 11 ? 0.6 : 1,
+                  }}
+                  disabled={step === "loading" || cid.length !== 11}
+                  onClick={handleLink}
+                >
+                  <span style={styles.inlineIcon}>
+                    {step === "loading" ? (
+                      <>
+                        <Loader2
+                          size={15}
+                          style={{ animation: "spin 0.8s linear infinite" }}
                         />
-                        account linked
-                      </span>
-                      {linkedName ? ` as ${linkedName}` : ""}!
-                    </p>
-                  )}
-                  <button
-                    style={{
-                      ...styles.btn,
-                      opacity:
-                        step === "loading" || cid.length !== 11 ? 0.6 : 1,
-                    }}
-                    disabled={step === "loading" || cid.length !== 11}
-                    onClick={handleLink}
-                  >
-                    <span style={styles.inlineIcon}>
-                      {step === "loading" ? (
-                        <>
-                          <Loader2
-                            size={15}
-                            style={{ animation: "spin 0.8s linear infinite" }}
-                          />
-                          Linking…
-                        </>
-                      ) : (
-                        <>
-                          <Link2 size={15} />
-                          <span
+                        Linking…
+                      </>
+                    ) : (
+                      <>
+                        <Link2 size={15} />
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          Link{" "}
+                          <img
+                            src={dkBankLogo}
+                            alt="DK Bank"
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 6,
+                              height: 13,
+                              width: "auto",
+                              mixBlendMode: "multiply",
                             }}
-                          >
-                            Link
-                            <img
-                              src={dkBankLogo}
-                              alt="DK Bank"
-                              style={{
-                                height: 13,
-                                width: "auto",
-                                mixBlendMode: "multiply",
-                              }}
-                            />
-                            Account
-                          </span>
-                        </>
-                      )}
-                    </span>
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* ── Phone verification instructions ───────────────── */}
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>
-                <span style={styles.titleRow}>
-                  {hasPhoneVerified ? (
-                    <ShieldCheck size={16} color="#059669" />
-                  ) : (
-                    <Smartphone size={16} color="#2775d0" />
-                  )}
-                  {hasPhoneVerified ? "Phone Verified" : "Verify Your Phone"}
-                </span>
-              </h3>
-              {hasPhoneVerified ? (
-                <p style={styles.hint}>
-                  Your Telegram phone matches your DK Bank registered phone.
-                  Payments are fully secured.
-                </p>
-              ) : (
-                <>
-                  <p style={styles.hint}>
-                    After linking your DK Bank CID above, go to the Oro bot and
-                    send <strong>/verify</strong> to verify your phone number.
-                  </p>
-                  <div style={styles.steps}>
-                    <Step
-                      n={1}
-                      done={hasDKBank}
-                      text="Link DK Bank CID (above)"
-                    />
-                    <Step
-                      n={2}
-                      done={false}
-                      text='Open Oro bot → send "/verify"'
-                    />
-                    <Step
-                      n={3}
-                      done={false}
-                      text="Tap Share Phone Number in the bot"
-                    />
-                    <Step
-                      n={4}
-                      done={hasPhoneVerified}
-                      text="Phone verified — payments unlocked!"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          </>
+                          />{" "}
+                          Account
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </button>
+              </>
+            )}
+          </div>
         )}
 
-        {/* ── Wallet Tab ─────────────────────────────────────── */}
-        {activeTab === "wallet" && (
-          <>
-            {/* Balance card — always shown, amount pulses while loading */}
-            <div style={walletStyles.balanceCard}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                }}
-              >
-                <div style={walletStyles.balanceLabel}>Available Balance</div>
-                <button
-                  onClick={refreshWallet}
-                  disabled={balanceLoading || txLoading}
-                  style={{
-                    background: "rgba(255,255,255,0.15)",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "4px 8px",
-                    cursor:
-                      balanceLoading || txLoading ? "not-allowed" : "pointer",
-                    color: "#fff",
-                    opacity: balanceLoading || txLoading ? 0.6 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    fontSize: "0.75rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  <RotateCcw
-                    size={12}
-                    style={
-                      balanceLoading
-                        ? { animation: "spin 0.8s linear infinite" }
-                        : {}
-                    }
+        {/* ── Phone Verification ── only show if phone not yet verified */}
+        {!hasPhoneVerified && (
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>
+              <span style={styles.titleRow}>
+                {hasPhoneVerified ? (
+                  <ShieldCheck size={16} color="#059669" />
+                ) : (
+                  <Smartphone size={16} color="#2775d0" />
+                )}
+                {hasPhoneVerified ? "Phone Verified" : "Verify Your Phone"}
+              </span>
+            </h3>
+            {hasPhoneVerified ? (
+              <p style={styles.hint}>
+                Your Telegram phone matches your DK Bank registered phone.
+                Payments are fully secured.
+              </p>
+            ) : (
+              <>
+                <p style={styles.hint}>
+                  After linking your DK Bank CID above, go to the Oro bot and
+                  send <strong>/verify</strong> to verify your phone number.
+                </p>
+                <div style={styles.steps}>
+                  <Step
+                    n={1}
+                    done={hasDKBank}
+                    text="Link DK Bank CID (above)"
                   />
-                  Refresh
-                </button>
-              </div>
-              <div
-                style={{
-                  ...walletStyles.balanceAmount,
-                  opacity: balanceLoading ? 0.5 : 1,
-                  transition: "opacity 0.3s",
-                }}
-              >
-                <span style={walletStyles.balanceCurrency}>BTN</span>
-                {Number(
-                  freshUser?.creditsBalance ?? user?.creditsBalance ?? 0,
-                ).toLocaleString()}
-              </div>
-              <div style={walletStyles.balanceStats}>
-                <div style={walletStyles.statItem}>
-                  <div style={walletStyles.statLabel}>Total In</div>
-                  <div style={walletStyles.statValue}>
-                    +{totalIn.toLocaleString()}
-                  </div>
+                  <Step
+                    n={2}
+                    done={false}
+                    text='Open Oro bot → send "/verify"'
+                  />
+                  <Step
+                    n={3}
+                    done={false}
+                    text="Tap Share Phone Number in the bot"
+                  />
+                  <Step
+                    n={4}
+                    done={hasPhoneVerified}
+                    text="Phone verified — payments unlocked!"
+                  />
                 </div>
-                <div style={walletStyles.statItem}>
-                  <div style={walletStyles.statLabel}>Total Out</div>
-                  <div style={walletStyles.statValue}>
-                    {Math.abs(totalOut).toLocaleString()}
-                  </div>
-                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Collectible Badges ────────────────────────────── */}
+        <div style={{ padding: "0 16px" }}>
+          <BadgeGrid
+            totalPredictions={user?.totalPredictions ?? 0}
+            correctPredictions={user?.correctPredictions ?? 0}
+            reputationTier={user?.reputationTier ?? "newcomer"}
+            reputationScore={user?.reputationScore ?? 0}
+            hasPhone={hasPhoneVerified}
+            hasDKBank={hasDKBank}
+            open={badgesOpen}
+            onToggle={() => setBadgesOpen((o) => !o)}
+          />
+        </div>
+
+        {/* ── Transaction History ───────────────────────────── */}
+        <div style={{ padding: "0 16px", marginBottom: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            <div>
+              <h2 style={walletStyles.sectionTitle}>Transaction History</h2>
+              <div style={walletStyles.sectionSubtitle}>
+                {txLoading
+                  ? "Updating…"
+                  : `${txs.length} transaction${txs.length !== 1 ? "s" : ""}`}
               </div>
             </div>
-
-            {/* Action buttons */}
-            <div style={walletStyles.walletActions}>
-              <button
-                style={walletStyles.actionBtnPrimary}
-                onClick={() => openPaymentModal("deposit")}
-              >
-                <Plus size={18} />
-                Deposit
-              </button>
-              <button
-                style={walletStyles.actionBtn}
-                onClick={() => openPaymentModal("withdraw")}
-              >
-                <ArrowUpCircle size={18} />
-                Withdraw
-              </button>
-            </div>
-
-            {/* Transaction history */}
+            <Clock size={16} color="#9ca3af" />
+          </div>
+          {txLoading && (
             <div
               style={{
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-end",
-                marginBottom: 12,
+                justifyContent: "center",
+                padding: "20px 0",
               }}
             >
-              <div>
-                <h2 style={walletStyles.sectionTitle}>History</h2>
-                <div style={walletStyles.sectionSubtitle}>
-                  {txLoading
-                    ? "Updating…"
-                    : `${txs.length} transaction${txs.length !== 1 ? "s" : ""}`}
-                </div>
-              </div>
-              <Clock size={16} color="#9ca3af" style={{ marginBottom: 20 }} />
+              <div style={styles.spinner} />
             </div>
-
-            {txLoading && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  padding: "20px 0",
-                }}
-              >
-                <div style={styles.spinner} />
-              </div>
-            )}
-
-            {txError && !txLoading && (
-              <div style={walletStyles.emptyState}>
-                <AlertCircle size={48} color="#ef4444" />
-                <p style={{ color: "#ef4444" }}>{txError}</p>
-              </div>
-            )}
-
-            {!txLoading && !txError && (
+          )}
+          {txError && !txLoading && (
+            <div style={walletStyles.emptyState}>
+              <AlertCircle size={48} color="#ef4444" />
+              <p style={{ color: "#ef4444" }}>{txError}</p>
+            </div>
+          )}
+          {!txLoading && !txError && (
+            <>
               <div style={walletStyles.txList}>
                 {txs.length === 0 ? (
                   <div style={walletStyles.emptyState}>
@@ -1024,12 +940,39 @@ export const TmaProfilePage: FC = () => {
                     <p style={{ color: "#9ca3af" }}>No transactions yet</p>
                   </div>
                 ) : (
-                  txs.map((tx) => <TxRow key={tx.id} tx={tx} />)
+                  txs
+                    .slice(0, showAllTxs ? undefined : 5)
+                    .map((tx) => <TxRow key={tx.id} tx={tx} />)
                 )}
               </div>
-            )}
-          </>
-        )}
+              {txs.length > 5 && (
+                <button
+                  onClick={() => setShowAllTxs(!showAllTxs)}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    marginTop: 12,
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--glass-border)",
+                    borderRadius: 12,
+                    color: "var(--text-main)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    boxShadow: "var(--shadow-sm)",
+                  }}
+                >
+                  <Clock size={14} />
+                  {showAllTxs ? "Show Less" : "View More History"}
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Payment Modal ───────────────────────────────────── */}
@@ -1389,45 +1332,373 @@ export const TmaProfilePage: FC = () => {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StatusBadge({
-  label,
-  active,
-  activeText,
-  inactiveText,
+type CollectibleBadge = {
+  id: string;
+  icon: React.ReactNode;
+  name: string;
+  desc: string;
+  unlocked: boolean;
+};
+
+function buildBadges(
+  total: number,
+  correct: number,
+  tier: string,
+  score: number,
+  hasPhone: boolean,
+  hasDK: boolean,
+): CollectibleBadge[] {
+  const acc = total > 0 ? correct / total : 0;
+
+  return [
+    // ── Volume ──
+    {
+      id: "first_call",
+      icon: <Target size={18} color="#3b82f6" />,
+      name: "First Call",
+      desc: "Make your first prediction",
+      unlocked: total >= 1,
+    },
+    {
+      id: "triple",
+      icon: <Flame size={18} color="#f97316" />,
+      name: "Triple Threat",
+      desc: "Make 3 predictions",
+      unlocked: total >= 3,
+    },
+    {
+      id: "sharp_start",
+      icon: <Lightbulb size={18} color="#eab308" />,
+      name: "Sharp Start",
+      desc: "Make 5 predictions",
+      unlocked: total >= 5,
+    },
+    {
+      id: "ten_deep",
+      icon: <TrendingUp size={18} color="#22c55e" />,
+      name: "Ten Deep",
+      desc: "Make 10 predictions",
+      unlocked: total >= 10,
+    },
+    {
+      id: "committed",
+      icon: <Activity size={18} color="#06b6d4" />,
+      name: "Committed",
+      desc: "Make 25 predictions",
+      unlocked: total >= 25,
+    },
+    {
+      id: "centurion",
+      icon: <Award size={18} color="#a855f7" />,
+      name: "Centurion",
+      desc: "Make 100 predictions",
+      unlocked: total >= 100,
+    },
+    // ── Accuracy ──
+    {
+      id: "above_avg",
+      icon: <ThumbsUp size={18} color="#3b82f6" />,
+      name: "Above Average",
+      desc: "Hit 50%+ accuracy (5+ predictions)",
+      unlocked: total >= 5 && acc >= 0.5,
+    },
+    {
+      id: "eagle_eye",
+      icon: <Eye size={18} color="#0ea5e9" />,
+      name: "Eagle Eye",
+      desc: "Hit 60%+ accuracy (10+ predictions)",
+      unlocked: total >= 10 && acc >= 0.6,
+    },
+    {
+      id: "sharpened",
+      icon: <Crosshair size={18} color="#10b981" />,
+      name: "Sharpened",
+      desc: "Hit 70%+ accuracy (15+ predictions)",
+      unlocked: total >= 15 && acc >= 0.7,
+    },
+    {
+      id: "oracle",
+      icon: <Sparkles size={18} color="#8b5cf6" />,
+      name: "Oracle",
+      desc: "Hit 75%+ accuracy (20+ predictions)",
+      unlocked: total >= 20 && acc >= 0.75,
+    },
+    {
+      id: "electrified",
+      icon: <Zap size={18} color="#f59e0b" />,
+      name: "Electrified",
+      desc: "Hit 80%+ accuracy (30+ predictions)",
+      unlocked: total >= 30 && acc >= 0.8,
+    },
+    {
+      id: "godlike",
+      icon: <Star size={18} color="#f59e0b" />,
+      name: "Godlike",
+      desc: "Hit 85%+ accuracy (50+ predictions)",
+      unlocked: total >= 50 && acc >= 0.85,
+    },
+    // ── Correct calls ──
+    {
+      id: "right_once",
+      icon: <CheckCircle2 size={18} color="#22c55e" />,
+      name: "Right Once",
+      desc: "Get 1 correct prediction",
+      unlocked: correct >= 1,
+    },
+    {
+      id: "double_digit",
+      icon: <Hash size={18} color="#14b8a6" />,
+      name: "Double Digit",
+      desc: "Get 10 correct predictions",
+      unlocked: correct >= 10,
+    },
+    {
+      id: "think_tank",
+      icon: <Brain size={18} color="#6366f1" />,
+      name: "Think Tank",
+      desc: "Get 25 correct predictions",
+      unlocked: correct >= 25,
+    },
+    {
+      id: "half_century",
+      icon: <Dumbbell size={18} color="#ec4899" />,
+      name: "Half Century",
+      desc: "Get 50 correct predictions",
+      unlocked: correct >= 50,
+    },
+    // ── Tiers ──
+    {
+      id: "rookie",
+      icon: <Sprout size={18} color="#84cc16" />,
+      name: "Rookie",
+      desc: "Join as a Rookie",
+      unlocked: true,
+    },
+    {
+      id: "sharpshooter",
+      icon: <Swords size={18} color="#3b82f6" />,
+      name: "Sharpshooter",
+      desc: "Reach Sharpshooter tier",
+      unlocked: ["regular", "reliable", "expert"].includes(tier),
+    },
+    {
+      id: "hot_hand",
+      icon: <Flame size={18} color="#ef4444" />,
+      name: "Hot Hand",
+      desc: "Reach Hot Hand tier",
+      unlocked: ["reliable", "expert"].includes(tier),
+    },
+    {
+      id: "legend",
+      icon: <Trophy size={18} color="#f59e0b" />,
+      name: "Legend",
+      desc: "Reach Legend tier",
+      unlocked: tier === "expert",
+    },
+    // ── Profile ──
+    {
+      id: "verified",
+      icon: <Smartphone size={18} color="#6366f1" />,
+      name: "Verified",
+      desc: "Verify your phone number",
+      unlocked: hasPhone,
+    },
+    {
+      id: "bankrolled",
+      icon: <Building2 size={18} color="#0ea5e9" />,
+      name: "Bankrolled",
+      desc: "Link your DK Bank account",
+      unlocked: hasDK,
+    },
+    {
+      id: "connected",
+      icon: <Link2 size={18} color="#10b981" />,
+      name: "Connected",
+      desc: "Link phone and DK Bank",
+      unlocked: hasPhone && hasDK,
+    },
+    {
+      id: "high_score",
+      icon: <BarChart2 size={18} color="#f59e0b" />,
+      name: "High Score",
+      desc: "Reach 70%+ reputation score",
+      unlocked: score >= 0.7,
+    },
+  ];
+}
+
+function BadgeGrid({
+  totalPredictions,
+  correctPredictions,
+  reputationTier,
+  reputationScore,
+  hasPhone,
+  hasDKBank,
+  open,
+  onToggle,
 }: {
-  label: ReactNode;
-  active: boolean;
-  activeText: string;
-  inactiveText: string;
+  totalPredictions: number;
+  correctPredictions: number;
+  reputationTier: string;
+  reputationScore: number;
+  hasPhone: boolean;
+  hasDKBank: boolean;
+  open: boolean;
+  onToggle: () => void;
 }) {
+  const badges = buildBadges(
+    totalPredictions,
+    correctPredictions,
+    reputationTier,
+    reputationScore,
+    hasPhone,
+    hasDKBank,
+  );
+  const unlockedCount = badges.filter((b) => b.unlocked).length;
+  const total = badges.length;
+  const [hovered, setHovered] = useState<string | null>(null);
+
   return (
     <div
       style={{
-        ...styles.badge,
-        background: active ? "#d1fae5" : "#fee2e2",
-        borderColor: active ? "#6ee7b7" : "#fca5a5",
+        background: "var(--bg-card)",
+        borderRadius: 16,
+        padding: 16,
+        border: "1px solid var(--border)",
       }}
     >
-      <span style={styles.badgeLabel}>{label}</span>
-      <span
+      <div
         style={{
-          ...styles.badgeValue,
-          ...styles.inlineIcon,
-          color: active ? "#065f46" : "#991b1b",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: open ? 12 : 0,
+          cursor: "pointer",
+          userSelect: "none",
         }}
+        onClick={onToggle}
       >
-        {active ? (
-          <>
-            <CheckCircle2 size={12} />
-            {activeText}
-          </>
-        ) : (
-          <>
-            <XCircle size={12} />
-            {inactiveText}
-          </>
-        )}
-      </span>
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 14,
+            fontWeight: 700,
+            color: "var(--text-primary)",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Medal size={16} color="#f59e0b" /> Collectibles
+        </h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: unlockedCount > 0 ? "#f59e0b" : "var(--text-subtle)",
+              background: unlockedCount > 0 ? "#fef3c7" : "var(--bg-secondary)",
+              padding: "2px 10px",
+              borderRadius: 99,
+            }}
+          >
+            {unlockedCount}/{total} unlocked
+          </span>
+          <ChevronDown
+            size={16}
+            style={{
+              transition: "transform 0.2s",
+              transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+              color: "var(--text-subtle)",
+            }}
+          />
+        </div>
+      </div>
+      {open && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(6, 1fr)",
+            gap: 8,
+          }}
+        >
+          {badges.map((b) => (
+            <div
+              key={b.id}
+              title={`${b.name}: ${b.desc}`}
+              onMouseEnter={() => setHovered(b.id)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 3,
+                cursor: "default",
+                opacity: b.unlocked ? 1 : 0.28,
+                filter: b.unlocked ? "none" : "grayscale(1)",
+                transition: "opacity 0.2s",
+                position: "relative",
+              }}
+            >
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  background: b.unlocked
+                    ? "var(--bg-secondary)"
+                    : "var(--bg-secondary)",
+                  border: b.unlocked
+                    ? "1.5px solid #f59e0b44"
+                    : "1.5px solid transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: b.unlocked
+                    ? "0 0 8px rgba(245,158,11,0.18)"
+                    : "none",
+                }}
+              >
+                {b.unlocked ? b.icon : <Lock size={16} color="#9ca3af" />}
+              </div>
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 600,
+                  color: "var(--text-subtle)",
+                  textAlign: "center",
+                  lineHeight: 1.2,
+                  maxWidth: 44,
+                }}
+              >
+                {b.name}
+              </span>
+              {hovered === b.id && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "#1f2937",
+                    color: "#f9fafb",
+                    fontSize: 11,
+                    padding: "5px 8px",
+                    borderRadius: 8,
+                    whiteSpace: "nowrap",
+                    zIndex: 10,
+                    pointerEvents: "none",
+                    marginBottom: 4,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  }}
+                >
+                  {b.desc}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1457,7 +1728,7 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     maxWidth: 480,
     margin: "0 auto",
-    padding: "16px 16px 100px",
+    padding: "0 0 100px",
     display: "flex",
     flexDirection: "column",
     gap: 16,
@@ -1476,97 +1747,70 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "50%",
     animation: "spin 0.8s linear infinite",
   },
-  avatarSection: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-    paddingTop: 16,
+  heroCard: {
+    background: "var(--balance-card-bg)",
+    borderRadius: "0 0 28px 28px",
+    padding: "52px 20px 24px",
+    color: "#fff",
+    position: "relative",
+    overflow: "hidden",
+    boxShadow: "var(--balance-card-shadow)",
   },
-  avatar: {
-    width: 80,
-    height: 80,
+  heroAvatar: {
+    width: 54,
+    height: 54,
     borderRadius: "50%",
     objectFit: "cover",
-    border: "3px solid #2775d0",
+    border: "2.5px solid rgba(255,255,255,0.4)",
+    flexShrink: 0,
   },
-  avatarPlaceholder: {
-    width: 80,
-    height: 80,
+  heroAvatarPlaceholder: {
+    width: 54,
+    height: 54,
     borderRadius: "50%",
-    background: "linear-gradient(135deg, #2775d0, #5b9bd5)",
+    background: "rgba(255,255,255,0.2)",
     color: "#fff",
-    fontSize: 32,
-    fontWeight: 700,
+    fontSize: 22,
+    fontWeight: 800,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
+    border: "2.5px solid rgba(255,255,255,0.3)",
   },
-  name: {
-    margin: 0,
-    fontSize: 20,
-    fontWeight: 700,
-    color: "var(--text-main)",
+  actionsRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+    padding: "0 16px",
   },
-  username: {
-    margin: 0,
-    fontSize: 14,
-    color: "var(--text-muted)",
-  },
-  tabBar: {
+  actionBtnPrimary: {
     display: "flex",
-    background: "rgba(0,0,0,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: "13px",
     borderRadius: 12,
-    padding: 4,
-    gap: 4,
-    border: "1px solid var(--glass-border)",
-  },
-  tab: {
-    flex: 1,
-    padding: "10px 0",
-    fontSize: 14,
-    fontWeight: 600,
     border: "none",
-    borderRadius: 9,
-    background: "transparent",
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "all 0.18s ease",
-  },
-  tabActive: {
-    background: "linear-gradient(135deg, #4d87c9ff, #3874c8ff)",
+    background: "var(--deposit-btn-bg)",
     color: "#fff",
-    boxShadow: "0 2px 8px rgba(253, 254, 255, 0.4)",
+    fontWeight: 700,
+    fontSize: "0.9rem",
+    cursor: "pointer",
   },
-  badgeRow: {
+  actionBtnSecondary: {
     display: "flex",
-    gap: 10,
-    justifyContent: "center",
-  },
-  badge: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
     alignItems: "center",
-    gap: 4,
-    padding: "10px 12px",
+    justifyContent: "center",
+    gap: 8,
+    padding: "13px",
     borderRadius: 12,
-    border: "1px solid",
-    maxWidth: 180,
-  },
-  badgeLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    color: "#6b7280",
-  },
-  badgeValue: {
-    fontSize: 13,
-    fontWeight: 600,
+    border: "1.5px solid var(--glass-border)",
+    background: "var(--bg-card)",
+    color: "var(--text-main)",
+    fontWeight: 700,
+    fontSize: "0.9rem",
+    cursor: "pointer",
   },
   card: {
     background: "var(--bg-card)",
@@ -1576,6 +1820,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 12,
+    margin: "0 16px",
   },
   cardTitle: {
     margin: 0,

@@ -12,8 +12,10 @@ import {
   Market,
   Dispute,
   DisputeRequirements,
+  Bet,
 } from "@/api/client";
 import { Link } from "@/tma/components/Link/Link";
+import { ShareCTA } from "@/tma/components/ShareCTA";
 
 export const MarketDetailPage: FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +32,7 @@ export const MarketDetailPage: FC = () => {
   const [disputeError, setDisputeError] = useState<string | null>(null);
   const [disputeSuccess, setDisputeSuccess] = useState(false);
   const [hasBet, setHasBet] = useState(false);
+  const [userBets, setUserBets] = useState<Bet[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -47,7 +50,9 @@ export const MarketDetailPage: FC = () => {
     // Check if user has already bet on this market
     getMyBets()
       .then((bets) => {
-        setHasBet(bets.some((b) => b.marketId === id));
+        const marketBets = bets.filter((b) => b.marketId === id);
+        setUserBets(marketBets);
+        setHasBet(marketBets.length > 0);
       })
       .catch(() => {});
   }, [id]);
@@ -118,6 +123,12 @@ export const MarketDetailPage: FC = () => {
     isResolved && market.resolvedOutcomeId
       ? market.outcomes.find((o) => o.id === market.resolvedOutcomeId)
       : null;
+
+  const wonTotalPayout = userBets
+    .filter((b) => b.status === "won" || (isResolved && b.outcomeId === market.resolvedOutcomeId))
+    .reduce((sum, b) => sum + (b.payout || 0), 0);
+  
+  const hasWon = wonTotalPayout > 0;
 
   const proposedOutcome =
     isResolving && market.proposedOutcomeId
@@ -391,6 +402,11 @@ export const MarketDetailPage: FC = () => {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Share CTA for Winner */}
+          {resolvedOutcome && hasWon && (
+            <ShareCTA type="win" amount={wonTotalPayout} marketTitle={market.title} />
           )}
 
           {/* Dispute Section */}

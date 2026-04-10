@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getMe, placeBet } from "@/api/client";
 import type { Market } from "@/api/client";
 import { PayoutBreakdown } from "@/components/PayoutBreakdown";
+import { ShareCTA } from "@/tma/components/ShareCTA";
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
 const MIN_BET = 50;
@@ -121,12 +122,8 @@ export function TmaBetModal({
       await placeBet(market.id, { outcomeId, amount: betAmount });
 
       setStatus("success");
-      setTimeout(() => {
-        onSuccess?.();
-        window.dispatchEvent(new CustomEvent("tara:balance-changed"));
-        onClose();
-        resetForm();
-      }, 1500);
+      onSuccess?.();
+      window.dispatchEvent(new CustomEvent("tara:balance-changed"));
     } catch (err: any) {
       setError(err.message || "Failed to place bet");
       setStatus("failed");
@@ -200,54 +197,131 @@ export function TmaBetModal({
       >
         {/* ── Success ── */}
         {status === "success" && (
-          <div style={{ textAlign: "center", padding: "32px 0 24px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              padding: "24px 0 8px",
+            }}
+          >
+            {/* Icon + title row */}
             <div
               style={{
-                display: "inline-flex",
+                display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                width: 72,
-                height: 72,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
-                marginBottom: 16,
-                animation:
-                  "tmaSuccessPop 0.55s cubic-bezier(0.34,1.56,0.64,1) forwards, tmaSuccessGlow 1.2s ease 0.55s 2",
+                gap: 16,
+                marginBottom: 20,
               }}
             >
-              <svg
-                width="38"
-                height="38"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#16a34a"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 60,
+                  height: 60,
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+                  animation:
+                    "tmaSuccessPop 0.55s cubic-bezier(0.34,1.56,0.64,1) forwards, tmaSuccessGlow 1.2s ease 0.55s 2",
+                }}
               >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+                <svg
+                  width="32"
+                  height="32"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#16a34a"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div style={{ animation: "tmaFadeIn 0.35s ease 0.3s both" }}>
+                <div
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 800,
+                    color: "#16a34a",
+                    marginBottom: 4,
+                  }}
+                >
+                  Bet Placed!
+                </div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  Your position is now active
+                </div>
+              </div>
             </div>
+
+            {/* Bet summary */}
             <div
               style={{
-                fontSize: 18,
-                fontWeight: 800,
-                color: "#16a34a",
-                marginBottom: 6,
-                animation: "tmaFadeIn 0.35s ease 0.3s both",
-              }}
-            >
-              Bet Placed!
-            </div>
-            <div
-              style={{
-                fontSize: 13,
-                color: "var(--text-muted)",
+                background: "rgba(16,185,129,0.07)",
+                border: "1px solid rgba(16,185,129,0.25)",
+                borderRadius: 12,
+                padding: "12px 16px",
+                marginBottom: 4,
                 animation: "tmaFadeIn 0.35s ease 0.45s both",
               }}
             >
-              Your position is now active
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-subtle)",
+                  fontWeight: 600,
+                  marginBottom: 4,
+                }}
+              >
+                {market.title}
+              </div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 800,
+                  color: "var(--text-main)",
+                }}
+              >
+                Nu {betAmount.toLocaleString()} on{" "}
+                <span style={{ color: "#10b981" }}>{outcome?.label}</span>
+              </div>
             </div>
+
+            {/* Share CTA */}
+            <div style={{ animation: "tmaFadeIn 0.35s ease 0.6s both" }}>
+              <ShareCTA
+                type="bet"
+                amount={betAmount}
+                marketTitle={market.title}
+              />
+            </div>
+
+            {/* Done button */}
+            <button
+              onClick={() => {
+                onClose();
+                resetForm();
+              }}
+              style={{
+                marginTop: 4,
+                width: "100%",
+                padding: "14px",
+                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                fontSize: 15,
+                fontWeight: 800,
+                cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(37,99,235,0.4)",
+                animation: "tmaFadeIn 0.35s ease 0.75s both",
+              }}
+            >
+              Done
+            </button>
           </div>
         )}
 
