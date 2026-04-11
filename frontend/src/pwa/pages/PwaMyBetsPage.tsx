@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { getMyBets, type Bet } from "@/api/client";
-import { useAuth } from "@/pwa/hooks/useAuth";
+// import { useAuth } from "@/pwa/hooks/useAuth";
 import { BetShareCard } from "@/components/BetShareCard";
 
 const STATUS_COLOR: Record<Bet["status"], string> = {
