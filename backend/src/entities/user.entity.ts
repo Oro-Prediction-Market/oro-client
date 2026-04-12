@@ -160,6 +160,21 @@ export class User {
   @Column({ type: "varchar", nullable: true })
   contrarianBadge: string | null;
 
+  /**
+   * True once the one-time Nu 20 welcome free credit has been granted.
+   * Prevents double-granting on re-login.
+   */
+  @Column({ default: false })
+  freeCreditGranted: boolean;
+
+  /**
+   * Running total of bonus (free-credit) balance still in play.
+   * Incremented when FREE_CREDIT is granted; decremented when bonus bets settle.
+   * Used to enforce the Nu 50 withdrawable cap on bonus winnings.
+   */
+  @Column({ type: "decimal", precision: 18, scale: 2, default: 0 })
+  bonusBalance: number;
+
   // ── Referral ───────────────────────────────────────────────────────────────
 
   /**

@@ -18,6 +18,8 @@ export enum TransactionType {
   DISPUTE_BOND = "dispute_bond",
   DISPUTE_REFUND = "dispute_refund",
   REFERRAL_BONUS = "referral_bonus",
+  FREE_CREDIT = "free_credit",
+  STREAK_BONUS = "streak_bonus",
 }
 
 // Back-compat aliases
@@ -51,6 +53,14 @@ export class Transaction {
 
   @Column({ type: "varchar", nullable: true })
   note: string;
+
+  /**
+   * True when this transaction originated from a FREE_CREDIT grant or a
+   * payout derived from a free-credit bet. Winnings from bonus credits are
+   * capped at Nu 50 withdrawable — the rest is re-credited as play money.
+   */
+  @Column({ default: false })
+  isBonus: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

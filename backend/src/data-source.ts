@@ -10,6 +10,9 @@ import { Transaction } from "./entities/transaction.entity";
 import { Settlement } from "./entities/settlement.entity";
 import { Dispute } from "./entities/dispute.entity";
 import { DKGatewayAuthToken } from "./entities/dk-gateway-auth-token.entity";
+import { PaymentOtp } from "./entities/payment-otp.entity";
+import { AuditLog } from "./entities/audit-log.entity";
+import { Challenge } from "./entities/challenge.entity";
 
 dotenv.config();
 
@@ -38,6 +41,9 @@ export const AppDataSource = new DataSource({
     Settlement,
     Dispute,
     DKGatewayAuthToken,
+    PaymentOtp,
+    AuditLog,
+    Challenge,
   ],
   migrations: [__dirname + "/migrations/*{.ts,.js}"],
   subscribers: [],

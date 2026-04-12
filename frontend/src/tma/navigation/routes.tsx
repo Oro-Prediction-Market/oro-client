@@ -17,6 +17,7 @@ import { TmaProfilePage } from "@/tma/pages/TmaProfilePage";
 import { ResolvedMarketsPage } from "@/tma/pages/ResolvedMarketsPage";
 import { TmaLeaderboardPage } from "@/tma/pages/TmaLeaderboardPage";
 import { TmaSettingsPage } from "@/tma/pages/TmaSettingsPage";
+import { TmaChallengesPage } from "@/tma/pages/TmaChallengesPage";
 
 interface Route {
   path: string;
@@ -92,4 +93,5 @@ export const routes: Route[] = [
   },
   { path: "/leaderboard", Component: TmaLeaderboardPage, title: "Leaderboard" },
   { path: "/settings", Component: TmaSettingsPage, title: "Settings" },
+  { path: "/challenges", Component: TmaChallengesPage, title: "Duels" },
 ];

@@ -281,9 +281,12 @@ export class ParimutuelEngine implements OnModuleInit {
       // ── Referral bonus (non-blocking) ────────────────────────────────────
       // Fires exactly once: on the referred user's first ever bet.
       // Referrer earns 20% of the house rake on that bet.
-      this.creditReferralBonusIfEligible(userId, amount, capturedHouseEdgePct).catch(
-        (err: any) =>
-          this.logger.error(`Referral bonus credit failed: ${err.message}`),
+      this.creditReferralBonusIfEligible(
+        userId,
+        amount,
+        capturedHouseEdgePct,
+      ).catch((err: any) =>
+        this.logger.error(`Referral bonus credit failed: ${err.message}`),
       );
 
       const result = completedPosition! as Position & {
@@ -322,12 +325,10 @@ export class ParimutuelEngine implements OnModuleInit {
     betAmount: number,
     houseEdgePct: number,
   ): Promise<void> {
-    const bettor = await this.dataSource
-      .getRepository(User)
-      .findOne({
-        where: { id: bettorUserId },
-        select: ["id", "referredByUserId", "referralBonusTriggered"],
-      });
+    const bettor = await this.dataSource.getRepository(User).findOne({
+      where: { id: bettorUserId },
+      select: ["id", "referredByUserId", "referralBonusTriggered"],
+    });
 
     if (!bettor?.referredByUserId || bettor.referralBonusTriggered) return;
 
@@ -656,25 +657,88 @@ export class ParimutuelEngine implements OnModuleInit {
         if (bet.outcomeId === winner.id) {
           // Payout proportional to their share of winner pool
           const share = winnerPool > 0 ? Number(bet.amount) / winnerPool : 0;
-          const payout = parseFloat((payoutPool * share).toFixed(2));
-          bet.payout = payout;
+          const rawPayout = parseFloat((payoutPool * share).toFixed(2));
+
+          // ── Bonus cap logic (Option 2) ─────────────────────────────────────
+          // If this bet was placed using bonus credits, cap the withdrawable
+          // portion at Nu 50. Anything above that is re-credited as play money
+          // (isBonus=true) so it can only be re-bet, not withdrawn to DK Bank.
+          const BONUS_WITHDRAWABLE_CAP = 50;
+          const user = await em.findOne(User, {
+            where: { id: bet.userId },
+            select: ["id", "bonusBalance"],
+          });
+          const userBonusBalance = Number(user?.bonusBalance ?? 0);
+          const betIsBonusFunded =
+            userBonusBalance > 0 && Number(bet.amount) <= userBonusBalance;
+
+          let withdrawablePayout = rawPayout;
+          let playPayout = 0;
+
+          if (betIsBonusFunded) {
+            withdrawablePayout = Math.min(rawPayout, BONUS_WITHDRAWABLE_CAP);
+            playPayout = parseFloat(
+              (rawPayout - withdrawablePayout).toFixed(2),
+            );
+            // Reduce the user's tracked bonus balance
+            const newBonusBalance = Math.max(
+              0,
+              userBonusBalance - Number(bet.amount),
+            );
+            await em.update(
+              User,
+              { id: bet.userId },
+              { bonusBalance: newBonusBalance },
+            );
+          }
+
+          bet.payout = rawPayout;
           bet.status = PositionStatus.WON;
-          totalPaidOut += payout;
+          totalPaidOut += rawPayout;
           winningPositions++;
 
           const balanceBefore = await this.getCreditsBalance(em, bet.userId);
+
+          // Credit the withdrawable portion
           await em.save(
             Transaction,
             em.create(Transaction, {
               type: TransactionType.POSITION_PAYOUT,
-              amount: payout,
+              amount: withdrawablePayout,
               balanceBefore,
-              balanceAfter: balanceBefore + payout,
+              balanceAfter: balanceBefore + withdrawablePayout,
               positionId: bet.id,
               userId: bet.userId,
+              isBonus: false,
               note: `Payout for winning bet on: ${winner.label}`,
             }),
           );
+
+          // Credit the play-money portion (above cap) as bonus credits
+          if (playPayout > 0) {
+            const balAfterWithdrawable = balanceBefore + withdrawablePayout;
+            await em.save(
+              Transaction,
+              em.create(Transaction, {
+                type: TransactionType.FREE_CREDIT,
+                amount: playPayout,
+                balanceBefore: balAfterWithdrawable,
+                balanceAfter: balAfterWithdrawable + playPayout,
+                positionId: bet.id,
+                userId: bet.userId,
+                isBonus: true,
+                note: `Bonus play credits — payout above Nu ${BONUS_WITHDRAWABLE_CAP} cap (re-bet only)`,
+              }),
+            );
+            // Track the new play-money balance
+            await em.update(
+              User,
+              { id: bet.userId },
+              {
+                bonusBalance: () => `"bonusBalance" + ${playPayout}`,
+              },
+            );
+          }
         } else if (market.status === MarketStatus.CANCELLED) {
           // Refund on cancellation via ledger entry
           bet.status = PositionStatus.REFUNDED;

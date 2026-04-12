@@ -126,7 +126,10 @@ export async function loginWithTelegram(
 ): Promise<AuthResponse> {
   const result = await request<AuthResponse>("/auth/telegram", {
     method: "POST",
-    body: JSON.stringify({ initData, ...(referralCode ? { referralCode } : {}) }),
+    body: JSON.stringify({
+      initData,
+      ...(referralCode ? { referralCode } : {}),
+    }),
   });
   setToken(result.token);
   return result;
@@ -438,4 +441,42 @@ export interface LeaderboardResponse {
 
 export function getLeaderboard(): Promise<LeaderboardResponse> {
   return request<LeaderboardResponse>("/users/leaderboard");
+}
+
+// ─── Challenges (Prediction Duels) ───────────────────────────────────────────
+
+export interface ChallengeResponse {
+  id: string;
+  marketId: string;
+  marketTitle: string | null;
+  outcomeId: string;
+  outcomeLabel: string | null;
+  creatorId: string;
+  creatorName: string | null;
+  isOwner: boolean;
+  participantCount: number;
+  status: "open" | "active" | "settled" | "expired";
+  expiresAt: string;
+  createdAt: string;
+  link: string;
+}
+
+export function createChallenge(
+  marketId: string,
+  outcomeId: string,
+): Promise<ChallengeResponse> {
+  return request<ChallengeResponse>("/challenges", {
+    method: "POST",
+    body: JSON.stringify({ marketId, outcomeId }),
+  });
+}
+
+export function getChallenges(): Promise<ChallengeResponse[]> {
+  return request<ChallengeResponse[]>("/challenges");
+}
+
+export function joinChallenge(challengeId: string): Promise<ChallengeResponse> {
+  return request<ChallengeResponse>(`/challenges/${challengeId}/join`, {
+    method: "POST",
+  });
 }

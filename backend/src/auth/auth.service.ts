@@ -146,16 +146,35 @@ export class AuthService {
         });
         await this.userRepo.save(user);
 
-        // Dev-only seed credits — not available in staging or production
+        // ── Welcome free credit (all environments) ──────────────────────────
+        // Nu 20 bonus credit so new users can predict without depositing first.
+        // Marked isBonus=true — winnings from this are capped at Nu 50 withdrawable.
+        await this.transactionRepo.save(
+          this.transactionRepo.create({
+            type: TransactionType.FREE_CREDIT,
+            amount: 20,
+            balanceBefore: 0,
+            balanceAfter: 20,
+            userId: user.id,
+            isBonus: true,
+            note: "🎉 Welcome bonus — free Nu 20 to make your first prediction!",
+          }),
+        );
+        await this.userRepo.update(user.id, {
+          freeCreditGranted: true,
+          bonusBalance: 20,
+        });
+
+        // Dev-only extra seed credits on top of the welcome bonus
         if (process.env.NODE_ENV === "development") {
           await this.transactionRepo.save(
             this.transactionRepo.create({
               type: TransactionType.DEPOSIT,
               amount: 1000,
-              balanceBefore: 0,
-              balanceAfter: 1000,
+              balanceBefore: 20,
+              balanceAfter: 1020,
               userId: user.id,
-              note: "Starter credits",
+              note: "Starter credits (dev only)",
             }),
           );
         }

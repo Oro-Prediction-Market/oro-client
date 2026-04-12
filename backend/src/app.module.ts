@@ -24,6 +24,8 @@ import { Dispute } from "./entities/dispute.entity";
 import { DKGatewayAuthToken } from "./entities/dk-gateway-auth-token.entity";
 import { PaymentOtp } from "./entities/payment-otp.entity";
 import { AuditLog } from "./entities/audit-log.entity";
+import { Challenge } from "./entities/challenge.entity";
+import { ChallengesModule } from "./challenges/challenges.module";
 
 @Module({
   imports: [
@@ -70,6 +72,7 @@ import { AuditLog } from "./entities/audit-log.entity";
           DKGatewayAuthToken,
           PaymentOtp,
           AuditLog,
+          Challenge,
         ],
         synchronize: false,
         logging: false,
@@ -87,6 +90,7 @@ import { AuditLog } from "./entities/audit-log.entity";
     AdminModule,
     TelegramModule,
     PaymentModule,
+    ChallengesModule,
   ],
 })
 export class AppModule {}
