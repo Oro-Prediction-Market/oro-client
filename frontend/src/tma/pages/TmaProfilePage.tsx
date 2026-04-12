@@ -236,7 +236,7 @@ export const TmaProfilePage: FC = () => {
   const [txError, setTxError] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
-  const [referralCopied, setReferralCopied] = useState(false);
+
 
   useEffect(() => {
     getMe()
@@ -669,7 +669,7 @@ export const TmaProfilePage: FC = () => {
               )}
             </div>
 
-            {/* Share + Settings — aligned to top of the row */}
+            {/* Settings — aligned to top of the row */}
             <div
               style={{
                 display: "flex",
@@ -680,27 +680,6 @@ export const TmaProfilePage: FC = () => {
                 marginTop: 28,
               }}
             >
-              <button
-                onClick={() => setShowProfileShare(true)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 14px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "#fff",
-                  color: "#1e3a5f",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
-                }}
-              >
-                <Share2 size={13} />
-                Share
-              </button>
               <button
                 onClick={() => navigate("/settings")}
                 style={{
@@ -1103,6 +1082,61 @@ export const TmaProfilePage: FC = () => {
           </div>
         )}
 
+        {/* ── Invite Friends ────────────────────────────────── */}
+        <div style={{ padding: "0 16px", marginBottom: 16 }}>
+          <div
+            style={{
+              background: "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.04))",
+              border: "1px solid rgba(99,102,241,0.25)",
+              borderRadius: 16,
+              padding: "16px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <UserPlus size={18} color="#818cf8" />
+              <span style={{ fontSize: 14, fontWeight: 800, color: "var(--text-main)" }}>
+                Invite Friends
+              </span>
+              {(referralStats?.convertedCount ?? 0) > 0 && (
+                <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.12)", padding: "2px 8px", borderRadius: 99 }}>
+                  {referralStats!.convertedCount} converted
+                </span>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
+              Earn <b style={{ color: "var(--text-main)" }}>Nu {referralStats?.flatBonus ?? 50} + {referralStats?.betPct ?? 5}%</b> of their first bet when they sign up with your link.
+            </p>
+            {referralStats?.totalEarned ? (
+              <div style={{ fontSize: 12, color: "#22c55e", fontWeight: 700, marginBottom: 10 }}>
+                Total earned: Nu {Number(referralStats.totalEarned).toLocaleString()}
+              </div>
+            ) : null}
+            {/* Share Stats card — shows win rate + embeds referral link */}
+            <button
+              onClick={() => setShowProfileShare(true)}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                padding: "11px 0",
+                borderRadius: 12,
+                background: "linear-gradient(135deg, rgba(59,130,246,0.18), rgba(99,102,241,0.18))",
+                border: "1px solid rgba(99,102,241,0.35)",
+                color: "#a5b4fc",
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              <Share2 size={14} />
+              Share your stats &amp; invite friends
+            </button>
+          </div>
+        </div>
+
         {/* ── Transaction History ───────────────────────────── */}
         <div style={{ padding: "0 16px", marginBottom: 20 }}>
           <div
@@ -1225,87 +1259,6 @@ export const TmaProfilePage: FC = () => {
                   </div>
                 );
               })()}
-
-              {/* ── Referral share card ── */}
-              <div
-                style={{
-                  background: "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.04))",
-                  border: "1px solid rgba(99,102,241,0.25)",
-                  borderRadius: 16,
-                  padding: "16px",
-                  marginBottom: 12,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <UserPlus size={18} color="#818cf8" />
-                  <span style={{ fontSize: 14, fontWeight: 800, color: "var(--text-main)" }}>
-                    Invite friends
-                  </span>
-                  {(referralStats?.convertedCount ?? 0) > 0 && (
-                    <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.12)", padding: "2px 8px", borderRadius: 99 }}>
-                      {referralStats!.convertedCount} converted
-                    </span>
-                  )}
-                </div>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
-                  Earn <b style={{ color: "var(--text-main)" }}>Nu {referralStats?.flatBonus ?? 50} + {referralStats?.betPct ?? 5}%</b> of their first bet when they sign up with your link.
-                </p>
-                {referralStats?.totalEarned ? (
-                  <div style={{ fontSize: 12, color: "#22c55e", fontWeight: 700, marginBottom: 10 }}>
-                    Total earned: Nu {Number(referralStats.totalEarned).toLocaleString()}
-                  </div>
-                ) : null}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <div
-                    style={{
-                      flex: 1,
-                      padding: "9px 12px",
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--glass-border)",
-                      borderRadius: 10,
-                      fontSize: 11,
-                      color: "var(--text-subtle)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {referralStats?.referralLink ?? "Loading…"}
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (!referralStats?.referralLink) return;
-                      try {
-                        await navigator.clipboard.writeText(referralStats.referralLink);
-                      } catch {
-                        // fallback — clipboard not available in TMA sandboxes
-                      }
-                      setReferralCopied(true);
-                      setTimeout(() => setReferralCopied(false), 2000);
-                    }}
-                    style={{
-                      padding: "9px 14px",
-                      background: referralCopied ? "rgba(34,197,94,0.15)" : "rgba(99,102,241,0.2)",
-                      border: `1px solid ${referralCopied ? "rgba(34,197,94,0.3)" : "rgba(99,102,241,0.35)"}`,
-                      borderRadius: 10,
-                      color: referralCopied ? "#22c55e" : "#818cf8",
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: "pointer",
-                      flexShrink: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 5,
-                    }}
-                  >
-                    {referralCopied ? (
-                      <>Copied</>
-                    ) : (
-                      <><Send size={13} /> Share</>
-                    )}
-                  </button>
-                </div>
-              </div>
 
               <div style={walletStyles.txList}>
                 {txs.length === 0 ? (

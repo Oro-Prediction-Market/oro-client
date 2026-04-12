@@ -755,10 +755,11 @@ export const TmaChallengesPage: FC = () => {
     : (user?.firstName ?? "You");
 
   useEffect(() => {
+    if (!user) return; 
     Promise.all([
       getMarkets(),
-      user ? getMyBets() : Promise.resolve([]), // all bets for total count
-      user ? getMyBets("pending") : Promise.resolve([]), // pending only for market IDs
+      getMyBets(), 
+      getMyBets("pending"), 
       getChallenges().catch(() => [] as Challenge[]),
     ])
       .then(([allMarkets, allBets, pendingBets, activeChallenges]) => {
@@ -771,7 +772,7 @@ export const TmaChallengesPage: FC = () => {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [user?.id]);
 
   return (
     <Page>
