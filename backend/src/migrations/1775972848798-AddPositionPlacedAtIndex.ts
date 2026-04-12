@@ -30,26 +30,80 @@ export class AddPositionPlacedAtIndex1775972848798 implements MigrationInterface
         await queryRunner.query(`DROP INDEX "public"."IDX_disputes_userId"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_dk_gateway_auth_tokens_accesstoken"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_dk_gateway_auth_tokens_expiresat"`);
-        await queryRunner.query(`ALTER TYPE "public"."markets_mechanism_enum" RENAME TO "markets_mechanism_enum_old"`);
-        await queryRunner.query(`CREATE TYPE "public"."markets_mechanism_enum" AS ENUM('parimutuel')`);
+        await queryRunner.query(`
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'markets_mechanism_enum') THEN
+              ALTER TYPE "public"."markets_mechanism_enum" RENAME TO "markets_mechanism_enum_old";
+            END IF;
+          END $$
+        `);
+        await queryRunner.query(`
+          DO $$ BEGIN
+            CREATE TYPE "public"."markets_mechanism_enum" AS ENUM('parimutuel');
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END $$
+        `);
         await queryRunner.query(`ALTER TABLE "markets" ALTER COLUMN "mechanism" DROP DEFAULT`);
         await queryRunner.query(`ALTER TABLE "markets" ALTER COLUMN "mechanism" TYPE "public"."markets_mechanism_enum" USING "mechanism"::"text"::"public"."markets_mechanism_enum"`);
         await queryRunner.query(`ALTER TABLE "markets" ALTER COLUMN "mechanism" SET DEFAULT 'parimutuel'`);
-        await queryRunner.query(`DROP TYPE "public"."markets_mechanism_enum_old"`);
+        await queryRunner.query(`
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'markets_mechanism_enum_old') THEN
+              DROP TYPE "public"."markets_mechanism_enum_old";
+            END IF;
+          END $$
+        `);
         await queryRunner.query(`ALTER TABLE "markets" DROP COLUMN "resolvedOutcomeId"`);
         await queryRunner.query(`ALTER TABLE "markets" ADD "resolvedOutcomeId" uuid`);
         await queryRunner.query(`ALTER TABLE "markets" DROP COLUMN "proposedOutcomeId"`);
         await queryRunner.query(`ALTER TABLE "markets" ADD "proposedOutcomeId" uuid`);
-        await queryRunner.query(`ALTER TYPE "public"."bets_status_enum" RENAME TO "bets_status_enum_old"`);
-        await queryRunner.query(`CREATE TYPE "public"."positions_status_enum" AS ENUM('pending', 'won', 'lost', 'refunded')`);
+        // Rename old enum only if it still exists (guard for re-runs)
+        await queryRunner.query(`
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bets_status_enum') THEN
+              ALTER TYPE "public"."bets_status_enum" RENAME TO "bets_status_enum_old";
+            END IF;
+          END $$
+        `);
+        // Create new enum only if it doesn't already exist
+        await queryRunner.query(`
+          DO $$ BEGIN
+            CREATE TYPE "public"."positions_status_enum" AS ENUM('pending', 'won', 'lost', 'refunded');
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END $$
+        `);
         await queryRunner.query(`ALTER TABLE "positions" ALTER COLUMN "status" DROP DEFAULT`);
         await queryRunner.query(`ALTER TABLE "positions" ALTER COLUMN "status" TYPE "public"."positions_status_enum" USING "status"::"text"::"public"."positions_status_enum"`);
         await queryRunner.query(`ALTER TABLE "positions" ALTER COLUMN "status" SET DEFAULT 'pending'`);
-        await queryRunner.query(`DROP TYPE "public"."bets_status_enum_old"`);
-        await queryRunner.query(`ALTER TYPE "public"."payments_type_enum" RENAME TO "payments_type_enum_old"`);
-        await queryRunner.query(`CREATE TYPE "public"."payments_type_enum" AS ENUM('deposit', 'withdrawal', 'position_placed', 'position_payout', 'refund')`);
+        // Drop old enum only if it still exists
+        await queryRunner.query(`
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bets_status_enum_old') THEN
+              DROP TYPE "public"."bets_status_enum_old";
+            END IF;
+          END $$
+        `);
+        await queryRunner.query(`
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payments_type_enum') THEN
+              ALTER TYPE "public"."payments_type_enum" RENAME TO "payments_type_enum_old";
+            END IF;
+          END $$
+        `);
+        await queryRunner.query(`
+          DO $$ BEGIN
+            CREATE TYPE "public"."payments_type_enum" AS ENUM('deposit', 'withdrawal', 'position_placed', 'position_payout', 'refund');
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END $$
+        `);
         await queryRunner.query(`ALTER TABLE "payments" ALTER COLUMN "type" TYPE "public"."payments_type_enum" USING "type"::"text"::"public"."payments_type_enum"`);
-        await queryRunner.query(`DROP TYPE "public"."payments_type_enum_old"`);
+        await queryRunner.query(`
+          DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payments_type_enum_old') THEN
+              DROP TYPE "public"."payments_type_enum_old";
+            END IF;
+          END $$
+        `);
         await queryRunner.query(`ALTER TABLE "payments" DROP COLUMN "confirmedAt"`);
         await queryRunner.query(`ALTER TABLE "payments" ADD "confirmedAt" TIMESTAMP WITH TIME ZONE`);
         await queryRunner.query(`DROP INDEX "public"."IDX_721af04ac41f7598ecb59f5e66"`);

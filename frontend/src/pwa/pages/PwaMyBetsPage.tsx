@@ -311,10 +311,16 @@ export function PwaMyBetsPage() {
 
   // We could fetch user details for the share card, but BetShareCard handles defaults
   // For PWA, let's just use generic 'You' or fetch if we want premium
-  const [userProfile, setUserProfile] = useState<{ firstName: string; photoUrl: string | null } | null>(null);
+  const [userProfile, setUserProfile] = useState<{
+    firstName: string;
+    photoUrl: string | null;
+  } | null>(null);
 
   useEffect(() => {
-    import("@/api/client").then(m => m.getMe()).then(setUserProfile).catch(() => {});
+    import("@/api/client")
+      .then((m) => m.getMe())
+      .then(setUserProfile)
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -345,7 +351,14 @@ export function PwaMyBetsPage() {
   );
 
   return (
-    <div style={{ maxWidth: 700, margin: "0 auto", padding: "32px 16px 100px", position: "relative" }}>
+    <div
+      style={{
+        maxWidth: 700,
+        margin: "0 auto",
+        padding: "14px 16px 100px",
+        position: "relative",
+      }}
+    >
       <div className="mesh-bg" />
       <h1
         style={{
@@ -482,7 +495,7 @@ export function PwaMyBetsPage() {
               position: "relative",
               animation: "modalFadeIn 0.3s ease-out",
             }}
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setBragBet(null)}
@@ -507,7 +520,15 @@ export function PwaMyBetsPage() {
               stakeAmount={Number(bragBet.amount)}
               outcomeColor="#22c55e"
             />
-            <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem", textAlign: "center", marginTop: 16, fontWeight: 500 }}>
+            <p
+              style={{
+                color: "rgba(255,255,255,0.6)",
+                fontSize: "0.8rem",
+                textAlign: "center",
+                marginTop: 16,
+                fontWeight: 500,
+              }}
+            >
               Share your winning prediction with the world!
             </p>
           </div>

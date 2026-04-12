@@ -108,6 +108,7 @@ export class ParimutuelEngine implements OnModuleInit {
     let betMarket: Market | null = null;
     let betOutcome: Outcome | null = null;
     let betUser: User | null = null;
+    let betUserTelegramId: string | null = null;
     let balanceAfterBet = 0;
     let capturedHouseEdgePct = 8; // default; overwritten inside transaction
 
@@ -158,6 +159,7 @@ export class ParimutuelEngine implements OnModuleInit {
 
         // Store user reference for notification
         betUser = user;
+        betUserTelegramId = user.telegramId;
         betMarket = market;
         betOutcome = outcome;
         capturedHouseEdgePct = Number(market.houseEdgePct) || 8;
@@ -278,6 +280,28 @@ export class ParimutuelEngine implements OnModuleInit {
           );
       }
 
+      // ── Streak milestone push notification (non-blocking) ─────────────────
+      const streakChatId = betUserTelegramId ? Number(betUserTelegramId) : null;
+      if (streakResult && streakChatId) {
+        const { dayInCycle, boostActive } = streakResult;
+        const shouldNotify = boostActive || dayInCycle === 3 || dayInCycle === 1;
+        if (shouldNotify) {
+          let msg: string;
+          if (boostActive) {
+            msg = `Day 7 streak! Your next winning payout gets a <b>1.2x boost</b>. Keep predicting!`;
+          } else if (dayInCycle === 3) {
+            msg = `3-day streak! ${7 - dayInCycle} more days until your bonus boost.`;
+          } else {
+            msg = `Streak started! Predict daily to earn a Day-7 bonus boost.`;
+          }
+          this.telegramSimple
+            .sendMessage(streakChatId, msg)
+            .catch((err: any) =>
+              this.logger.error(`Streak push failed: ${err.message}`),
+            );
+        }
+      }
+
       // ── Referral bonus (non-blocking) ────────────────────────────────────
       // Fires exactly once: on the referred user's first ever bet.
       // Referrer earns 20% of the house rake on that bet.
@@ -317,13 +341,17 @@ export class ParimutuelEngine implements OnModuleInit {
 
   // ── Referral bonus ─────────────────────────────────────────────────────────
   /**
-   * Credits the referrer 20% of the house rake on the referred user's first bet.
-   * Idempotent: the `referralBonusTriggered` flag ensures it runs exactly once.
+   * Credits the referrer a flat Nu 50 bonus + 5% of the referred user's first bet.
+   * Capped at Nu 50 total. Idempotent: `referralBonusTriggered` ensures exactly once.
    */
+  static readonly REFERRAL_FLAT_BONUS = 50; // Nu 50 flat
+  static readonly REFERRAL_BET_PCT = 0.05;  // 5% of first bet
+  static readonly REFERRAL_CAP = 50;         // total cap Nu 50
+
   private async creditReferralBonusIfEligible(
     bettorUserId: string,
     betAmount: number,
-    houseEdgePct: number,
+    _houseEdgePct: number,
   ): Promise<void> {
     const bettor = await this.dataSource.getRepository(User).findOne({
       where: { id: bettorUserId },
@@ -338,9 +366,12 @@ export class ParimutuelEngine implements OnModuleInit {
 
     if (!referrer) return;
 
-    // 20% of the rake on this bet, rounded to 2 decimal places
-    const rake = betAmount * (houseEdgePct / 100);
-    const bonus = Math.round(rake * 0.2 * 100) / 100;
+    // Nu 50 flat + 5% of the first bet, capped at Nu 50
+    const pct = Math.round(betAmount * ParimutuelEngine.REFERRAL_BET_PCT * 100) / 100;
+    const bonus = Math.min(
+      ParimutuelEngine.REFERRAL_FLAT_BONUS + pct,
+      ParimutuelEngine.REFERRAL_CAP,
+    );
     if (bonus <= 0) return;
 
     await this.dataSource.transaction(async (em) => {

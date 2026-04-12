@@ -38,15 +38,13 @@ export class ChallengesService {
     marketId: string,
     outcomeId: string,
   ): Promise<Challenge> {
-    // 1. Check user eligibility
-    const user = await this.userRepo.findOne({
-      where: { id: creatorId },
-      select: ["id", "totalPredictions"],
+    // 1. Check user eligibility — count ALL positions (pending + settled)
+    const totalBets = await this.positionRepo.count({
+      where: { userId: creatorId },
     });
-    if (!user) throw new NotFoundException("User not found");
-    if ((user.totalPredictions ?? 0) < MIN_PREDICTIONS_REQUIRED) {
+    if (totalBets < MIN_PREDICTIONS_REQUIRED) {
       throw new BadRequestException(
-        `You need at least ${MIN_PREDICTIONS_REQUIRED} predictions to create a challenge (you have ${user.totalPredictions ?? 0})`,
+        `You need at least ${MIN_PREDICTIONS_REQUIRED} bets to create a challenge (you have ${totalBets})`,
       );
     }
 

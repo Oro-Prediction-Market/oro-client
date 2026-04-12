@@ -480,3 +480,48 @@ export function joinChallenge(challengeId: string): Promise<ChallengeResponse> {
     method: "POST",
   });
 }
+
+// ─── Seasons ─────────────────────────────────────────────────────────────────
+
+export interface Season {
+  id: string;
+  weekNumber: number;
+  year: number;
+  startsAt: string;
+  endsAt: string;
+  status: "active" | "closed";
+  winnersSnapshot: {
+    rank: number;
+    userId: string;
+    firstName: string | null;
+    username: string | null;
+    reputationScore: number | null;
+    reputationTier: string;
+    winRate: number;
+  }[] | null;
+  createdAt: string;
+}
+
+export function getCurrentSeason(): Promise<Season | null> {
+  return request<Season | null>("/users/seasons/current");
+}
+
+export function getSeasonHistory(limit = 10): Promise<Season[]> {
+  return request<Season[]>(`/users/seasons/history?limit=${limit}`);
+}
+
+// ─── Referral ─────────────────────────────────────────────────────────────────
+
+export interface ReferralStats {
+  referralLink: string;
+  referredCount: number;
+  convertedCount: number;
+  totalEarned: number;
+  flatBonus: number;
+  betPct: number;
+  cap: number;
+}
+
+export function getReferralStats(): Promise<ReferralStats> {
+  return request<ReferralStats>("/users/me/referral");
+}

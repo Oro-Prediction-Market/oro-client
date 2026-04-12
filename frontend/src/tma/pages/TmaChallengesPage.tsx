@@ -746,9 +746,9 @@ export const TmaChallengesPage: FC = () => {
   const [myBetMarketIds, setMyBetMarketIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [totalBetCount, setTotalBetCount] = useState(0);
 
-  const totalPredictions = user?.totalPredictions ?? 0;
-  const isEligible = totalPredictions >= MIN_PREDICTIONS_REQUIRED;
+  const isEligible = totalBetCount >= MIN_PREDICTIONS_REQUIRED;
 
   const userName = user?.username
     ? `@${user.username}`
@@ -757,12 +757,16 @@ export const TmaChallengesPage: FC = () => {
   useEffect(() => {
     Promise.all([
       getMarkets(),
-      user ? getMyBets("pending") : Promise.resolve([]),
+      user ? getMyBets() : Promise.resolve([]), // all bets for total count
+      user ? getMyBets("pending") : Promise.resolve([]), // pending only for market IDs
       getChallenges().catch(() => [] as Challenge[]),
     ])
-      .then(([allMarkets, myBets, activeChallenges]) => {
+      .then(([allMarkets, allBets, pendingBets, activeChallenges]) => {
         setMarkets(allMarkets.filter((m) => m.status === "open"));
-        setMyBetMarketIds(new Set((myBets as Bet[]).map((b) => b.marketId)));
+        setTotalBetCount((allBets as Bet[]).length);
+        setMyBetMarketIds(
+          new Set((pendingBets as Bet[]).map((b) => b.marketId)),
+        );
         setChallenges(activeChallenges as Challenge[]);
       })
       .catch(console.error)
@@ -782,7 +786,7 @@ export const TmaChallengesPage: FC = () => {
       {/* Header */}
       <div
         style={{
-          padding: "20px 16px 12px",
+          padding: "9px 16px 12px",
           display: "flex",
           alignItems: "center",
           gap: 10,
@@ -793,6 +797,7 @@ export const TmaChallengesPage: FC = () => {
             width: 40,
             height: 40,
             borderRadius: 12,
+            marginBottom: -10,
             background:
               "linear-gradient(135deg, rgba(245,158,11,0.2), rgba(245,158,11,0.08))",
             border: "1px solid rgba(245,158,11,0.3)",
@@ -811,8 +816,9 @@ export const TmaChallengesPage: FC = () => {
               fontWeight: 900,
               color: "var(--text-main)",
               letterSpacing: "-0.02em",
-              lineHeight: 1.2,
+              lineHeight: 1,
               fontFamily: "var(--font-display)",
+              marginBottom: 0,
             }}
           >
             Prediction Duels
@@ -822,7 +828,7 @@ export const TmaChallengesPage: FC = () => {
               fontSize: "0.75rem",
               color: "var(--text-muted)",
               fontWeight: 600,
-              marginTop: 2,
+              marginTop: 3,
             }}
           >
             Challenge friends · {MIN_PREDICTIONS_REQUIRED} predictions to unlock
@@ -843,7 +849,7 @@ export const TmaChallengesPage: FC = () => {
           Loading…
         </div>
       ) : !isEligible ? (
-        <EligibilityGate totalPredictions={totalPredictions} />
+        <EligibilityGate totalPredictions={totalBetCount} />
       ) : (
         <>
           <div
@@ -934,7 +940,7 @@ export const TmaChallengesPage: FC = () => {
             }}
           >
             <Trophy size={13} />
-            Eligible — {totalPredictions} predictions made
+            Eligible — {totalBetCount} bets placed
           </div>
 
           <CreateChallengeCard

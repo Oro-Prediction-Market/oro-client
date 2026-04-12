@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Navigate, Route, Routes, HashRouter } from 'react-router-dom';
 import { useLaunchParams } from '@tma.js/sdk-react';
 import { AppRoot } from '@telegram-apps/telegram-ui';
@@ -5,10 +6,13 @@ import { PwaBottomNav } from '@/pwa/components/PwaBottomNav';
 
 import { routes } from '@/tma/navigation/routes.tsx';
 import { useTheme } from '@/hooks/useTheme';
+import { OnboardingModal, useOnboarding } from './OnboardingModal';
 
 export function App() {
   const lp = useLaunchParams();
   const { theme } = useTheme();
+  const shouldOnboard = useOnboarding();
+  const [showOnboarding, setShowOnboarding] = useState(shouldOnboard);
 
   const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
@@ -25,6 +29,7 @@ export function App() {
           </Routes>
         </div>
         <PwaBottomNav />
+        {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
       </HashRouter>
     </AppRoot>
   );

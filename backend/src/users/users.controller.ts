@@ -4,7 +4,6 @@ import {
   UseGuards,
   Request,
   Query,
-  Optional,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -17,6 +16,7 @@ import {
 } from "@nestjs/swagger";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
+import { ConfigService } from "@nestjs/config";
 import { JwtAuthGuard } from "../auth/guards";
 import { User } from "../entities/user.entity";
 import { Payment } from "../entities/payment.entity";
@@ -24,6 +24,8 @@ import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { Position, PositionStatus } from "../entities/position.entity";
 import { RedisService } from "../redis/redis.service";
 import { StreakService } from "./streak.service";
+import { SeasonService } from "./season.service";
+import { ParimutuelEngine } from "../markets/parimutuel.engine";
 
 // ─── Response schemas for Swagger ────────────────────────────────────────────
 
@@ -100,6 +102,8 @@ export class UsersController {
     @InjectRepository(Position) private betRepo: Repository<Position>,
     private readonly redis: RedisService,
     private readonly streakService: StreakService,
+    private readonly config: ConfigService,
+    private readonly seasonService: SeasonService,
   ) {}
 
   @Get("me")
@@ -269,6 +273,46 @@ export class UsersController {
       .getMany();
   }
 
+  // ── Referral ──────────────────────────────────────────────────────────────
+
+  @Get("me/referral")
+  @ApiOperation({ summary: "Get referral link and earnings stats" })
+  async getReferral(@Request() req: any) {
+    const userId: string = req.user.userId;
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ["id", "telegramId"],
+    });
+
+    const botUsername = this.config.get<string>("TELEGRAM_BOT_USERNAME") ?? "OroPredictBot";
+    const referralLink = `https://t.me/${botUsername}?start=ref_${user?.telegramId ?? userId}`;
+
+    // Total bonus credited across all referrals
+    const { total } = await this.transactionRepo
+      .createQueryBuilder("t")
+      .select("COALESCE(SUM(t.amount), 0)", "total")
+      .where("t.userId = :userId", { userId })
+      .andWhere("t.type = :type", { type: TransactionType.REFERRAL_BONUS })
+      .getRawOne();
+
+    const referredCount = await this.userRepo.count({
+      where: { referredByUserId: userId },
+    });
+    const convertedCount = await this.userRepo.count({
+      where: { referredByUserId: userId, referralBonusTriggered: true },
+    });
+
+    return {
+      referralLink,
+      referredCount,
+      convertedCount,
+      totalEarned: Number(total),
+      flatBonus: ParimutuelEngine.REFERRAL_FLAT_BONUS,
+      betPct: ParimutuelEngine.REFERRAL_BET_PCT * 100,
+      cap: ParimutuelEngine.REFERRAL_CAP,
+    };
+  }
+
   // ── Leaderboard ───────────────────────────────────────────────────────────
 
   @Get("leaderboard")
@@ -336,5 +380,19 @@ export class UsersController {
       .getCount();
 
     return { board, myRank, totalRanked };
+  }
+
+  // ── Seasons ───────────────────────────────────────────────────────────────
+
+  @Get("seasons/current")
+  @ApiOperation({ summary: "Current active season metadata" })
+  async getCurrentSeason() {
+    return this.seasonService.getCurrentSeason();
+  }
+
+  @Get("seasons/history")
+  @ApiOperation({ summary: "Past seasons with winners snapshot" })
+  async getSeasonHistory(@Query("limit") limit?: string) {
+    return this.seasonService.getSeasonHistory(Math.min(Number(limit) || 10, 52));
   }
 }

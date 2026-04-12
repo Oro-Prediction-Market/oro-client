@@ -28,6 +28,7 @@ import { User } from "../entities/user.entity";
 import { ParimutuelEngine } from "./parimutuel.engine";
 import { LMSRService } from "./lmsr.service";
 import { ReputationService } from "./reputation.service";
+import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 export { CreateMarketDto } from "./dto/create-market.dto";
 export { UpdateMarketDto } from "./dto/update-market.dto";
 export { OpenPositionDto } from "./dto/open-position.dto";
@@ -48,6 +49,7 @@ export class MarketsService {
     private dataSource: DataSource,
     private redis: RedisService,
     private reputationService: ReputationService,
+    private telegram: TelegramSimpleService,
   ) {}
 
   /**
@@ -149,7 +151,13 @@ export class MarketsService {
       const saved = await this.marketRepo.save(market);
       console.log(`✅ Market created successfully: ${saved.id}`);
       await this.invalidateMarketCache();
-      return this.findOne(saved.id);
+      const full = await this.findOne(saved.id);
+      this.telegram
+        .postToChannel(
+          `New market: <b>${full.title}</b>\nCloses: ${new Date(full.closesAt).toLocaleString()}\nOutcomes: ${full.outcomes.map((o) => o.label).join(" vs ")}`,
+        )
+        .catch(() => undefined);
+      return full;
     } catch (err) {
       console.error("❌ Error in MarketsService.create:", err);
       throw err;
@@ -294,6 +302,16 @@ export class MarketsService {
   async resolve(marketId: string, winningOutcomeId: string) {
     const result = await this.engine.resolveMarket(marketId, winningOutcomeId);
     await this.invalidateMarketCache(marketId);
+    // Post resolution to channel (non-blocking)
+    const market = await this.findOne(marketId).catch(() => null);
+    if (market) {
+      const winner = market.outcomes.find((o) => o.id === winningOutcomeId);
+      this.telegram
+        .postToChannel(
+          `Market resolved: <b>${market.title}</b>\nWinner: <b>${winner?.label ?? "Unknown"}</b>`,
+        )
+        .catch(() => undefined);
+    }
     return result;
   }
 

@@ -6,10 +6,13 @@ import {
   getLeaderboard,
   getMyResults,
   getMe,
+  getCurrentSeason,
+  getSeasonHistory,
   type LeaderboardEntry,
   type LeaderboardResponse,
   type Bet,
   type AuthUser,
+  type Season,
 } from "@/api/client";
 import { BetShareCard } from "@/components/BetShareCard";
 import { BadgeGrid } from "@/tma/components/BadgeGrid";
@@ -267,22 +270,28 @@ export const TmaLeaderboardPage: FC = () => {
   const [me, setMe] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<"leaderboard" | "my-record">(
+  const [activeTab, setActiveTab] = useState<"leaderboard" | "my-record" | "seasons">(
     "leaderboard",
   );
   const [visibleCount, setVisibleCount] = useState(5);
   const [visibleBets, setVisibleBets] = useState(5);
+  const [currentSeason, setCurrentSeason] = useState<Season | null>(null);
+  const [seasonHistory, setSeasonHistory] = useState<Season[]>([]);
 
   useEffect(() => {
     Promise.all([
       getLeaderboard().catch(() => null),
       getMyResults().catch(() => []),
       getMe().catch(() => null),
+      getCurrentSeason().catch(() => null),
+      getSeasonHistory().catch(() => []),
     ])
-      .then(([lbData, myBets, myProfile]) => {
+      .then(([lbData, myBets, myProfile, season, history]) => {
         setLb(lbData);
         setBets(myBets as Bet[]);
         setMe(myProfile);
+        setCurrentSeason(season);
+        setSeasonHistory(history as Season[]);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -440,6 +449,7 @@ export const TmaLeaderboardPage: FC = () => {
           {[
             { key: "leaderboard", label: "Global" },
             { key: "my-record", label: "My Record" },
+            { key: "seasons", label: "Seasons" },
           ].map((t) => (
             <button
               key={t.key}
@@ -1059,6 +1069,82 @@ export const TmaLeaderboardPage: FC = () => {
                     </button>
                   ) : null;
                 })()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Tab: Seasons ── */}
+        {activeTab === "seasons" && (
+          <div style={{ padding: "16px" }}>
+            {/* Current season banner */}
+            {currentSeason && (
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05))",
+                  border: "1px solid rgba(59,130,246,0.3)",
+                  borderRadius: 16,
+                  padding: "14px 16px",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+                  Current Season
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-main)" }}>
+                  Week {currentSeason.weekNumber}, {currentSeason.year}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                  Ends {new Date(currentSeason.endsAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                </div>
+              </div>
+            )}
+
+            {/* Past season winners */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+              Past Seasons
+            </div>
+            {seasonHistory.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-subtle)", fontSize: 13, fontWeight: 600 }}>
+                No past seasons yet.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {seasonHistory.map((s) => (
+                  <div
+                    key={s.id}
+                    style={{
+                      background: "var(--bg-card)",
+                      border: "1px solid var(--glass-border)",
+                      borderRadius: 14,
+                      padding: "14px 16px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-main)" }}>
+                          Week {s.weekNumber}, {s.year}
+                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
+                          {new Date(s.startsAt).toLocaleDateString()} – {new Date(s.endsAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <Trophy size={16} color="#f59e0b" />
+                    </div>
+                    {s.winnersSnapshot && s.winnersSnapshot.slice(0, 3).map((w) => (
+                      <div key={w.userId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid var(--glass-border)" }}>
+                        <span style={{ width: 20, fontSize: 12, fontWeight: 900, color: w.rank === 1 ? "#f59e0b" : w.rank === 2 ? "#94a3b8" : "#b45309" }}>
+                          #{w.rank}
+                        </span>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "var(--text-main)" }}>
+                          {w.username ? `@${w.username}` : (w.firstName ?? "—")}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#22c55e" }}>{w.winRate}%</span>
+                        <span style={{ fontSize: 10, color: "var(--text-subtle)" }}>win rate</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>

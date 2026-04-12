@@ -6,8 +6,10 @@ import {
   linkDKBank,
   getMe,
   getMyTransactions,
+  getReferralStats,
   AuthUser,
   Transaction,
+  type ReferralStats,
 } from "@/api/client";
 import {
   initiateDKBankDeposit,
@@ -91,24 +93,24 @@ const TX_COLOR_IN = "#22c55e";
 const TX_COLOR_OUT = "#ef4444";
 
 const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
-  deposit:        <ArrowDownLeft size={18} />,
-  withdrawal:     <ArrowUpRight size={18} />,
-  bet_placed:     <Target size={18} />,
-  bet_payout:     <Trophy size={18} />,
-  refund:         <RotateCcw size={18} />,
-  dispute_bond:   <Lock size={18} />,
+  deposit: <ArrowDownLeft size={18} />,
+  withdrawal: <ArrowUpRight size={18} />,
+  bet_placed: <Target size={18} />,
+  bet_payout: <Trophy size={18} />,
+  refund: <RotateCcw size={18} />,
+  dispute_bond: <Lock size={18} />,
   dispute_refund: <Unlock size={18} />,
   referral_bonus: <UserPlus size={18} />,
 };
 
 // Human-readable labels — no developer language
 const TX_LABEL: Record<Transaction["type"], string> = {
-  deposit:        "Top Up",
-  withdrawal:     "Cash Out",
-  bet_placed:     "Bet placed",
-  bet_payout:     "Win — payout received",
-  refund:         "Bet refunded",
-  dispute_bond:   "Dispute bond",
+  deposit: "Top Up",
+  withdrawal: "Cash Out",
+  bet_placed: "Bet placed",
+  bet_payout: "Win — payout received",
+  refund: "Bet refunded",
+  dispute_bond: "Dispute bond",
   dispute_refund: "Dispute bond refunded",
   referral_bonus: "Referral bonus",
 };
@@ -233,12 +235,15 @@ export const TmaProfilePage: FC = () => {
   const [txLoading, setTxLoading] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
+  const [referralCopied, setReferralCopied] = useState(false);
 
   useEffect(() => {
     getMe()
       .then(setFreshUser)
       .catch(() => setFreshUser(authUser))
       .finally(() => setFreshLoading(false));
+    getReferralStats().then(setReferralStats).catch(() => undefined);
   }, []);
 
   // Re-fetch balance whenever a bet or deposit fires from any page
@@ -470,65 +475,71 @@ export const TmaProfilePage: FC = () => {
                   alt="avatar"
                   style={{
                     ...styles.heroAvatar,
-                    border: user?.contrarianBadge === "gold"
-                      ? "2.5px solid #f59e0b"
-                      : user?.contrarianBadge === "silver"
-                        ? "2.5px solid #94a3b8"
-                        : user?.contrarianBadge === "bronze"
-                          ? "2.5px solid #b45309"
-                          : styles.heroAvatar.border,
-                    boxShadow: user?.contrarianBadge === "gold"
-                      ? "0 0 12px rgba(245,158,11,0.5)"
-                      : user?.contrarianBadge === "silver"
-                        ? "0 0 10px rgba(148,163,184,0.4)"
-                        : user?.contrarianBadge === "bronze"
-                          ? "0 0 10px rgba(180,83,9,0.4)"
-                          : undefined,
+                    border:
+                      user?.contrarianBadge === "gold"
+                        ? "2.5px solid #f59e0b"
+                        : user?.contrarianBadge === "silver"
+                          ? "2.5px solid #94a3b8"
+                          : user?.contrarianBadge === "bronze"
+                            ? "2.5px solid #b45309"
+                            : styles.heroAvatar.border,
+                    boxShadow:
+                      user?.contrarianBadge === "gold"
+                        ? "0 0 12px rgba(245,158,11,0.5)"
+                        : user?.contrarianBadge === "silver"
+                          ? "0 0 10px rgba(148,163,184,0.4)"
+                          : user?.contrarianBadge === "bronze"
+                            ? "0 0 10px rgba(180,83,9,0.4)"
+                            : undefined,
                   }}
                 />
               ) : (
                 <div
                   style={{
                     ...styles.heroAvatarPlaceholder,
-                    border: user?.contrarianBadge === "gold"
-                      ? "2.5px solid #f59e0b"
-                      : user?.contrarianBadge === "silver"
-                        ? "2.5px solid #94a3b8"
-                        : user?.contrarianBadge === "bronze"
-                          ? "2.5px solid #b45309"
-                          : styles.heroAvatarPlaceholder.border,
+                    border:
+                      user?.contrarianBadge === "gold"
+                        ? "2.5px solid #f59e0b"
+                        : user?.contrarianBadge === "silver"
+                          ? "2.5px solid #94a3b8"
+                          : user?.contrarianBadge === "bronze"
+                            ? "2.5px solid #b45309"
+                            : styles.heroAvatarPlaceholder.border,
                   }}
                 >
                   {(user?.firstName?.[0] || "?").toUpperCase()}
                 </div>
               )}
               {/* Medal badge pip */}
-              {user?.contrarianBadge && (() => {
-                const badgeColor =
-                  user.contrarianBadge === "gold" ? "#f59e0b"
-                  : user.contrarianBadge === "silver" ? "#94a3b8"
-                  : "#b45309";
-                return (
-                  <div
-                    style={{
-                      position: "absolute",
-                      bottom: -2,
-                      right: -2,
-                      width: 20,
-                      height: 20,
-                      borderRadius: "50%",
-                      background: badgeColor,
-                      border: "2px solid var(--bg-card)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      boxShadow: `0 2px 6px ${badgeColor}66`,
-                    }}
-                  >
-                    <Medal size={11} color="#fff" />
-                  </div>
-                );
-              })()}
+              {user?.contrarianBadge &&
+                (() => {
+                  const badgeColor =
+                    user.contrarianBadge === "gold"
+                      ? "#f59e0b"
+                      : user.contrarianBadge === "silver"
+                        ? "#94a3b8"
+                        : "#b45309";
+                  return (
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: -2,
+                        right: -2,
+                        width: 20,
+                        height: 20,
+                        borderRadius: "50%",
+                        background: badgeColor,
+                        border: "2px solid var(--bg-card)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: `0 2px 6px ${badgeColor}66`,
+                      }}
+                    >
+                      <Medal size={11} color="#fff" />
+                    </div>
+                  );
+                })()}
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1133,9 +1144,14 @@ export const TmaProfilePage: FC = () => {
             <>
               {/* ── Referral earnings summary — only shown when a friend actually placed a bet ── */}
               {(() => {
-                const referralTxs = txs.filter((t) => t.type === "referral_bonus");
+                const referralTxs = txs.filter(
+                  (t) => t.type === "referral_bonus",
+                );
                 if (referralTxs.length === 0) return null;
-                const totalEarned = referralTxs.reduce((s, t) => s + Number(t.amount), 0);
+                const totalEarned = referralTxs.reduce(
+                  (s, t) => s + Number(t.amount),
+                  0,
+                );
                 return (
                   <div
                     style={{
@@ -1165,22 +1181,131 @@ export const TmaProfilePage: FC = () => {
                       👥
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "var(--text-main)",
+                        }}
+                      >
                         Friends earned you a bonus
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-subtle)", marginTop: 2 }}>
-                        {referralTxs.length} friend{referralTxs.length !== 1 ? "s" : ""} placed a bet · bonus credited to your wallet
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--text-subtle)",
+                          marginTop: 2,
+                        }}
+                      >
+                        {referralTxs.length} friend
+                        {referralTxs.length !== 1 ? "s" : ""} placed a bet ·
+                        bonus credited to your wallet
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: "#22c55e" }}>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 800,
+                          color: "#22c55e",
+                        }}
+                      >
                         +{totalEarned.toLocaleString()}
                       </div>
-                      <div style={{ fontSize: 10, color: "var(--text-subtle)", marginTop: 1 }}>BTN earned</div>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: "var(--text-subtle)",
+                          marginTop: 1,
+                        }}
+                      >
+                        BTN earned
+                      </div>
                     </div>
                   </div>
                 );
               })()}
+
+              {/* ── Referral share card ── */}
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.04))",
+                  border: "1px solid rgba(99,102,241,0.25)",
+                  borderRadius: 16,
+                  padding: "16px",
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <UserPlus size={18} color="#818cf8" />
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "var(--text-main)" }}>
+                    Invite friends
+                  </span>
+                  {(referralStats?.convertedCount ?? 0) > 0 && (
+                    <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.12)", padding: "2px 8px", borderRadius: 99 }}>
+                      {referralStats!.convertedCount} converted
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
+                  Earn <b style={{ color: "var(--text-main)" }}>Nu {referralStats?.flatBonus ?? 50} + {referralStats?.betPct ?? 5}%</b> of their first bet when they sign up with your link.
+                </p>
+                {referralStats?.totalEarned ? (
+                  <div style={{ fontSize: 12, color: "#22c55e", fontWeight: 700, marginBottom: 10 }}>
+                    Total earned: Nu {Number(referralStats.totalEarned).toLocaleString()}
+                  </div>
+                ) : null}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: "9px 12px",
+                      background: "var(--bg-card)",
+                      border: "1px solid var(--glass-border)",
+                      borderRadius: 10,
+                      fontSize: 11,
+                      color: "var(--text-subtle)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {referralStats?.referralLink ?? "Loading…"}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!referralStats?.referralLink) return;
+                      try {
+                        await navigator.clipboard.writeText(referralStats.referralLink);
+                      } catch {
+                        // fallback — clipboard not available in TMA sandboxes
+                      }
+                      setReferralCopied(true);
+                      setTimeout(() => setReferralCopied(false), 2000);
+                    }}
+                    style={{
+                      padding: "9px 14px",
+                      background: referralCopied ? "rgba(34,197,94,0.15)" : "rgba(99,102,241,0.2)",
+                      border: `1px solid ${referralCopied ? "rgba(34,197,94,0.3)" : "rgba(99,102,241,0.35)"}`,
+                      borderRadius: 10,
+                      color: referralCopied ? "#22c55e" : "#818cf8",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                    }}
+                  >
+                    {referralCopied ? (
+                      <>Copied</>
+                    ) : (
+                      <><Send size={13} /> Share</>
+                    )}
+                  </button>
+                </div>
+              </div>
 
               <div style={walletStyles.txList}>
                 {txs.length === 0 ? (
@@ -1773,7 +1898,7 @@ const styles: Record<string, React.CSSProperties> = {
   heroCard: {
     background: "var(--balance-card-bg)",
     borderRadius: "0 0 28px 28px",
-    padding: "52px 20px 24px",
+    padding: "16px 20px 24px",
     color: "#fff",
     position: "relative",
     overflow: "hidden",
