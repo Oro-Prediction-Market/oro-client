@@ -134,6 +134,9 @@ function makeDataSource(overrides: any = {}) {
         getOne: jest.fn().mockResolvedValue(makePayment()),
         getRawOne: jest.fn().mockResolvedValue({ balance: 500 }),
       }),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: "user-1", referredByUserId: null }),
     }),
     save: jest.fn().mockImplementation((_e: any, d: any) => Promise.resolve(d)),
     create: jest.fn().mockImplementation((_e: any, d: any) => d),
@@ -396,6 +399,9 @@ describe("DKBankPaymentService.confirmPayment", () => {
         getOne: jest.fn().mockResolvedValue(payment),
         getRawOne: jest.fn().mockResolvedValue({ balance: 0 }),
       }),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: "user-1", referredByUserId: null }),
     });
 
     // Default makeConfigService has DK_STAGING_DEPOSIT_BYPASS=true
@@ -444,6 +450,9 @@ describe("DKBankPaymentService.confirmPayment", () => {
         getOne: jest.fn().mockResolvedValue(payment),
         getRawOne: jest.fn().mockResolvedValue({ balance: 0 }),
       }),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: "user-1", referredByUserId: null }),
     });
 
     const { service } = makeService({
@@ -580,6 +589,9 @@ describe("DKBankPaymentService.confirmPayment", () => {
         getOne: jest.fn().mockResolvedValue(payment),
         getRawOne: jest.fn().mockResolvedValue({ balance: 0 }),
       }),
+      findOne: jest
+        .fn()
+        .mockResolvedValue({ id: "user-1", referredByUserId: null }),
     });
 
     const { service } = makeService({ payment, redis, dataSource });
