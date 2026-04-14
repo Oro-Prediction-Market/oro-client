@@ -1,5 +1,4 @@
 import { FC, useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import dkBankLogo from "../../../assets/dk blue.png";
 import { useAuth } from "@/tma/hooks/useAuth";
 import {
@@ -43,6 +42,9 @@ import {
   Eye,
   EyeOff,
   UserPlus,
+  CalendarDays,
+  Lightbulb,
+  CheckCircle,
 } from "lucide-react";
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -623,7 +625,7 @@ export const TmaWalletPage: FC = () => {
         {/* ── Deposit Streak Progress ────────────────────────── */}
         {depositStreakDays > 0 && (
           <div style={{ margin: "0 16px", borderRadius: 14, padding: "12px 14px", background: "linear-gradient(135deg, rgba(59,130,246,0.1), rgba(99,102,241,0.06))", border: "1px solid rgba(99,102,241,0.25)", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 20 }}>📅</span>
+            <CalendarDays size={20} style={{ color: "#6366f1", flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)" }}>Deposit Streak</div>
               <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
@@ -840,7 +842,7 @@ export const TmaWalletPage: FC = () => {
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
           onClick={(e) => { if (e.target === e.currentTarget) closePaymentModal(); }}
         >
-          <div style={{ background: "var(--bg-card)", borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 -4px 40px rgba(0,0,0,0.25)" }}>
+          <div style={{ background: "var(--bg-card)", borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 -4px 40px rgba(0,0,0,0.25)", paddingBottom: 70 }}>
             {/* Header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px 12px", borderBottom: "1px solid var(--glass-border)" }}>
               <span style={{ fontWeight: 800, fontSize: 17, color: "var(--text-main)", display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -880,7 +882,7 @@ export const TmaWalletPage: FC = () => {
                 )}
                 {paymentModal === "deposit" && !isFirstDeposit && (
                   <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", fontSize: 12, color: "#a5b4fc", fontWeight: 600 }}>
-                    💡 Users like you typically deposit Nu 500
+                    <Lightbulb size={13} style={{ verticalAlign: "middle", marginRight: 5, color: "#a5b4fc" }} />Users like you typically deposit Nu 500
                   </div>
                 )}
                 <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>
@@ -941,7 +943,7 @@ export const TmaWalletPage: FC = () => {
             {/* Step: OTP */}
             {payStep === "otp" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "20px", alignItems: "center" }}>
-                <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg, rgba(37,117,208,0.2), rgba(37,117,208,0.08))", border: "2px solid rgba(37,117,208,0.35)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>📲</div>
+                <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg, rgba(37,117,208,0.2), rgba(37,117,208,0.08))", border: "2px solid rgba(37,117,208,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}><Smartphone size={28} style={{ color: "#2575d0" }} /></div>
                 <p style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 17, color: "var(--text-main)" }}>
                   {paymentModal === "deposit" ? "Confirm Your Deposit" : "Confirm Withdrawal"}
                 </p>
@@ -985,14 +987,12 @@ export const TmaWalletPage: FC = () => {
                 {showCoins && paymentModal === "deposit" && (
                   <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 10, overflow: "hidden" }}>
                     {Array.from({ length: 18 }).map((_, i) => (
-                      <div key={i} style={{ position: "absolute", left: `${Math.random() * 100}%`, top: 0, fontSize: [14, 18, 22, 14][i % 4], animation: `coinFall ${1.2 + Math.random() * 1.8}s ease-in ${Math.random() * 0.8}s both` }}>
-                        {["🪙", "💰", "✨", "🎊"][i % 4]}
-                      </div>
+                      <div key={i} style={{ position: "absolute", left: `${(i * 37 + 11) % 100}%`, top: 0, width: [8, 10, 7, 9][i % 4], height: [8, 10, 7, 9][i % 4], borderRadius: i % 3 === 0 ? "50%" : 2, background: ["#6366f1", "#f59e0b", "#10b981", "#ec4899"][i % 4], animation: `coinFall ${1.2 + (i % 5) * 0.36}s ease-in ${(i % 4) * 0.2}s both` }} />
                     ))}
                   </div>
                 )}
                 <div style={{ width: 80, height: 80, borderRadius: "50%", background: "linear-gradient(135deg, #d1fae5, #a7f3d0)", display: "flex", alignItems: "center", justifyContent: "center", animation: paymentModal === "deposit" ? "depositSuccessPop 0.55s cubic-bezier(0.34,1.56,0.64,1) forwards, depositSuccessGlow 1.5s ease 0.55s 2" : "none" }}>
-                  <span style={{ fontSize: paymentModal === "deposit" ? 38 : 32 }}>{paymentModal === "deposit" ? "🎉" : "✅"}</span>
+                  <CheckCircle size={38} style={{ color: "#059669", animation: "depositSuccessPop 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards" }} />
                 </div>
                 <p style={{ fontWeight: 800, fontSize: 20, margin: "0 0 6px", color: paymentModal === "deposit" ? "#059669" : "var(--text-main)" }}>
                   {paymentModal === "deposit" ? "Deposit Confirmed!" : "Withdrawal Confirmed!"}

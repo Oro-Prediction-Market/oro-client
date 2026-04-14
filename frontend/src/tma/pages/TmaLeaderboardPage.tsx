@@ -1,4 +1,4 @@
-import { FC, useEffect, useState } from "react";
+import { FC, useEffect, useRef, useState } from "react";
 import { Spinner } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
 import { useAuth } from "@/tma/hooks/useAuth";
@@ -8,14 +8,15 @@ import {
   getMe,
   getCurrentSeason,
   getSeasonHistory,
+  getMyTransactions,
   type LeaderboardEntry,
   type LeaderboardResponse,
   type Bet,
   type AuthUser,
   type Season,
+  type Transaction,
 } from "@/api/client";
 import { BetShareCard } from "@/components/BetShareCard";
-import { BadgeGrid } from "@/tma/components/BadgeGrid";
 import {
   Trophy,
   Flame,
@@ -26,7 +27,19 @@ import {
   Medal,
   Award,
   X,
+  ChevronUp,
+  ArrowDownLeft,
+  Banknote,
+  CalendarDays,
+  Clock,
+  BarChart2,
+  CheckCircle,
+  XCircle as XCircleIcon,
 } from "lucide-react";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type Period = "all" | "week" | "month";
 
 // ── Tier helpers ──────────────────────────────────────────────────────────────
 
@@ -75,7 +88,10 @@ function percentileLabel(rank: number, total: number) {
 
 // ── Leaderboard row ───────────────────────────────────────────────────────────
 
-const RANK_STYLES: Record<number, { bg: string; border: string; avatarBorder: string; animation: string }> = {
+const RANK_STYLES: Record<
+  number,
+  { bg: string; border: string; avatarBorder: string; animation: string }
+> = {
   1: {
     bg: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05))",
     border: "1px solid rgba(245,158,11,0.4)",
@@ -96,7 +112,13 @@ const RANK_STYLES: Record<number, { bg: string; border: string; avatarBorder: st
   },
 };
 
-function LeaderRow({ entry }: { entry: LeaderboardEntry }) {
+function LeaderRow({
+  entry,
+  onTap,
+}: {
+  entry: LeaderboardEntry;
+  onTap?: () => void;
+}) {
   const medal = rankMedal(entry.rank);
   const color = tierColor(entry.reputationTier);
   const rankStyle = RANK_STYLES[entry.rank];
@@ -106,6 +128,7 @@ function LeaderRow({ entry }: { entry: LeaderboardEntry }) {
 
   return (
     <div
+      onClick={onTap}
       style={{
         display: "flex",
         alignItems: "center",
@@ -124,6 +147,7 @@ function LeaderRow({ entry }: { entry: LeaderboardEntry }) {
             : "none",
         position: "relative",
         animation: rankStyle ? rankStyle.animation : "none",
+        cursor: onTap ? "pointer" : "default",
       }}
     >
       {/* Rank */}
@@ -229,7 +253,7 @@ function LeaderRow({ entry }: { entry: LeaderboardEntry }) {
         </div>
       </div>
 
-      {/* Win rate */}
+      {/* Win rate + total spent */}
       <div style={{ textAlign: "right", flexShrink: 0 }}>
         <div
           style={{
@@ -256,6 +280,1055 @@ function LeaderRow({ entry }: { entry: LeaderboardEntry }) {
         >
           win rate
         </div>
+        {entry.totalBetAmount > 0 && (
+          <div
+            style={{
+              marginTop: 3,
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--text-subtle)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Nu {entry.totalBetAmount.toLocaleString()} spent
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── My Stats Bottom Sheet ─────────────────────────────────────────────────────
+
+function MyStatsSheet({
+  open,
+  onClose,
+  me,
+  bets,
+  depositTxs,
+  myWeeklyDeposit,
+  winRate,
+  rankToShow,
+  lb,
+  onShare,
+}: {
+  open: boolean;
+  onClose: () => void;
+  me: AuthUser | null;
+  bets: Bet[];
+  depositTxs: Transaction[];
+  myWeeklyDeposit: number;
+  winRate: number;
+  rankToShow: number | null;
+  lb: LeaderboardResponse | null;
+  onShare: () => void;
+}) {
+  const won = bets.filter((b) => b.status === "won");
+  const lost = bets.filter((b) => b.status === "lost");
+  const validBets = bets.filter(
+    (b) => b.status !== "refunded" && b.status !== "pending",
+  );
+  const percentile =
+    rankToShow && lb?.totalRanked
+      ? percentileLabel(rankToShow, lb.totalRanked)
+      : null;
+  const totalDeposited = depositTxs.reduce(
+    (s, t) => s + Math.abs(Number(t.amount)),
+    0,
+  );
+  const tier = me?.reputationTier ?? "rookie";
+  const color = tierColor(tier);
+
+  const total = me?.totalPredictions ?? 0;
+  const correct = me?.correctPredictions ?? 0;
+  const acc = total > 0 ? correct / total : 0;
+
+  type ProgressInfo = {
+    label: string;
+    nextColor: string;
+    progress: number;
+    hint: string;
+  } | null;
+  let tierProgress: ProgressInfo = null;
+  if (tier === "rookie") {
+    const left = Math.max(10 - total, 0);
+    tierProgress = {
+      label: "Rookie → Sharpshooter",
+      nextColor: "#3b82f6",
+      progress: Math.min(total / 10, 1),
+      hint:
+        left > 0 ? `${left} more picks to reach Sharpshooter` : "Almost there!",
+    };
+  } else if (tier === "sharpshooter") {
+    const predLeft = Math.max(50 - total, 0);
+    tierProgress = {
+      label: "Sharpshooter → Hot Hand",
+      nextColor: "#10b981",
+      progress: Math.min(
+        (Math.min(total / 50, 1) + Math.min(acc / 0.65, 1)) / 2,
+        1,
+      ),
+      hint:
+        predLeft > 0
+          ? `${predLeft} more picks · aim for 65%+ accuracy`
+          : acc < 0.65
+            ? `${Math.round((0.65 - acc) * 100)}% more accuracy`
+            : "Keep it up!",
+    };
+  } else if (tier === "hot_hand") {
+    const predLeft = Math.max(100 - total, 0);
+    tierProgress = {
+      label: "Hot Hand → Legend",
+      nextColor: "#f59e0b",
+      progress: Math.min(
+        (Math.min(total / 100, 1) + Math.min(acc / 0.75, 1)) / 2,
+        1,
+      ),
+      hint:
+        predLeft > 0
+          ? `${predLeft} more picks · aim for 75%+ accuracy`
+          : acc < 0.75
+            ? `${Math.round((0.75 - acc) * 100)}% more accuracy`
+            : "So close to Legend!",
+    };
+  }
+
+  const recentSettled = bets.filter((b) => b.status !== "pending").slice(0, 6);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1000,
+          background: open ? "rgba(0,0,0,0.6)" : "transparent",
+          backdropFilter: open ? "blur(4px)" : "none",
+          WebkitBackdropFilter: open ? "blur(4px)" : "none",
+          pointerEvents: open ? "auto" : "none",
+          transition: "background 0.25s",
+        }}
+      />
+
+      {/* Sheet */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1001,
+          background: "var(--bg-card)",
+          borderRadius: "20px 20px 0 0",
+          border: "1px solid var(--glass-border)",
+          borderBottom: "none",
+          maxHeight: "88vh",
+          overflowY: "auto",
+          transform: open ? "translateY(0)" : "translateY(105%)",
+          transition: "transform 0.35s cubic-bezier(0.34,1.56,0.64,1)",
+          paddingBottom: "env(safe-area-inset-bottom, 16px)",
+        }}
+      >
+        {/* Drag handle */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            padding: "12px 0 4px",
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 99,
+              background: "var(--glass-border)",
+            }}
+          />
+        </div>
+
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "4px 16px 16px",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 16,
+                fontWeight: 900,
+                color: "var(--text-main)",
+              }}
+            >
+              My Record
+            </div>
+            {rankToShow && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  marginTop: 2,
+                }}
+              >
+                Ranked{" "}
+                <span style={{ color, fontWeight: 800 }}>#{rankToShow}</span>
+                {percentile && (
+                  <span style={{ color: percentile.color }}>
+                    {" "}
+                    · {percentile.text}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={onShare}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "7px 12px",
+                borderRadius: 10,
+                border: "none",
+                background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <Share2 size={13} /> Share
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 34,
+                height: 34,
+                borderRadius: 10,
+                border: "1px solid var(--glass-border)",
+                background: "transparent",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: "0 16px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          {/* Pick stats grid */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 8,
+            }}
+          >
+            {[
+              {
+                value: validBets.length,
+                label: "Picks",
+                color: "var(--text-main)",
+                icon: <BarChart2 size={13} />,
+              },
+              {
+                value: won.length,
+                label: "Wins",
+                color: "#22c55e",
+                icon: <CheckCircle size={13} />,
+              },
+              {
+                value: lost.length,
+                label: "Losses",
+                color: "#ef4444",
+                icon: <XCircleIcon size={13} />,
+              },
+              {
+                value: `${winRate}%`,
+                label: "Win Rate",
+                color: winRate >= 50 ? "#22c55e" : "#f59e0b",
+                icon: <TrendingUp size={13} />,
+              },
+            ].map((s) => (
+              <div
+                key={s.label}
+                style={{
+                  background: "var(--bg-secondary)",
+                  borderRadius: 12,
+                  padding: "10px 6px",
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    color: s.color,
+                    marginBottom: 3,
+                  }}
+                >
+                  {s.icon}
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: s.color }}>
+                  {s.value}
+                </div>
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: "var(--text-subtle)",
+                    textTransform: "uppercase",
+                    marginTop: 1,
+                  }}
+                >
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Deposit activity */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 8,
+            }}
+          >
+            {[
+              {
+                label: "This Week",
+                value: `Nu ${myWeeklyDeposit.toLocaleString()}`,
+                color: myWeeklyDeposit > 0 ? "#10b981" : "var(--text-subtle)",
+                icon: <ArrowDownLeft size={13} />,
+              },
+              {
+                label: "All Time",
+                value: `Nu ${totalDeposited.toLocaleString()}`,
+                color: "var(--text-main)",
+                icon: <Banknote size={13} />,
+              },
+              {
+                label: "Deposits",
+                value: String(depositTxs.length),
+                color: "var(--text-main)",
+                icon: <CalendarDays size={13} />,
+              },
+            ].map((s) => (
+              <div
+                key={s.label}
+                style={{
+                  background: "var(--bg-secondary)",
+                  borderRadius: 12,
+                  padding: "10px 8px",
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    color: s.color,
+                    marginBottom: 3,
+                  }}
+                >
+                  {s.icon}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: s.color }}>
+                  {s.value}
+                </div>
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: "var(--text-subtle)",
+                    textTransform: "uppercase",
+                    marginTop: 2,
+                  }}
+                >
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tier progression */}
+          {tier === "legend" ? (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "rgba(245,158,11,0.1)",
+                borderRadius: 12,
+                border: "1px solid rgba(245,158,11,0.25)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Trophy size={14} color="#f59e0b" />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>
+                You've reached the top — Legend tier!
+              </span>
+            </div>
+          ) : tierProgress ? (
+            <div
+              style={{
+                padding: "12px 14px",
+                background: "var(--bg-secondary)",
+                borderRadius: 12,
+                border: "1px solid var(--glass-border)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {tierProgress.label}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: tierProgress.nextColor,
+                  }}
+                >
+                  {Math.round(tierProgress.progress * 100)}%
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 6,
+                  borderRadius: 99,
+                  background: "var(--bg-card)",
+                  overflow: "hidden",
+                  marginBottom: 7,
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${Math.round(tierProgress.progress * 100)}%`,
+                    borderRadius: 99,
+                    background: `linear-gradient(90deg, ${tierProgress.nextColor}99, ${tierProgress.nextColor})`,
+                    transition: "width 0.6s ease",
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-subtle)",
+                  fontWeight: 600,
+                }}
+              >
+                {tierProgress.hint}
+              </span>
+            </div>
+          ) : null}
+
+          {/* Recent bets */}
+          {recentSettled.length > 0 && (
+            <div>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--text-subtle)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  marginBottom: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <Clock size={11} /> Recent Results
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {recentSettled.map((bet) => {
+                  const isWon = bet.status === "won";
+                  const isRefunded = bet.status === "refunded";
+                  const accentColor = isWon
+                    ? "#22c55e"
+                    : isRefunded
+                      ? "#94a3b8"
+                      : "#ef4444";
+                  return (
+                    <div
+                      key={bet.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: isWon
+                          ? "rgba(34,197,94,0.06)"
+                          : isRefunded
+                            ? "rgba(148,163,184,0.06)"
+                            : "rgba(239,68,68,0.06)",
+                        border: `1px solid ${accentColor}22`,
+                        borderLeftWidth: 3,
+                        borderLeftColor: accentColor,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: "50%",
+                          background: `${accentColor}22`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                          fontSize: 12,
+                          fontWeight: 800,
+                          color: accentColor,
+                        }}
+                      >
+                        {isWon ? "✓" : isRefunded ? "↩" : "✗"}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "var(--text-main)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {bet.market?.title ?? "Market"}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: accentColor,
+                            background: `${accentColor}18`,
+                            padding: "1px 6px",
+                            borderRadius: 99,
+                          }}
+                        >
+                          {bet.outcome?.label ?? "—"}
+                        </span>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        {isWon && bet.payout ? (
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 900,
+                              color: "#22c55e",
+                            }}
+                          >
+                            +{Number(bet.payout).toLocaleString()}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: "var(--text-subtle)",
+                            }}
+                          >
+                            {isRefunded
+                              ? "↩"
+                              : `−${Number(bet.amount).toLocaleString()}`}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Season History Sheet ──────────────────────────────────────────────────────
+
+function SeasonsSheet({
+  open,
+  onClose,
+  currentSeason,
+  seasonHistory,
+}: {
+  open: boolean;
+  onClose: () => void;
+  currentSeason: Season | null;
+  seasonHistory: Season[];
+}) {
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1000,
+          background: open ? "rgba(0,0,0,0.6)" : "transparent",
+          backdropFilter: open ? "blur(4px)" : "none",
+          WebkitBackdropFilter: open ? "blur(4px)" : "none",
+          pointerEvents: open ? "auto" : "none",
+          transition: "background 0.25s",
+        }}
+      />
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1001,
+          background: "var(--bg-card)",
+          borderRadius: "20px 20px 0 0",
+          border: "1px solid var(--glass-border)",
+          borderBottom: "none",
+          maxHeight: "80vh",
+          overflowY: "auto",
+          transform: open ? "translateY(0)" : "translateY(105%)",
+          transition: "transform 0.35s cubic-bezier(0.34,1.56,0.64,1)",
+          paddingBottom: "env(safe-area-inset-bottom, 16px)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            padding: "12px 0 4px",
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 99,
+              background: "var(--glass-border)",
+            }}
+          />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "4px 16px 16px",
+          }}
+        >
+          <div
+            style={{ fontSize: 16, fontWeight: 900, color: "var(--text-main)" }}
+          >
+            Seasons
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 34,
+              height: 34,
+              borderRadius: 10,
+              border: "1px solid var(--glass-border)",
+              background: "transparent",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div
+          style={{
+            padding: "0 16px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          {currentSeason && (
+            <div
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05))",
+                border: "1px solid rgba(59,130,246,0.3)",
+                borderRadius: 16,
+                padding: "14px 16px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "#3b82f6",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  marginBottom: 4,
+                }}
+              >
+                Current Season
+              </div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 900,
+                  color: "var(--text-main)",
+                }}
+              >
+                Week {currentSeason.weekNumber}, {currentSeason.year}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  marginTop: 2,
+                }}
+              >
+                Ends{" "}
+                {new Date(currentSeason.endsAt).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </div>
+            </div>
+          )}
+
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--text-subtle)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            Past Seasons
+          </div>
+
+          {seasonHistory.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "28px 0",
+                color: "var(--text-subtle)",
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              No past seasons yet.
+            </div>
+          ) : (
+            seasonHistory.map((s) => (
+              <div
+                key={s.id}
+                style={{
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: 14,
+                  padding: "14px 16px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: "var(--text-main)",
+                      }}
+                    >
+                      Week {s.weekNumber}, {s.year}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        marginTop: 1,
+                      }}
+                    >
+                      {new Date(s.startsAt).toLocaleDateString()} –{" "}
+                      {new Date(s.endsAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <Trophy size={16} color="#f59e0b" />
+                </div>
+                {s.winnersSnapshot?.slice(0, 3).map((w) => (
+                  <div
+                    key={w.userId}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 0",
+                      borderTop: "1px solid var(--glass-border)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 20,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        color:
+                          w.rank === 1
+                            ? "#f59e0b"
+                            : w.rank === 2
+                              ? "#94a3b8"
+                              : "#b45309",
+                      }}
+                    >
+                      #{w.rank}
+                    </span>
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--text-main)",
+                      }}
+                    >
+                      {w.username ? `@${w.username}` : (w.firstName ?? "—")}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#22c55e",
+                      }}
+                    >
+                      {w.winRate}%
+                    </span>
+                    <span style={{ fontSize: 10, color: "var(--text-subtle)" }}>
+                      win rate
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Pinned Self Row ───────────────────────────────────────────────────────────
+
+function PinnedSelfRow({
+  entry,
+  onTap,
+}: {
+  entry: LeaderboardEntry;
+  onTap: () => void;
+}) {
+  const color = tierColor(entry.reputationTier);
+  const displayName = entry.username
+    ? `@${entry.username}`
+    : entry.firstName + (entry.lastName ? ` ${entry.lastName}` : "");
+
+  return (
+    <div
+      onClick={onTap}
+      style={{
+        position: "fixed",
+        bottom: "calc(env(safe-area-inset-bottom, 0px) + 64px)",
+        left: 0,
+        right: 0,
+        zIndex: 500,
+        margin: "0 12px",
+        borderRadius: 16,
+        background: `linear-gradient(135deg, ${color}22, ${color}0d)`,
+        border: `1.5px solid ${color}55`,
+        boxShadow: `0 8px 32px rgba(0,0,0,0.35), 0 0 0 1px ${color}22`,
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        padding: "11px 14px",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        cursor: "pointer",
+      }}
+    >
+      {/* Rank badge */}
+      <div
+        style={{
+          minWidth: 36,
+          height: 36,
+          borderRadius: 10,
+          background: `${color}22`,
+          border: `1px solid ${color}44`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {entry.rank <= 3 ? (
+          rankMedal(entry.rank)
+        ) : (
+          <span style={{ fontSize: 12, fontWeight: 900, color }}>
+            #{entry.rank}
+          </span>
+        )}
+      </div>
+
+      {/* Avatar */}
+      <div
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: "50%",
+          overflow: "hidden",
+          border: `2px solid ${color}`,
+          background: "var(--bg-secondary)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 13,
+          fontWeight: 800,
+          color: "var(--text-muted)",
+          flexShrink: 0,
+        }}
+      >
+        {entry.photoUrl ? (
+          <img
+            src={entry.photoUrl}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          (entry.firstName?.[0] ?? "?").toUpperCase()
+        )}
+      </div>
+
+      {/* Name + tier */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 800,
+            color: "var(--text-main)",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          {displayName}
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color,
+              background: `${color}22`,
+              padding: "1px 6px",
+              borderRadius: 99,
+            }}
+          >
+            you
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            marginTop: 2,
+          }}
+        >
+          {tierIcon(entry.reputationTier)}
+          <span
+            style={{
+              fontSize: 10,
+              color: "var(--text-subtle)",
+              fontWeight: 600,
+            }}
+          >
+            {tierLabel(entry.reputationTier)}
+          </span>
+        </div>
+      </div>
+
+      {/* Win rate + expand indicator */}
+      <div
+        style={{
+          textAlign: "right",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 900,
+              color:
+                entry.winRate >= 65
+                  ? "#22c55e"
+                  : entry.winRate >= 50
+                    ? "var(--text-main)"
+                    : "#f59e0b",
+            }}
+          >
+            {entry.winRate}%
+          </div>
+          <div
+            style={{
+              fontSize: 9,
+              color: "var(--text-subtle)",
+              fontWeight: 700,
+              textTransform: "uppercase",
+            }}
+          >
+            win rate
+          </div>
+        </div>
+        <ChevronUp size={16} color={color} />
       </div>
     </div>
   );
@@ -270,13 +1343,17 @@ export const TmaLeaderboardPage: FC = () => {
   const [me, setMe] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<"leaderboard" | "my-record" | "seasons">(
-    "leaderboard",
-  );
-  const [visibleCount, setVisibleCount] = useState(5);
-  const [visibleBets, setVisibleBets] = useState(5);
+  const [showMyStats, setShowMyStats] = useState(false);
+  const [showSeasons, setShowSeasons] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(20);
   const [currentSeason, setCurrentSeason] = useState<Season | null>(null);
   const [seasonHistory, setSeasonHistory] = useState<Season[]>([]);
+  const [depositTxs, setDepositTxs] = useState<Transaction[]>([]);
+  const [myWeeklyDeposit, setMyWeeklyDeposit] = useState(0);
+  const [period, setPeriod] = useState<Period>("all");
+
+  // Suppress unused ref warning — kept for future scroll-to-self feature
+  const _listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -285,25 +1362,31 @@ export const TmaLeaderboardPage: FC = () => {
       getMe().catch(() => null),
       getCurrentSeason().catch(() => null),
       getSeasonHistory().catch(() => []),
+      getMyTransactions("deposit").catch(() => []),
     ])
-      .then(([lbData, myBets, myProfile, season, history]) => {
+      .then(([lbData, myBets, myProfile, season, history, depTxs]) => {
         setLb(lbData);
         setBets(myBets as Bet[]);
         setMe(myProfile);
         setCurrentSeason(season);
         setSeasonHistory(history as Season[]);
+        const txList = depTxs as Transaction[];
+        setDepositTxs(txList);
+        const weekAgo = Date.now() - 7 * 86_400_000;
+        setMyWeeklyDeposit(
+          txList
+            .filter((t) => new Date(t.createdAt).getTime() >= weekAgo)
+            .reduce((s, t) => s + Math.abs(Number(t.amount)), 0),
+        );
       })
       .finally(() => setLoading(false));
   }, []);
 
   const won = bets.filter((b) => b.status === "won");
   const lost = bets.filter((b) => b.status === "lost");
-  const validBets = bets.filter(
-    (b) => b.status !== "refunded" && b.status !== "pending",
-  );
   const winRate =
-    validBets.length > 0
-      ? Math.round((won.length / validBets.length) * 100)
+    (me?.totalPredictions ?? 0) > 0
+      ? Math.round(((me?.correctPredictions ?? 0) / (me?.totalPredictions ?? 1)) * 100)
       : 0;
 
   const myEntry = lb?.board.find((r) => r.isMe);
@@ -316,6 +1399,12 @@ export const TmaLeaderboardPage: FC = () => {
   const userName = authUser?.username
     ? `@${authUser.username}`
     : (authUser?.firstName ?? "Predictor");
+
+  const PERIOD_LABELS: Record<Period, string> = {
+    all: "All Time",
+    week: "This Week",
+    month: "This Month",
+  };
 
   if (loading) {
     return (
@@ -334,824 +1423,281 @@ export const TmaLeaderboardPage: FC = () => {
     );
   }
 
+  const board = lb?.board ?? [];
+  const shownBoard = board.slice(0, visibleCount);
+
+  const selfEntry: LeaderboardEntry | null = myEntry
+    ? myEntry
+    : me
+      ? {
+          rank: rankToShow ?? board.length + 1,
+          id: me.id,
+          firstName: me.firstName,
+          lastName: me.lastName ?? null,
+          username: me.username ?? null,
+          photoUrl: me.photoUrl ?? null,
+          reputationScore: me.reputationScore ?? null,
+          reputationTier: me.reputationTier ?? "rookie",
+          totalPredictions: me.totalPredictions ?? 0,
+          correctPredictions: me.correctPredictions ?? 0,
+          winRate,
+          totalBetAmount: Math.round(
+            bets.reduce((s, b) => s + Math.abs(Number(b.amount)), 0),
+          ),
+          isMe: true,
+        }
+      : null;
+
   return (
     <Page>
-      <div style={{ padding: "20px 0 100px", minHeight: "100vh" }}>
-        <div className="mesh-bg" />
+      <style>{`
+        @keyframes rank1Pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+          50%       { box-shadow: 0 0 16px 4px rgba(245,158,11,0.25); }
+        }
+        @keyframes rank2Shimmer {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(148,163,184,0); }
+          50%       { box-shadow: 0 0 12px 3px rgba(148,163,184,0.2); }
+        }
+        @keyframes rank3Glow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(180,83,9,0); }
+          50%       { box-shadow: 0 0 12px 3px rgba(180,83,9,0.2); }
+        }
+        @keyframes shareIn {
+          from { opacity: 0; transform: scale(0.93); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
 
-        {/* ── Header ── */}
-        <div style={{ padding: "0 16px 20px" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div>
-              <h1
-                style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  color: "var(--text-main)",
-                  margin: 0,
-                  letterSpacing: "-0.02em",
-                  fontFamily: "var(--font-display)",
-                }}
-              >
-                Leaderboard
-              </h1>
-              <p
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-muted)",
-                  margin: "4px 0 0",
-                  fontWeight: 600,
-                }}
-              >
-                {lb?.totalRanked ?? 0} ranked predictors
-              </p>
-            </div>
-
-            {/* My rank badge */}
-            {rankToShow && (
-              <div
-                style={{
-                  background: "linear-gradient(135deg, #f59e0b22, #f59e0b11)",
-                  border: "1px solid #f59e0b44",
-                  borderRadius: 14,
-                  padding: "8px 14px",
-                  textAlign: "center",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 900,
-                    color: "#f59e0b",
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  #{rankToShow}
-                </div>
-                <div
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    color: "#f59e0b",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  your rank
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Percentile banner */}
-          {percentile && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: "8px 14px",
-                background: `${percentile.color}15`,
-                border: `1px solid ${percentile.color}30`,
-                borderRadius: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <Medal size={14} color={percentile.color} />
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: percentile.color,
-                }}
-              >
-                {percentile.text}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Tabs ── */}
+      {/* ── Sticky top bar ── */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 200,
+          background: "var(--bg-main)",
+          borderBottom: "1px solid var(--glass-border)",
+        }}
+      >
+        {/* Title row */}
         <div
           style={{
             display: "flex",
-            gap: 0,
-            marginBottom: 0,
-            borderBottom: "1px solid var(--glass-border)",
-            padding: "0 16px",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 16px 10px",
           }}
         >
-          {[
-            { key: "leaderboard", label: "Global" },
-            { key: "my-record", label: "My Record" },
-            { key: "seasons", label: "Seasons" },
-          ].map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key as typeof activeTab)}
+          <div>
+            <h1
               style={{
-                flex: 1,
-                padding: "10px 0",
-                background: "none",
-                border: "none",
-                borderBottom:
-                  activeTab === t.key
-                    ? "2px solid #3b82f6"
-                    : "2px solid transparent",
-                color: activeTab === t.key ? "#3b82f6" : "var(--text-muted)",
-                fontWeight: activeTab === t.key ? 800 : 600,
-                fontSize: 13,
-                cursor: "pointer",
-                transition: "all 0.15s",
-                marginBottom: -1,
+                fontSize: 22,
+                fontWeight: 900,
+                color: "var(--text-main)",
+                margin: 0,
+                letterSpacing: "-0.02em",
+                fontFamily: "var(--font-display)",
               }}
             >
-              {t.label}
-            </button>
-          ))}
+              Leaderboard
+            </h1>
+            <p
+              style={{
+                fontSize: 11,
+                color: "var(--text-muted)",
+                margin: "2px 0 0",
+                fontWeight: 600,
+              }}
+            >
+              {lb?.totalRanked ?? 0} ranked · {PERIOD_LABELS[period]}
+            </p>
+          </div>
+
+          <button
+            onClick={() => setShowSeasons(true)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "7px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--glass-border)",
+              background: "var(--bg-card)",
+              color: "var(--text-muted)",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            <CalendarDays size={13} /> Seasons
+          </button>
         </div>
 
-        {/* ── Tab: Global Leaderboard ── */}
-        {activeTab === "leaderboard" && (
-          <div style={{ padding: "12px 0" }}>
-            {!lb || lb.board.length === 0 ? (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "60px 0",
-                  color: "var(--text-subtle)",
-                }}
-              >
-                <Trophy
-                  size={48}
-                  strokeWidth={1.5}
-                  style={{ marginBottom: 12, opacity: 0.4 }}
-                />
-                <p style={{ fontWeight: 600 }}>No ranked predictors yet.</p>
-                <p style={{ fontSize: 12, marginTop: 4 }}>
-                  Be the first to make predictions!
-                </p>
-              </div>
-            ) : (
-              <div>
-                {lb.board.slice(0, visibleCount).map((entry, i) => (
-                  <div key={entry.id}>
-                    <LeaderRow entry={entry} />
-                    {i < Math.min(visibleCount, lb.board.length) - 1 && (
-                      <div style={{ height: 6 }} />
-                    )}
-                  </div>
-                ))}
-
-                {/* View More button */}
-                {visibleCount < lb.board.length && (
-                  <button
-                    onClick={() =>
-                      setVisibleCount((c) => Math.min(c + 10, lb.board.length))
-                    }
-                    style={{
-                      width: "calc(100% - 32px)",
-                      margin: "12px 16px 0",
-                      padding: "11px",
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--glass-border)",
-                      borderRadius: 12,
-                      color: "var(--text-muted)",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 6,
-                    }}
-                  >
-                    View More · {lb.board.length - visibleCount} remaining
-                  </button>
-                )}
-
-                {/* If user is outside top 50, show their row at the bottom */}
-                {!myEntry && rankToShow && me && (
-                  <>
-                    <div style={{ padding: "8px 16px", textAlign: "center" }}>
-                      <span
-                        style={{ fontSize: 11, color: "var(--text-subtle)" }}
-                      >
-                        · · ·
-                      </span>
-                    </div>
-                    <LeaderRow
-                      entry={{
-                        rank: rankToShow,
-                        id: me.id,
-                        firstName: me.firstName,
-                        lastName: me.lastName ?? null,
-                        username: me.username ?? null,
-                        photoUrl: me.photoUrl ?? null,
-                        reputationScore: me.reputationScore ?? null,
-                        reputationTier: me.reputationTier ?? "rookie",
-                        totalPredictions: me.totalPredictions ?? 0,
-                        correctPredictions: me.correctPredictions ?? 0,
-                        winRate,
-                        isMe: true,
-                      }}
-                    />
-                  </>
-                )}
-              </div>
-            )}
+        {/* Percentile banner */}
+        {percentile && (
+          <div
+            style={{
+              margin: "0 16px 10px",
+              padding: "7px 12px",
+              background: `${percentile.color}15`,
+              border: `1px solid ${percentile.color}30`,
+              borderRadius: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Medal size={13} color={percentile.color} />
+            <span
+              style={{ fontSize: 11, fontWeight: 700, color: percentile.color }}
+            >
+              {percentile.text}
+            </span>
           </div>
         )}
 
-        {/* ── Tab: My Record ── */}
-        {activeTab === "my-record" && (
-          <div style={{ padding: "16px 16px 0" }}>
-            {/* Stats summary */}
-            <div
+        {/* Period filter pills */}
+        <div style={{ display: "flex", gap: 6, padding: "0 16px 12px" }}>
+          {(["all", "week", "month"] as Period[]).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
               style={{
-                background: "var(--bg-card)",
-                borderRadius: 16,
-                padding: "16px",
-                marginBottom: 16,
-                border: "1px solid var(--glass-border)",
+                padding: "6px 14px",
+                borderRadius: 99,
+                border:
+                  period === p
+                    ? "1.5px solid #3b82f6"
+                    : "1.5px solid var(--glass-border)",
+                background:
+                  period === p ? "rgba(59,130,246,0.15)" : "transparent",
+                color: period === p ? "#3b82f6" : "var(--text-muted)",
+                fontSize: 12,
+                fontWeight: period === p ? 800 : 600,
+                cursor: "pointer",
+                transition: "all 0.15s",
+                whiteSpace: "nowrap",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 12,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 800,
-                    color: "var(--text-main)",
-                  }}
-                >
-                  My Stats
-                </span>
-                <button
-                  onClick={() => setShowShareModal(true)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "6px 12px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-                    color: "#fff",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  <Share2 size={13} /> Share my record
-                </button>
-              </div>
+              {PERIOD_LABELS[p]}
+            </button>
+          ))}
+        </div>
+      </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  gap: 8,
-                }}
-              >
-                {[
-                  {
-                    value: validBets.length,
-                    label: "Picks",
-                    color: "var(--text-main)",
-                  },
-                  { value: won.length, label: "Wins", color: "#22c55e" },
-                  { value: lost.length, label: "Losses", color: "#ef4444" },
-                  {
-                    value: `${winRate}%`,
-                    label: "Win Rate",
-                    color: winRate >= 50 ? "#22c55e" : "#f59e0b",
-                  },
-                ].map((s) => (
-                  <div
-                    key={s.label}
-                    style={{
-                      background: "var(--bg-secondary)",
-                      borderRadius: 10,
-                      padding: "10px 6px",
-                      textAlign: "center",
-                    }}
-                  >
-                    <div
-                      style={{ fontSize: 18, fontWeight: 900, color: s.color }}
-                    >
-                      {s.value}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 9,
-                        fontWeight: 700,
-                        color: "var(--text-subtle)",
-                        textTransform: "uppercase",
-                        marginTop: 2,
-                      }}
-                    >
-                      {s.label}
-                    </div>
-                  </div>
-                ))}
+      {/* ── Scrollable list ── */}
+      <div
+        ref={_listRef}
+        style={{
+          padding: "8px 0",
+          paddingBottom: selfEntry ? 100 : 20,
+          minHeight: "100vh",
+        }}
+      >
+        {board.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "60px 0",
+              color: "var(--text-subtle)",
+            }}
+          >
+            <Trophy
+              size={48}
+              strokeWidth={1.5}
+              style={{ marginBottom: 12, opacity: 0.4 }}
+            />
+            <p style={{ fontWeight: 600 }}>No ranked predictors yet.</p>
+            <p style={{ fontSize: 12, marginTop: 4 }}>
+              Be the first to make predictions!
+            </p>
+          </div>
+        ) : (
+          <>
+            {shownBoard.map((entry, i) => (
+              <div key={entry.id}>
+                <LeaderRow
+                  entry={entry}
+                  onTap={entry.isMe ? () => setShowMyStats(true) : undefined}
+                />
+                {i < shownBoard.length - 1 && <div style={{ height: 4 }} />}
               </div>
+            ))}
 
-              {/* Rank progress */}
-              {percentile && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    padding: "8px 12px",
-                    background: `${percentile.color}15`,
-                    borderRadius: 8,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <TrendingUp size={14} color={percentile.color} />
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: percentile.color,
-                    }}
-                  >
-                    {percentile.text}
+            {/* Ellipsis gap when self is outside visible window */}
+            {!myEntry &&
+              selfEntry &&
+              rankToShow &&
+              rankToShow > visibleCount && (
+                <div style={{ padding: "6px 16px", textAlign: "center" }}>
+                  <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>
+                    · · ·
                   </span>
                 </div>
               )}
 
-              {/* Tier progression */}
-              {(() => {
-                const total = me?.totalPredictions ?? 0;
-                const correct = me?.correctPredictions ?? 0;
-                const acc = total > 0 ? correct / total : 0;
-                const tier = me?.reputationTier ?? "rookie";
-
-                type ProgressInfo = {
-                  label: string;
-                  nextTier: string;
-                  nextColor: string;
-                  progress: number;
-                  hint: string;
-                } | null;
-
-                let info: ProgressInfo = null;
-
-                if (tier === "rookie") {
-                  const progress = Math.min(total / 10, 1);
-                  const left = Math.max(10 - total, 0);
-                  info = {
-                    label: "Rookie → Sharpshooter",
-                    nextTier: "Sharpshooter",
-                    nextColor: "#3b82f6",
-                    progress,
-                    hint: left > 0 ? `${left} more prediction${left !== 1 ? "s" : ""} to reach Sharpshooter` : "Almost there!",
-                  };
-                } else if (tier === "sharpshooter") {
-                  // Need 50 preds + 65% acc
-                  const predProgress = Math.min(total / 50, 1);
-                  const accProgress = Math.min(acc / 0.65, 1);
-                  const progress = Math.min((predProgress + accProgress) / 2, 1);
-                  const predLeft = Math.max(50 - total, 0);
-                  const accNeeded = total >= 50 && acc < 0.65;
-                  const hint = predLeft > 0
-                    ? `${predLeft} more predictions needed${acc < 0.65 ? " · aim for 65%+ accuracy" : ""}`
-                    : accNeeded
-                      ? `${Math.round((0.65 - acc) * 100)}% more accuracy needed`
-                      : "Keep it up!";
-                  info = {
-                    label: "Sharpshooter → Hot Hand",
-                    nextTier: "Hot Hand",
-                    nextColor: "#10b981",
-                    progress,
-                    hint,
-                  };
-                } else if (tier === "hot_hand") {
-                  // Need 100 preds + 75% acc
-                  const predProgress = Math.min(total / 100, 1);
-                  const accProgress = Math.min(acc / 0.75, 1);
-                  const progress = Math.min((predProgress + accProgress) / 2, 1);
-                  const predLeft = Math.max(100 - total, 0);
-                  const accNeeded = total >= 100 && acc < 0.75;
-                  const hint = predLeft > 0
-                    ? `${predLeft} more predictions needed${acc < 0.75 ? " · aim for 75%+ accuracy" : ""}`
-                    : accNeeded
-                      ? `${Math.round((0.75 - acc) * 100)}% more accuracy needed`
-                      : "So close to Legend!";
-                  info = {
-                    label: "Hot Hand → Legend",
-                    nextTier: "Legend",
-                    nextColor: "#f59e0b",
-                    progress,
-                    hint,
-                  };
+            {/* Show more */}
+            {visibleCount < board.length && (
+              <button
+                onClick={() =>
+                  setVisibleCount((c) => Math.min(c + 20, board.length))
                 }
-
-                if (!info) {
-                  // Legend tier — already at max
-                  return (
-                    <div
-                      style={{
-                        marginTop: 12,
-                        padding: "10px 14px",
-                        background: "rgba(245,158,11,0.1)",
-                        borderRadius: 10,
-                        border: "1px solid rgba(245,158,11,0.25)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <Trophy size={14} color="#f59e0b" />
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>
-                        You've reached the top — Legend tier!
-                      </span>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: "12px 14px",
-                      background: "var(--bg-secondary)",
-                      borderRadius: 10,
-                      border: "1px solid var(--glass-border)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: 8,
-                      }}
-                    >
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)" }}>
-                        {info.label}
-                      </span>
-                      <span style={{ fontSize: 11, fontWeight: 800, color: info.nextColor }}>
-                        {Math.round(info.progress * 100)}%
-                      </span>
-                    </div>
-                    {/* Progress bar */}
-                    <div
-                      style={{
-                        height: 6,
-                        borderRadius: 99,
-                        background: "var(--bg-card)",
-                        overflow: "hidden",
-                        marginBottom: 7,
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${Math.round(info.progress * 100)}%`,
-                          borderRadius: 99,
-                          background: `linear-gradient(90deg, ${info.nextColor}99, ${info.nextColor})`,
-                          transition: "width 0.6s ease",
-                        }}
-                      />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--text-subtle)", fontWeight: 600 }}>
-                      {info.hint}
-                    </span>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* ── Collectibles ── */}
-            <div
-              style={{
-                background: "var(--bg-card)",
-                borderRadius: 16,
-                padding: 16,
-                marginBottom: 16,
-                border: "1px solid var(--glass-border)",
-                overflow: "visible",
-              }}
-            >
-              <BadgeGrid
-                totalPredictions={me?.totalPredictions ?? 0}
-                correctPredictions={me?.correctPredictions ?? 0}
-                reputationTier={me?.reputationTier ?? "rookie"}
-                reputationScore={me?.reputationScore ?? 0}
-                hasPhone={!!me?.isPhoneVerified}
-                hasDKBank={!!me?.dkCid}
-              />
-            </div>
-
-            {/* Color-coded bet list */}
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: "var(--text-subtle)",
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-                marginBottom: 10,
-              }}
-            >
-              Recent Results
-            </div>
-
-            {bets.length === 0 ? (
-              <div
                 style={{
-                  textAlign: "center",
-                  padding: "40px 0",
-                  color: "var(--text-subtle)",
+                  width: "calc(100% - 32px)",
+                  margin: "10px 16px 0",
+                  padding: "11px",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: 12,
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
                 }}
               >
-                <p style={{ fontWeight: 600 }}>No settled bets yet.</p>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {bets
-                  .filter((b) => b.status !== "pending")
-                  .slice(0, visibleBets)
-                  .map((bet) => {
-                    const isWon = bet.status === "won";
-                    const isLost = bet.status === "lost";
-                    const isRefunded = bet.status === "refunded";
-                    const accentColor = isWon
-                      ? "#22c55e"
-                      : isLost
-                        ? "#ef4444"
-                        : "#94a3b8";
-                    const bgColor = isWon
-                      ? "rgba(34,197,94,0.06)"
-                      : isLost
-                        ? "rgba(239,68,68,0.06)"
-                        : "rgba(148,163,184,0.06)";
-
-                    // Strip "other" category — only show if meaningful
-                    const category =
-                      bet.market?.category &&
-                      bet.market.category.toLowerCase() !== "other"
-                        ? bet.market.category
-                        : null;
-
-                    return (
-                      <div
-                        key={bet.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 12,
-                          padding: "12px 14px",
-                          borderRadius: 14,
-                          background: bgColor,
-                          borderLeft: `3px solid ${accentColor}`,
-                          border: `1px solid ${accentColor}22`,
-                          borderLeftWidth: 3,
-                        }}
-                      >
-                        {/* Status icon */}
-                        <div
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: "50%",
-                            background: `${accentColor}22`,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexShrink: 0,
-                            fontSize: 14,
-                          }}
-                        >
-                          {isWon ? "✓" : isLost ? "✗" : "↩"}
-                        </div>
-
-                        {/* Market info */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 700,
-                              color: "var(--text-main)",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                            }}
-                          >
-                            {bet.market?.title ?? "Market"}
-                          </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
-                              marginTop: 2,
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: accentColor,
-                                background: `${accentColor}18`,
-                                padding: "1px 7px",
-                                borderRadius: 99,
-                              }}
-                            >
-                              {bet.outcome?.label ?? "—"}
-                            </span>
-                            {category && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 700,
-                                  color: "var(--text-subtle)",
-                                  background: "var(--bg-secondary)",
-                                  padding: "1px 6px",
-                                  borderRadius: 99,
-                                  textTransform: "uppercase",
-                                }}
-                              >
-                                {category}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Payout */}
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          {isWon && bet.payout ? (
-                            <div
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 900,
-                                color: "#22c55e",
-                              }}
-                            >
-                              +{Number(bet.payout).toLocaleString()}
-                            </div>
-                          ) : (
-                            <div
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 700,
-                                color: "var(--text-subtle)",
-                              }}
-                            >
-                              {isRefunded
-                                ? "↩"
-                                : `-${Number(bet.amount).toLocaleString()}`}
-                            </div>
-                          )}
-                          <div
-                            style={{
-                              fontSize: 9,
-                              color: "var(--text-subtle)",
-                              marginTop: 1,
-                            }}
-                          >
-                            {isWon
-                              ? "payout"
-                              : isRefunded
-                                ? "refunded"
-                                : "staked"}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                {/* View More bets button */}
-                {(() => {
-                  const settledBets = bets.filter(
-                    (b) => b.status !== "pending",
-                  );
-                  return visibleBets < settledBets.length ? (
-                    <button
-                      onClick={() =>
-                        setVisibleBets((c) =>
-                          Math.min(c + 5, settledBets.length),
-                        )
-                      }
-                      style={{
-                        width: "100%",
-                        marginTop: 4,
-                        padding: "11px",
-                        background: "var(--bg-card)",
-                        border: "1px solid var(--glass-border)",
-                        borderRadius: 12,
-                        color: "var(--text-muted)",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 6,
-                      }}
-                    >
-                      View More · {settledBets.length - visibleBets} remaining
-                    </button>
-                  ) : null;
-                })()}
-              </div>
+                <TrendingUp size={14} />
+                Show more · {board.length - visibleCount} remaining
+              </button>
             )}
-          </div>
-        )}
-
-        {/* ── Tab: Seasons ── */}
-        {activeTab === "seasons" && (
-          <div style={{ padding: "16px" }}>
-            {/* Current season banner */}
-            {currentSeason && (
-              <div
-                style={{
-                  background: "linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05))",
-                  border: "1px solid rgba(59,130,246,0.3)",
-                  borderRadius: 16,
-                  padding: "14px 16px",
-                  marginBottom: 16,
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
-                  Current Season
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-main)" }}>
-                  Week {currentSeason.weekNumber}, {currentSeason.year}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                  Ends {new Date(currentSeason.endsAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                </div>
-              </div>
-            )}
-
-            {/* Past season winners */}
-            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-subtle)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-              Past Seasons
-            </div>
-            {seasonHistory.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-subtle)", fontSize: 13, fontWeight: 600 }}>
-                No past seasons yet.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {seasonHistory.map((s) => (
-                  <div
-                    key={s.id}
-                    style={{
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--glass-border)",
-                      borderRadius: 14,
-                      padding: "14px 16px",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-main)" }}>
-                          Week {s.weekNumber}, {s.year}
-                        </div>
-                        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
-                          {new Date(s.startsAt).toLocaleDateString()} – {new Date(s.endsAt).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <Trophy size={16} color="#f59e0b" />
-                    </div>
-                    {s.winnersSnapshot && s.winnersSnapshot.slice(0, 3).map((w) => (
-                      <div key={w.userId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid var(--glass-border)" }}>
-                        <span style={{ width: 20, fontSize: 12, fontWeight: 900, color: w.rank === 1 ? "#f59e0b" : w.rank === 2 ? "#94a3b8" : "#b45309" }}>
-                          #{w.rank}
-                        </span>
-                        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: "var(--text-main)" }}>
-                          {w.username ? `@${w.username}` : (w.firstName ?? "—")}
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#22c55e" }}>{w.winRate}%</span>
-                        <span style={{ fontSize: 10, color: "var(--text-subtle)" }}>win rate</span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          </>
         )}
       </div>
 
-      {/* ── Share my record modal ── */}
+      {/* ── Pinned self row (hidden when sheet is open) ── */}
+      {selfEntry && !showMyStats && !showSeasons && (
+        <PinnedSelfRow entry={selfEntry} onTap={() => setShowMyStats(true)} />
+      )}
+
+      {/* ── My Stats bottom sheet ── */}
+      <MyStatsSheet
+        open={showMyStats}
+        onClose={() => setShowMyStats(false)}
+        me={me}
+        bets={bets}
+        depositTxs={depositTxs}
+        myWeeklyDeposit={myWeeklyDeposit}
+        winRate={winRate}
+        rankToShow={rankToShow}
+        lb={lb}
+        onShare={() => {
+          setShowMyStats(false);
+          setTimeout(() => setShowShareModal(true), 200);
+        }}
+      />
+
+      {/* ── Seasons bottom sheet ── */}
+      <SeasonsSheet
+        open={showSeasons}
+        onClose={() => setShowSeasons(false)}
+        currentSeason={currentSeason}
+        seasonHistory={seasonHistory}
+      />
+
+      {/* ── Share record modal ── */}
       {showShareModal && (
         <div
           onClick={() => setShowShareModal(false)}
@@ -1178,24 +1724,6 @@ export const TmaLeaderboardPage: FC = () => {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <style>{`
-              @keyframes shareIn {
-                from { opacity: 0; transform: scale(0.93); }
-                to   { opacity: 1; transform: scale(1); }
-              }
-              @keyframes rank1Pulse {
-                0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
-                50%       { box-shadow: 0 0 16px 4px rgba(245,158,11,0.25); }
-              }
-              @keyframes rank2Shimmer {
-                0%, 100% { box-shadow: 0 0 0 0 rgba(148,163,184,0); }
-                50%       { box-shadow: 0 0 12px 3px rgba(148,163,184,0.2); }
-              }
-              @keyframes rank3Glow {
-                0%, 100% { box-shadow: 0 0 0 0 rgba(180,83,9,0); }
-                50%       { box-shadow: 0 0 12px 3px rgba(180,83,9,0.2); }
-              }
-            `}</style>
             <button
               onClick={() => setShowShareModal(false)}
               style={{

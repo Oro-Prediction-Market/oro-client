@@ -196,6 +196,43 @@ function useCountdown(targetAt: string | null): string {
   return label;
 }
 
+// ── Category visual config ────────────────────────────────────────────────────
+
+const CATEGORY_VISUAL: Record<
+  string,
+  { gradient: string; accentColor: string }
+> = {
+  sports: {
+    gradient: "linear-gradient(135deg, #1a3a5c 0%, #0f5132 60%, #1e4d2b 100%)",
+    accentColor: "#22c55e",
+  },
+  politics: {
+    gradient: "linear-gradient(135deg, #3b1f6e 0%, #1e3a8a 60%, #0f172a 100%)",
+    accentColor: "#818cf8",
+  },
+  weather: {
+    gradient: "linear-gradient(135deg, #0c4a6e 0%, #075985 60%, #082f49 100%)",
+    accentColor: "#38bdf8",
+  },
+  entertainment: {
+    gradient: "linear-gradient(135deg, #4a1942 0%, #831843 60%, #1f1f1f 100%)",
+    accentColor: "#f472b6",
+  },
+  economy: {
+    gradient: "linear-gradient(135deg, #1c2b1a 0%, #14532d 60%, #052e16 100%)",
+    accentColor: "#4ade80",
+  },
+  other: {
+    gradient: "linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #0f0f23 100%)",
+    accentColor: "#a78bfa",
+  },
+};
+
+function getCategoryVisual(category: string | null) {
+  const key = (category ?? "other").toLowerCase();
+  return CATEGORY_VISUAL[key] ?? CATEGORY_VISUAL["other"];
+}
+
 // ── Market Card ───────────────────────────────────────────────────────────────
 
 function MarketCard({
@@ -215,6 +252,7 @@ function MarketCard({
 }) {
   const [showAll, setShowAll] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   // A Legend-tier user has bet here if any outcome carries a reputation signal
   const hasLegendBet = market.outcomes.some(
@@ -284,70 +322,87 @@ function MarketCard({
           50%{box-shadow:6px 6px 16px rgba(0,0,0,0.35),-3px -3px 10px rgba(255,255,255,0.04),0 0 0 1px rgba(245,158,11,0.45),0 0 32px rgba(245,158,11,0.35)}
         }
       `}</style>
-      {hasLegendBet && (
-        <div
-          style={{
-            position: "absolute",
-            top: 10,
-            left: 12,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            background: "rgba(245,158,11,0.15)",
-            border: "1px solid rgba(245,158,11,0.35)",
-            borderRadius: 8,
-            padding: "2px 7px",
-            fontSize: 10,
-            fontWeight: 800,
-            color: "#f59e0b",
-            pointerEvents: "none",
-            zIndex: 1,
-          }}
-        >
-          ★ Legend pick
-        </div>
-      )}
-      <div
-        style={{
-          fontSize: 15,
-          fontWeight: 700,
-          lineHeight: 1.4,
-          color: "var(--text-main)",
-          fontFamily: "var(--font-display)",
-          paddingRight: isUpcoming || isResolving ? 40 : 0,
-          paddingTop: hasLegendBet ? 18 : 0,
-        }}
-      >
-        {market.title}
-      </div>
 
-      {(isUpcoming || isResolving) && (
-        <div
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            background: isUpcoming ? "#3b82f6" : "#f59e0b",
-            color: "#fff",
-            padding: "2px 8px",
-            fontSize: "0.6rem",
-            fontWeight: 800,
-            borderRadius: 4,
-          }}
-        >
-          {isUpcoming ? "SOON" : "WAIT"}
-        </div>
-      )}
+      {/* ── Title row ── */}
+      {(() => {
+        const vis = getCategoryVisual(market.category);
+        return (
+          <div>
+            {/* Badges row */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 6,
+                flexWrap: "wrap",
+              }}
+            >
+              {market.category && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: vis.accentColor,
+                    background: `${vis.accentColor}18`,
+                    border: `1px solid ${vis.accentColor}40`,
+                    padding: "1px 7px",
+                    borderRadius: 99,
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {market.category}
+                </span>
+              )}
+              {(isUpcoming || isResolving) && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: "#fff",
+                    background: isUpcoming ? "#3b82f6" : "#f59e0b",
+                    padding: "1px 7px",
+                    borderRadius: 4,
+                  }}
+                >
+                  {isUpcoming ? "SOON" : "WAIT"}
+                </span>
+              )}
+              {hasLegendBet && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: "#f59e0b",
+                    background: "rgba(245,158,11,0.15)",
+                    border: "1px solid rgba(245,158,11,0.35)",
+                    padding: "1px 7px",
+                    borderRadius: 99,
+                  }}
+                >
+                  ★ Legend pick
+                </span>
+              )}
+            </div>
+            {/* Title */}
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: 700,
+                lineHeight: 1.35,
+                color: "var(--text-main)",
+                fontFamily: "var(--font-display)",
+              }}
+            >
+              {market.title}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Outcome buttons ── */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-          marginTop: 4,
-        }}
-      >
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {isResolving ? (
           <Link to={`/market/${market.id}`} style={{ textDecoration: "none" }}>
             <div
@@ -399,8 +454,18 @@ function MarketCard({
             Opens {countdown}
           </div>
         ) : (
-          displayOutcomes.map((s) => {
+          displayOutcomes.map((s, idx) => {
             const barWidth = Math.max(4, Math.min(100, s.pct));
+            // Per-outcome avatar: use outcome.imageUrl if set, else fall back to market images
+            const avatarUrl = !imgError
+              ? (s as any).imageUrl ||
+                (idx === 0
+                  ? market.imageUrl
+                  : idx === 1
+                    ? market.imageUrlAlt || market.imageUrl
+                    : null)
+              : null;
+            const vis = getCategoryVisual(market.category);
             return (
               <button
                 key={s.id}
@@ -435,7 +500,7 @@ function MarketCard({
                   el.style.transform = "scale(1)";
                 }}
               >
-                {/* Pool fill — solid left edge fading right, width = probability */}
+                {/* Pool fill bar */}
                 <div
                   style={{
                     position: "absolute",
@@ -474,61 +539,107 @@ function MarketCard({
                 <div
                   style={{
                     position: "relative",
-                    padding: "13px 16px",
+                    padding: "11px 14px",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
+                    gap: 10,
                   }}
                 >
-                  {/* Left: label + reputation signal */}
+                  {/* Circle avatar */}
                   <div
                     style={{
+                      flexShrink: 0,
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      overflow: "hidden",
+                      background: vis.gradient,
+                      border: `2px solid ${s.color}40`,
                       display: "flex",
-                      flexDirection: "column",
-                      gap: 3,
-                      minWidth: 0,
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "0.9rem",
-                        fontWeight: 800,
-                        color: "var(--text-main)",
-                        letterSpacing: "-0.01em",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {s.label}
-                    </span>
-                    {s.reputationSignal != null && hasBet && (
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        onError={() => setImgError(true)}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          display: "block",
+                        }}
+                      />
+                    ) : (
                       <span
                         style={{
-                          fontSize: "0.65rem",
-                          fontWeight: 700,
-                          color: "#f59e0b",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 3,
+                          fontSize: 14,
+                          fontWeight: 900,
+                          color: s.color,
                         }}
                       >
-                        <svg
-                          width="8"
-                          height="8"
-                          viewBox="0 0 24 24"
-                          fill="#f59e0b"
-                          stroke="none"
-                        >
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                        Experts {Math.round(s.reputationSignal * 100)}%
+                        {s.label.charAt(0)}
                       </span>
                     )}
                   </div>
-
-                  {/* Right: neumorphic percentage badge */}
+                  {/* Label + expert signal */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flex: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                        minWidth: 0,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "0.88rem",
+                          fontWeight: 800,
+                          color: "var(--text-main)",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {s.label}
+                      </span>
+                      {s.reputationSignal != null && hasBet && (
+                        <span
+                          style={{
+                            fontSize: "0.65rem",
+                            fontWeight: 700,
+                            color: "#f59e0b",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 3,
+                          }}
+                        >
+                          <svg
+                            width="8"
+                            height="8"
+                            viewBox="0 0 24 24"
+                            fill="#f59e0b"
+                            stroke="none"
+                          >
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                          </svg>
+                          Experts {Math.round(s.reputationSignal * 100)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* % badge */}
                   <div
                     style={{
                       background: `${s.color}22`,
@@ -589,9 +700,40 @@ function MarketCard({
           borderTop: "1px solid var(--glass-border)",
         }}
       >
-        <div style={{ color: "#22c55e" }}>
-          Nu {totalPool.toLocaleString()} Pool
+        {/* Left: live dot + pool · category */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: isResolving
+                ? "#f59e0b"
+                : isUpcoming
+                  ? "#3b82f6"
+                  : "#22c55e",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ color: "var(--text-muted)" }}>
+            Nu {totalPool.toLocaleString()} Vol.
+          </span>
+          {market.category && (
+            <>
+              <span style={{ color: "var(--glass-border)" }}>·</span>
+              <span
+                style={{
+                  color: "var(--text-subtle)",
+                  textTransform: "uppercase" as const,
+                }}
+              >
+                {market.category}
+              </span>
+            </>
+          )}
         </div>
+        {/* Right: countdown + share */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <svg
