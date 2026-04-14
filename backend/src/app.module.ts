@@ -26,7 +26,10 @@ import { PaymentOtp } from "./entities/payment-otp.entity";
 import { AuditLog } from "./entities/audit-log.entity";
 import { Challenge } from "./entities/challenge.entity";
 import { Season } from "./entities/season.entity";
+import { TelegramGroup } from "./entities/telegram-group.entity";
+import { GroupMembership } from "./entities/group-membership.entity";
 import { ChallengesModule } from "./challenges/challenges.module";
+import { LeaguesModule } from "./leagues/leagues.module";
 
 @Module({
   imports: [
@@ -75,6 +78,8 @@ import { ChallengesModule } from "./challenges/challenges.module";
           AuditLog,
           Challenge,
           Season,
+          TelegramGroup,
+          GroupMembership,
         ],
         synchronize: false,
         logging: false,
@@ -93,6 +98,7 @@ import { ChallengesModule } from "./challenges/challenges.module";
     TelegramModule,
     PaymentModule,
     ChallengesModule,
+    LeaguesModule,
   ],
 })
 export class AppModule {}

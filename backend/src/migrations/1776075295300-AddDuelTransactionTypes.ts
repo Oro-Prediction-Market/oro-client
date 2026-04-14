@@ -35,7 +35,9 @@ export class AddDuelTransactionTypes1776075295300 implements MigrationInterface 
       ALTER TABLE transactions
         ALTER COLUMN type TYPE VARCHAR;
     `);
-    await queryRunner.query(`DROP TYPE IF EXISTS "public"."transactions_type_enum_new"`);
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."transactions_type_enum_new"`,
+    );
     await queryRunner.query(`
       CREATE TYPE "public"."transactions_type_enum_new" AS ENUM(
         'deposit','withdrawal','bet_placed','bet_payout','refund',

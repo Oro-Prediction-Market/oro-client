@@ -275,7 +275,7 @@ export class PaymentController {
           type: "dkbank",
           currency: "BTN",
           enabled: true,
-          minAmount: 50,
+          minAmount: 100,
           maxAmount: 10000,
           icon: "🏦",
         },

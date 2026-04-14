@@ -13,6 +13,7 @@ export class CreateMarketDto {
   @ApiProperty() @IsString() title: string;
   @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() imageUrl?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() imageUrlAlt?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() resolutionCriteria?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() opensAt?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() closesAt?: string;

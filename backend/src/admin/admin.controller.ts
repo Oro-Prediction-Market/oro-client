@@ -25,7 +25,11 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { IsNumber, IsOptional, IsString, Min } from "class-validator";
 import { Repository, DataSource } from "typeorm";
 import { JwtAuthGuard, AdminGuard } from "../auth/guards";
-import { MarketsService, CreateMarketDto } from "../markets/markets.service";
+import {
+  MarketsService,
+  CreateMarketDto,
+  UpdateMarketDto,
+} from "../markets/markets.service";
 import { KeeperService } from "../markets/keeper.service";
 import { FixturesService } from "./fixtures.service";
 import { AuditService } from "./audit.service";
@@ -126,6 +130,36 @@ export class AdminController {
   @ApiOperation({ summary: "Get market details" })
   getMarket(@Param("id") id: string) {
     return this.marketsService.findOne(id);
+  }
+
+  @Patch("markets/:id")
+  @ApiOperation({
+    summary: "Update market metadata and/or rename outcome labels",
+  })
+  async updateMarket(
+    @Param("id") id: string,
+    @Body() dto: UpdateMarketDto,
+    @Request() req: any,
+  ) {
+    const before = await this.marketsService.findOne(id);
+    const result = await this.marketsService.update(id, dto);
+    await this.auditService.log({
+      adminId: req.user.userId,
+      isAdmin: true,
+      action: AuditAction.MARKET_TRANSITION, // reuse closest action; no MARKET_UPDATE exists
+      entityType: "market",
+      entityId: id,
+      before: {
+        title: before.title,
+        outcomes: before.outcomes?.map((o) => o.label),
+      },
+      after: { title: result.title, outcomes: dto.outcomes },
+      meta: {
+        fields: Object.keys(dto).filter((k) => (dto as any)[k] !== undefined),
+      },
+      ipAddress: req.ip,
+    });
+    return result;
   }
 
   @Patch("markets/:id/status")

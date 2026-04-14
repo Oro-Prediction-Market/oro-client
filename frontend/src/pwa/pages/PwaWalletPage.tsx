@@ -23,29 +23,29 @@ import {
 } from "lucide-react";
 
 const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
-  deposit:        <ArrowDownLeft size={18} />,
-  withdrawal:     <ArrowUpRight size={18} />,
-  bet_placed:     <Target size={18} />,
-  bet_payout:     <Trophy size={18} />,
-  refund:         <RotateCcw size={18} />,
-  dispute_bond:   <Lock size={18} />,
+  deposit: <ArrowDownLeft size={18} />,
+  withdrawal: <ArrowUpRight size={18} />,
+  bet_placed: <Target size={18} />,
+  bet_payout: <Trophy size={18} />,
+  refund: <RotateCcw size={18} />,
+  dispute_bond: <Lock size={18} />,
   dispute_refund: <Unlock size={18} />,
   referral_bonus: <UserPlus size={18} />,
-  duel_wager:     <Swords size={18} />,
-  duel_payout:    <Swords size={18} />,
+  duel_wager: <Swords size={18} />,
+  duel_payout: <Swords size={18} />,
 };
 
 const TX_LABEL: Record<Transaction["type"], string> = {
-  deposit:        "Top Up",
-  withdrawal:     "Cash Out",
-  bet_placed:     "Position opened",
-  bet_payout:     "Returns",
-  refund:         "Refund",
-  dispute_bond:   "Dispute bond",
+  deposit: "Top Up",
+  withdrawal: "Cash Out",
+  bet_placed: "Position opened",
+  bet_payout: "Returns",
+  refund: "Refund",
+  dispute_bond: "Dispute bond",
   dispute_refund: "Bond refund",
   referral_bonus: "Referral bonus",
-  duel_wager:     "Duel wager locked",
-  duel_payout:    "Duel payout",
+  duel_wager: "Duel wager locked",
+  duel_payout: "Duel payout",
 };
 
 function TxRow({ tx }: { tx: Transaction }) {

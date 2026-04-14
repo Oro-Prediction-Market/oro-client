@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { User } from "../entities/user.entity";
@@ -15,6 +15,7 @@ import { BotController } from "../bot/bot.controller";
 import { BotPollingService } from "../bot/bot-polling.service";
 import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
 import { TelegramChannelController } from "./telegram-channel.controller";
+import { LeaguesModule } from "../leagues/leagues.module";
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { TelegramChannelController } from "./telegram-channel.controller";
       Payment,
       DKGatewayAuthToken,
     ]),
+    forwardRef(() => LeaguesModule),
   ],
   controllers: [BotController, TelegramChannelController],
   providers: [

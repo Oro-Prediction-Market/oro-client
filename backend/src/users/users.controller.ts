@@ -336,13 +336,17 @@ export class UsersController {
         "u.totalPredictions",
         "u.correctPredictions",
       ])
+      .addSelect(
+        `(SELECT COALESCE(SUM(p.amount), 0) FROM positions p WHERE p."userId" = u.id)`,
+        "totalBetAmount",
+      )
       .where("u.totalPredictions > 0")
       .orderBy("u.reputationScore", "DESC", "NULLS LAST")
       .addOrderBy("u.correctPredictions", "DESC")
       .limit(50)
-      .getMany();
+      .getRawAndEntities();
 
-    const board = rows.map((u, i) => ({
+    const board = rows.entities.map((u, i) => ({
       rank: i + 1,
       id: u.id,
       firstName: u.firstName,
@@ -357,6 +361,7 @@ export class UsersController {
         u.totalPredictions > 0
           ? Math.round((u.correctPredictions / u.totalPredictions) * 100)
           : 0,
+      totalBetAmount: Math.round(Number(rows.raw[i]?.totalBetAmount ?? 0)),
       isMe: u.id === myId,
     }));
 

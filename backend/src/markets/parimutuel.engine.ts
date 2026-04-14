@@ -21,6 +21,7 @@ import { ReputationService } from "./reputation.service";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
 import { StreakService, STREAK_BONUS_MULT } from "../users/streak.service";
+import { ChallengesService } from "../challenges/challenges.service";
 
 // ─── Valid state machine transitions ────────────────────────────────────────
 const VALID_TRANSITIONS: Record<MarketStatus, MarketStatus[]> = {
@@ -61,6 +62,7 @@ export class ParimutuelEngine implements OnModuleInit {
     private dkGateway: DKGatewayService,
     private configService: ConfigService,
     private streakService: StreakService,
+    private challengesService: ChallengesService,
   ) {}
 
   private async getCreditsBalance(
@@ -100,6 +102,7 @@ export class ParimutuelEngine implements OnModuleInit {
   > {
     if (amount <= 0)
       throw new BadRequestException("Position amount must be positive");
+    if (amount < 100) throw new BadRequestException("Minimum bet is Nu 100");
 
     // Acquire a distributed Redis lock so concurrent bets on the same market
     // are serialised at the application layer before touching the DB.
@@ -156,6 +159,24 @@ export class ParimutuelEngine implements OnModuleInit {
 
         const user = await em.findOne(User, { where: { id: userId } });
         if (!user) throw new BadRequestException("User not found");
+
+        // Require a linked DK Bank account before placing any bet.
+        // Starter-credit balance alone is not sufficient — the user must have
+        // gone through the DK Bank onboarding (CID lookup) so winnings can be
+        // paid out to a real account.
+        if (!user.dkAccountNumber) {
+          throw new BadRequestException(
+            "You must link your DK Bank account before placing a bet. Go to Profile → Link DK Bank.",
+          );
+        }
+
+        // Require a verified phone number (stored during DK Bank onboarding).
+        // This doubles as identity verification and ensures withdrawal delivery.
+        if (!user.phoneNumber) {
+          throw new BadRequestException(
+            "A verified phone number is required to place a bet. Go to Profile → Link DK Bank.",
+          );
+        }
 
         // Store user reference for notification
         betUser = user;
@@ -592,6 +613,15 @@ export class ParimutuelEngine implements OnModuleInit {
         `[Notify] Settlement notifications failed for market ${marketId}: ${err.message}`,
       ),
     );
+
+    // Settle any active duels on this market — fire and forget
+    this.challengesService
+      .settleByMarket(marketId, winningOutcomeId)
+      .catch((err) =>
+        this.logger.warn(
+          `[Duels] settleByMarket failed for market ${marketId}: ${err.message}`,
+        ),
+      );
 
     return settlement;
   }
@@ -1095,10 +1125,23 @@ Good luck! 🍀
         msg += `\n💡 Every prediction builds your reputation. Keep going.`;
 
         await this.telegramSimple.sendMessage(chatId, msg).catch(() => {});
-        await this.dataSource
-          .getRepository(User)
-          .update(user.id, { telegramStreak: 0 })
-          .catch(() => {});
+
+        // Shield card: if the user has an active duel on this market with Shield
+        // equipped, their streak is preserved — skip the reset entirely.
+        const shielded = await this.challengesService
+          .hasShieldActive(user.id, market.id)
+          .catch(() => false);
+
+        if (!shielded) {
+          await this.dataSource
+            .getRepository(User)
+            .update(user.id, { telegramStreak: 0 })
+            .catch(() => {});
+        } else {
+          this.logger.log(
+            `[Shield] Streak reset skipped for user ${user.id} on market ${market.id}`,
+          );
+        }
       }
     }
 

@@ -14,6 +14,7 @@ import {
   Market,
   MarketStatus,
   MarketMechanism,
+  MarketCategory,
 } from "../entities/market.entity";
 import { Outcome } from "../entities/outcome.entity";
 import { Dispute } from "../entities/dispute.entity";
@@ -137,6 +138,7 @@ export class MarketsService {
         title: dto.title,
         description: dto.description,
         imageUrl: dto.imageUrl,
+        imageUrlAlt: dto.imageUrlAlt,
         resolutionCriteria: dto.resolutionCriteria ?? undefined,
         opensAt: dto.opensAt ? new Date(dto.opensAt) : undefined,
         closesAt: dto.closesAt ? new Date(dto.closesAt) : undefined,
@@ -261,9 +263,12 @@ export class MarketsService {
   async update(id: string, dto: UpdateMarketDto): Promise<Market> {
     const market = await this.findOne(id);
 
-    if (dto.title) market.title = dto.title;
-    if (dto.description) market.description = dto.description;
-    if (dto.imageUrl) market.imageUrl = dto.imageUrl;
+    if (dto.title !== undefined) market.title = dto.title;
+    if (dto.description !== undefined) market.description = dto.description;
+    if (dto.category !== undefined)
+      market.category = dto.category as MarketCategory;
+    if (dto.imageUrl !== undefined) market.imageUrl = dto.imageUrl;
+    if (dto.imageUrlAlt !== undefined) market.imageUrlAlt = dto.imageUrlAlt;
     if (dto.resolutionCriteria !== undefined)
       market.resolutionCriteria = dto.resolutionCriteria;
     if (dto.opensAt) market.opensAt = new Date(dto.opensAt);
@@ -271,6 +276,45 @@ export class MarketsService {
     if (dto.houseEdgePct !== undefined) market.houseEdgePct = dto.houseEdgePct;
     if (dto.liquidityParam !== undefined)
       market.liquidityParam = dto.liquidityParam;
+
+    // Rename outcome labels matched by ID — order-independent, safe
+    if (dto.outcomes && dto.outcomes.length > 0) {
+      // Validate shape: each element must be { id: string, label: string }
+      for (const item of dto.outcomes) {
+        if (
+          typeof item !== "object" ||
+          typeof item.id !== "string" ||
+          typeof item.label !== "string"
+        ) {
+          throw new BadRequestException(
+            "Each outcome must be an object with { id: string, label: string }",
+          );
+        }
+      }
+      const existing = await this.outcomeRepo.find({
+        where: { marketId: id },
+      });
+      if (dto.outcomes.length !== existing.length) {
+        throw new BadRequestException(
+          `outcomes array length (${dto.outcomes.length}) must match existing outcome count (${existing.length})`,
+        );
+      }
+      await Promise.all(
+        dto.outcomes.map((rename) => {
+          const outcome = existing.find((o) => o.id === rename.id);
+          if (!outcome)
+            throw new BadRequestException(
+              `Outcome id "${rename.id}" does not belong to market "${id}"`,
+            );
+          outcome.label = rename.label;
+          if ("imageUrl" in rename) outcome.imageUrl = rename.imageUrl ?? null;
+          return this.outcomeRepo.save(outcome);
+        }),
+      );
+      // Sync market.outcomes with the updated entities so the cascade save
+      // in marketRepo.save() below does not overwrite the new labels.
+      market.outcomes = existing;
+    }
 
     const saved = await this.marketRepo.save(market);
     await this.invalidateMarketCache(id);
@@ -590,6 +634,7 @@ export class MarketsService {
         title: m.title,
         description: m.description,
         imageUrl: m.imageUrl,
+        imageUrlAlt: m.imageUrlAlt,
         category: m.category,
         status: m.status,
         totalPool: m.totalPool,

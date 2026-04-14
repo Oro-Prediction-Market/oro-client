@@ -8,7 +8,8 @@ const config = {
   // APP INFO
   // ----------------------------------------------------------
   appName: "Oro",
-  appDescription: "Bhutanese Archery Prediction Markets - Trade event contracts with BTN or TON",
+  appDescription:
+    "Bhutanese Archery Prediction Markets - Trade event contracts with BTN or TON",
   version: "1.0.0-phase1",
 
   // ----------------------------------------------------------
@@ -25,8 +26,7 @@ const config = {
   // ----------------------------------------------------------
   // TON CONNECT (for crypto wallet connection)
   // ----------------------------------------------------------
-  tonConnectIconUrl:
-    "https://oro-predict.vercel.app/icons/icon-192x192.png",
+  tonConnectIconUrl: "https://oro-predict.vercel.app/icons/icon-192x192.png",
 
   // ----------------------------------------------------------
   // PAYMENT METHODS (Phase 1: Bhutan Launch)
@@ -38,7 +38,7 @@ const config = {
       merchantId: "", // TODO: Add your DK Bank merchant ID
       apiUrl: "https://dkpnb.bt/api", // TODO: Verify DK Bank API endpoint
       currency: "BTN", // Bhutanese Ngultrum
-      minBet: 50, // Minimum 50 BTN (~$0.60 USD)
+      minBet: 100, // Minimum 100 BTN
     },
 
     // TON Wallet - Secondary for crypto users
