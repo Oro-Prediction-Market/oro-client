@@ -43,8 +43,11 @@ import {
   EyeOff,
   UserPlus,
   CalendarDays,
+  Swords,
   Lightbulb,
   CheckCircle,
+  Gift,
+  Users,
 } from "lucide-react";
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -68,6 +71,8 @@ const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
   dispute_bond: <Lock size={18} />,
   dispute_refund: <Unlock size={18} />,
   referral_bonus: <UserPlus size={18} />,
+  duel_wager: <Swords size={18} />,
+  duel_payout: <Swords size={18} />,
 };
 
 const TX_LABEL: Record<Transaction["type"], string> = {
@@ -79,6 +84,8 @@ const TX_LABEL: Record<Transaction["type"], string> = {
   dispute_bond: "Dispute bond",
   dispute_refund: "Dispute bond refunded",
   referral_bonus: "Referral bonus",
+  duel_wager: "Duel wager locked",
+  duel_payout: "Duel payout",
 };
 
 // ── AnimatedCounter ────────────────────────────────────────────────────────────
@@ -594,7 +601,7 @@ export const TmaWalletPage: FC = () => {
             onClick={() => openPaymentModal("deposit")}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 26 }}>🎁</span>
+              <Gift size={26} color="#1c1917" style={{ flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 900, color: "#1c1917" }}>First Deposit Bonus — +10% Free!</div>
                 <div style={{ fontSize: 11, color: "#451a03", marginTop: 2, fontWeight: 600 }}>Deposit Nu 500 → get Nu 550 to bet with. Limited time.</div>
@@ -607,7 +614,7 @@ export const TmaWalletPage: FC = () => {
         {/* ── Referral Deposit Nudge ─────────────────────────── */}
         {referralDepositNudge && (
           <div style={{ margin: "0 16px", borderRadius: 14, padding: "12px 14px", background: "linear-gradient(135deg, rgba(34,197,94,0.12), rgba(16,185,129,0.06))", border: "1px solid rgba(34,197,94,0.3)", animation: "nudgePulse 3s ease-in-out infinite", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 22 }}>👥</span>
+            <Users size={22} color="#22c55e" style={{ flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-main)" }}>
                 Your friend <span style={{ color: "#22c55e" }}>{referralDepositNudge.friendName}</span> deposited Nu {referralDepositNudge.amount.toLocaleString()}
@@ -794,7 +801,9 @@ export const TmaWalletPage: FC = () => {
                 const totalEarned = referralTxs.reduce((s, t) => s + Number(t.amount), 0);
                 return (
                   <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", marginBottom: 8, borderRadius: 12, background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.18)" }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(34,197,94,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>👥</div>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(34,197,94,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Users size={16} color="#22c55e" />
+                    </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>Friends earned you a bonus</div>
                       <div style={{ fontSize: 11, color: "var(--text-subtle)", marginTop: 2 }}>
@@ -873,7 +882,7 @@ export const TmaWalletPage: FC = () => {
                 )}
                 {paymentModal === "deposit" && isFirstDeposit && (
                   <div style={{ padding: "12px 14px", borderRadius: 12, background: "linear-gradient(135deg, rgba(245,158,11,0.18), rgba(251,191,36,0.1))", border: "1px solid rgba(245,158,11,0.4)", display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 22 }}>🎁</span>
+                    <Gift size={22} color="#f59e0b" style={{ flexShrink: 0 }} />
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 800, color: "#f59e0b" }}>+10% First Deposit Bonus!</div>
                       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Deposit Nu 500 → you get <strong style={{ color: "#fbbf24" }}>Nu 550</strong> to bet with</div>
@@ -1001,7 +1010,7 @@ export const TmaWalletPage: FC = () => {
                   <div style={{ margin: "8px 0 14px", padding: "12px 20px", borderRadius: 12, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)" }}>
                     <div style={{ fontSize: 11, color: "var(--text-subtle)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>New Balance</div>
                     <div style={{ fontSize: 28, fontWeight: 900, color: "#10b981" }}>BTN <AnimatedCounter value={depositPrevBalance.current + parseFloat(payAmountStr)} /></div>
-                    {isFirstDeposit && <div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 700, marginTop: 6 }}>🎁 +10% bonus included!</div>}
+                    {isFirstDeposit && <div style={{ fontSize: 12, color: "#f59e0b", fontWeight: 700, marginTop: 6, display: "flex", alignItems: "center", gap: 5 }}><Gift size={13} color="#f59e0b" /> +10% bonus included!</div>}
                   </div>
                 )}
                 <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 24px", lineHeight: 1.6 }}>{paySuccessMsg}</p>

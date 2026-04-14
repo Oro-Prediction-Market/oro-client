@@ -21,6 +21,8 @@ export enum TransactionType {
   FREE_CREDIT = "free_credit",
   STREAK_BONUS = "streak_bonus",
   REFERRAL_PRIZE = "referral_prize",
+  DUEL_WAGER = "duel_wager",
+  DUEL_PAYOUT = "duel_payout",
 }
 
 // Back-compat aliases

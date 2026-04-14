@@ -19,6 +19,7 @@ import {
   Clock,
   AlertCircle,
   UserPlus,
+  Swords,
 } from "lucide-react";
 
 const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
@@ -30,6 +31,8 @@ const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
   dispute_bond:   <Lock size={18} />,
   dispute_refund: <Unlock size={18} />,
   referral_bonus: <UserPlus size={18} />,
+  duel_wager:     <Swords size={18} />,
+  duel_payout:    <Swords size={18} />,
 };
 
 const TX_LABEL: Record<Transaction["type"], string> = {
@@ -41,6 +44,8 @@ const TX_LABEL: Record<Transaction["type"], string> = {
   dispute_bond:   "Dispute bond",
   dispute_refund: "Bond refund",
   referral_bonus: "Referral bonus",
+  duel_wager:     "Duel wager locked",
+  duel_payout:    "Duel payout",
 };
 
 function TxRow({ tx }: { tx: Transaction }) {

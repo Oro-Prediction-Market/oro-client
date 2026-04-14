@@ -183,6 +183,7 @@ export interface Market {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrlAlt: string | null;
   status:
     | "upcoming"
     | "open"
@@ -191,7 +192,6 @@ export interface Market {
     | "resolved"
     | "settled"
     | "cancelled";
-  mechanism: "parimutuel";
   liquidityParam: string;
   totalPool: string;
   houseEdgePct: string;
@@ -280,6 +280,7 @@ export interface ResolvedMarket {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrlAlt: string | null;
   category: string | null;
   status: "resolved" | "settled";
   totalPool: number;
@@ -348,7 +349,9 @@ export interface Transaction {
     | "refund"
     | "dispute_bond"
     | "dispute_refund"
-    | "referral_bonus";
+    | "referral_bonus"
+    | "duel_wager"
+    | "duel_payout";
   amount: number;
   balanceBefore: number;
   balanceAfter: number;
@@ -430,6 +433,7 @@ export interface LeaderboardEntry {
   totalPredictions: number;
   correctPredictions: number;
   winRate: number;
+  totalBetAmount: number;
   isMe: boolean;
 }
 
@@ -445,6 +449,14 @@ export function getLeaderboard(): Promise<LeaderboardResponse> {
 
 // ─── Challenges (Prediction Duels) ───────────────────────────────────────────
 
+export type CardType = "doubleDown" | "shield" | "ghost";
+
+export interface CardInventory {
+  doubleDown: number;
+  shield: number;
+  ghost: number;
+}
+
 export interface ChallengeResponse {
   id: string;
   marketId: string;
@@ -453,26 +465,59 @@ export interface ChallengeResponse {
   outcomeLabel: string | null;
   creatorId: string;
   creatorName: string | null;
+  joinerId: string | null;
+  joinerName: string | null;
+  winnerId: string | null;
+  /** null when Ghost card is active and viewer is not the creator */
+  wagerAmount: number | null;
   isOwner: boolean;
   participantCount: number;
-  status: "open" | "active" | "settled" | "expired";
+  status: "open" | "active" | "settled" | "expired" | "void";
+  equippedCard: CardType | null;
   expiresAt: string;
+  settledAt: string | null;
   createdAt: string;
   link: string;
+}
+
+export interface DuelLeaderboardEntry {
+  userId: string;
+  username: string | null;
+  wins: number;
+  wagerWon: number;
 }
 
 export function createChallenge(
   marketId: string,
   outcomeId: string,
+  wagerAmount: number = 0,
+  equippedCard?: CardType,
 ): Promise<ChallengeResponse> {
   return request<ChallengeResponse>("/challenges", {
     method: "POST",
-    body: JSON.stringify({ marketId, outcomeId }),
+    body: JSON.stringify({
+      marketId,
+      outcomeId,
+      wagerAmount,
+      ...(equippedCard ? { equippedCard } : {}),
+    }),
   });
+}
+
+export function getMyCards(): Promise<CardInventory> {
+  return request<CardInventory>("/challenges/cards");
 }
 
 export function getChallenges(): Promise<ChallengeResponse[]> {
   return request<ChallengeResponse[]>("/challenges");
+}
+
+export function getOpenChallenges(): Promise<ChallengeResponse[]> {
+  return request<ChallengeResponse[]>("/challenges/open");
+}
+
+export function getDuelLeaderboard(): Promise<DuelLeaderboardEntry[]> {
+  return request<DuelLeaderboardEntry[]>("/challenges/leaderboard");
 }
 
 export function joinChallenge(challengeId: string): Promise<ChallengeResponse> {
