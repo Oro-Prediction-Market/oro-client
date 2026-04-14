@@ -191,7 +191,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "Propose winning outcome — opens 24h dispute window (Closed → Resolving)",
+      "Propose winning outcome — opens 1–2h objection window (Closed → Resolving). " +
+      "Admin must include evidenceUrl and evidenceNote when calling /resolve immediately after.",
   })
   @ApiResponse({ status: 200, type: Market })
   async proposeResolution(
@@ -200,16 +201,18 @@ export class AdminController {
     @Request() req: any,
   ) {
     const before = await this.marketsService.findOne(id);
+    const windowMinutes = dto.windowMinutes ?? 60;
     const result = await this.marketsService.proposeResolution(
       id,
       dto.proposedOutcomeId,
+      windowMinutes,
     );
     const proposedOutcome = before.outcomes?.find(
       (o) => o.id === dto.proposedOutcomeId,
     );
     await this.auditService.log({
       adminId: req.user.userId,
-      isAdmin: true, // Admin controller - all users are admins
+      isAdmin: true,
       action: AuditAction.MARKET_PROPOSE,
       entityType: "market",
       entityId: id,
@@ -218,12 +221,22 @@ export class AdminController {
       meta: {
         title: before.title,
         proposedOutcomeLabel: proposedOutcome?.label,
+        windowMinutes,
       },
       ipAddress: req.ip,
     });
     const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL || "";
+    const windowLabel =
+      windowMinutes >= 60
+        ? `${windowMinutes / 60} hour${windowMinutes > 60 ? "s" : ""}`
+        : `${windowMinutes} minutes`;
     await this.telegramSimple.postToChannel(
-      `⚖️ <b>DISPUTE WINDOW OPEN</b>\n\n📊 <b>${before.title}</b>\n\n🔖 <b>Proposed Winner:</b> ${proposedOutcome?.label ?? "N/A"}\n⏳ Dispute window: 24 hours\n\n👉 <a href="${miniAppUrl}">Submit Dispute</a>`,
+      `⚖️ <b>OBJECTION WINDOW OPEN</b>\n\n` +
+        `📊 <b>${before.title}</b>\n\n` +
+        `🔖 <b>Proposed Winner:</b> ${proposedOutcome?.label ?? "N/A"}\n` +
+        `⏳ Window: ${windowLabel} — object if you disagree\n` +
+        `💡 Evidence will be published when the market is settled.\n\n` +
+        `👉 <a href="${miniAppUrl}">View Market</a>`,
     );
     return result;
   }
@@ -232,7 +245,10 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "Final resolution after dispute window — set winner & auto-settle (Resolving → Settled)",
+      "Final resolution — set winner, publish mandatory evidence, settle payouts. " +
+      "evidenceUrl and evidenceNote are REQUIRED. If the window is still open and " +
+      "no objections exist, this will be rejected (cron auto-settles it). " +
+      "You may resolve early only when objections exist and have been reviewed.",
   })
   async resolveMarket(
     @Param("id") id: string,
@@ -240,16 +256,29 @@ export class AdminController {
     @Request() req: any,
   ) {
     const before = await this.marketsService.findOne(id);
-    const result = await this.marketsService.resolve(id, dto.winningOutcomeId);
+    const result = await this.marketsService.resolve(
+      id,
+      dto.winningOutcomeId,
+      req.user.userId,
+      dto.evidenceUrl,
+      dto.evidenceNote,
+    );
     const winningOutcome = before.outcomes?.find(
       (o) => o.id === dto.winningOutcomeId,
     );
     const totalPositions =
       before.outcomes?.reduce((s, o) => s + Number(o.totalBetAmount), 0) ?? 0;
+
+    const objections = await this.marketsService.getDisputesByMarket(id);
+    const hadObjections = objections.length > 0;
+    const proposalChanged = before.proposedOutcomeId !== dto.winningOutcomeId;
+
     await this.auditService.log({
       adminId: req.user.userId,
-      isAdmin: true, // Admin controller - all users are admins
-      action: AuditAction.MARKET_RESOLVE,
+      isAdmin: true,
+      action: hadObjections
+        ? AuditAction.MARKET_RESOLVE_DISPUTED
+        : AuditAction.MARKET_RESOLVE,
       entityType: "market",
       entityId: id,
       before: { status: before.status },
@@ -259,12 +288,30 @@ export class AdminController {
         winningOutcomeLabel: winningOutcome?.label,
         totalPool: before.totalPool,
         totalPositions,
+        objectionCount: objections.length,
+        proposalChanged,
+        evidenceUrl: dto.evidenceUrl,
       },
       ipAddress: req.ip,
     });
+
     const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL || "";
+    const objectionNote =
+      objections.length > 0
+        ? `\n⚠️ <b>${objections.length} objection(s) reviewed</b> — ${proposalChanged ? "outcome updated after review" : "original proposal confirmed"}\n` +
+          (proposalChanged
+            ? `✅ Correct objectors: bonds returned + rewarded\n`
+            : `❌ Wrong objectors: bonds forfeited`)
+        : "";
     await this.telegramSimple.postToChannel(
-      `✅ <b>MARKET RESOLVED</b>\n\n📊 <b>${before.title}</b>\n\n🏆 <b>Winner:</b> ${winningOutcome?.label ?? "N/A"}\n💰 <b>Pool:</b> Nu ${Number(before.totalPool).toLocaleString()}\n\n👉 <a href="${miniAppUrl}">View Results</a>`,
+      `✅ <b>MARKET SETTLED</b>\n\n` +
+        `📊 <b>${before.title}</b>\n\n` +
+        `🏆 <b>Winner:</b> ${winningOutcome?.label ?? "N/A"}\n` +
+        `💰 <b>Pool:</b> Nu ${Number(before.totalPool).toLocaleString()}` +
+        `${objectionNote}\n\n` +
+        `🔍 <b>Evidence:</b> <a href="${dto.evidenceUrl}">View Source</a>\n` +
+        `📝 ${dto.evidenceNote.slice(0, 200)}\n\n` +
+        `👉 <a href="${miniAppUrl}">View Results & Proof</a>`,
     );
     return result;
   }
@@ -285,6 +332,54 @@ export class AdminController {
       take: 500,
     });
     return { data, total: data.length };
+  }
+
+  /**
+   * Public admin accountability scoreboard.
+   * Returns every admin user with their resolution accuracy stats.
+   * Intentionally public (no admin guard on the GET) — users deserve to see this.
+   */
+  @Get("resolution-accuracy")
+  @ApiOperation({
+    summary:
+      "Public scoreboard of admin resolution accuracy. Shows how often each admin was overturned by objectors.",
+  })
+  async getResolutionAccuracy() {
+    const admins = await this.userRepo.find({
+      where: { isAdmin: true },
+      select: [
+        "id",
+        "username",
+        "firstName",
+        "adminTotalResolutions",
+        "adminWrongResolutions",
+      ],
+    });
+
+    return admins
+      .filter((a) => a.adminTotalResolutions > 0)
+      .map((a) => {
+        const total = a.adminTotalResolutions ?? 0;
+        const wrong = a.adminWrongResolutions ?? 0;
+        const correct = total - wrong;
+        const accuracyPct =
+          total > 0 ? Math.round((correct / total) * 100) : null;
+        const overturnPct =
+          total > 0 ? Math.round((wrong / total) * 100) : null;
+
+        return {
+          adminId: a.id,
+          name: a.username ? `@${a.username}` : (a.firstName ?? "Admin"),
+          totalResolutions: total,
+          correctResolutions: correct,
+          wrongResolutions: wrong,
+          accuracyPct,
+          overturnPct,
+          // Flag for the UI — > 20% overturn rate is a red flag
+          flagged: overturnPct !== null && overturnPct > 20,
+        };
+      })
+      .sort((a, b) => b.totalResolutions - a.totalResolutions);
   }
 
   @Post("markets/:id/cancel")

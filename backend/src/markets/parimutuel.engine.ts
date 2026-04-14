@@ -14,7 +14,7 @@ import { Position, PositionStatus } from "../entities/position.entity";
 import { Payment } from "../entities/payment.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { Settlement } from "../entities/settlement.entity";
-import { Dispute } from "../entities/dispute.entity";
+import { Dispute, DisputeBondStatus } from "../entities/dispute.entity";
 import { Challenge, ChallengeStatus } from "../entities/challenge.entity";
 import { User } from "../entities/user.entity";
 import { LMSRService } from "./lmsr.service";
@@ -544,10 +544,11 @@ export class ParimutuelEngine implements OnModuleInit {
     return this.marketRepo.save(market);
   }
 
-  // Propose resolution: open 24h dispute window
+  // Propose resolution: open short objection window (default 1h, max 2h)
   async proposeResolution(
     marketId: string,
     proposedOutcomeId: string,
+    windowMinutes: number = 60,
   ): Promise<Market> {
     const market = await this.marketRepo.findOne({
       where: { id: marketId },
@@ -563,16 +564,22 @@ export class ParimutuelEngine implements OnModuleInit {
     if (!proposed)
       throw new BadRequestException("Proposed outcome not in this market");
 
+    const ALLOWED = [10, 20, 30, 60, 120];
+    const mins = ALLOWED.includes(windowMinutes) ? windowMinutes : 60;
     market.proposedOutcomeId = proposedOutcomeId;
-    market.disputeDeadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    market.windowMinutes = mins;
+    market.disputeDeadlineAt = new Date(Date.now() + mins * 60 * 1000);
     market.status = MarketStatus.RESOLVING;
     return this.marketRepo.save(market);
   }
 
-  // Resolve market: mark winner & trigger settlement
+  // Resolve market: mark winner, store public evidence, trigger settlement
   async resolveMarket(
     marketId: string,
     winningOutcomeId: string,
+    adminId?: string,
+    evidenceUrl?: string,
+    evidenceNote?: string,
   ): Promise<Settlement> {
     const market = await this.marketRepo.findOne({
       where: { id: marketId },
@@ -588,23 +595,210 @@ export class ParimutuelEngine implements OnModuleInit {
     if (!winner)
       throw new BadRequestException("Winning outcome not in this market");
 
-    // Mark winner
+    // ── Enforce the objection window ──────────────────────────────────────────
+    // If the window is still open, admin may only resolve early when objections
+    // already exist (meaning they have reviewed them). Zero-objection markets
+    // must wait for the cron to auto-settle — this prevents rushed resolutions.
+    const now = new Date();
+    const windowStillOpen =
+      market.disputeDeadlineAt && now < market.disputeDeadlineAt;
+
+    if (windowStillOpen) {
+      const objectionCount = await this.disputeRepo.count({
+        where: { marketId },
+      });
+      if (objectionCount === 0) {
+        const mins = market.windowMinutes ?? 60;
+        const windowLabel = mins >= 60 ? `${mins / 60}h` : `${mins}min`;
+        throw new BadRequestException(
+          `The ${windowLabel} objection window is still open and closes at ` +
+            `${market.disputeDeadlineAt!.toISOString()}. ` +
+            `The market will auto-settle once the window closes with no objections. ` +
+            `You may force-resolve early only when objections exist and have been reviewed.`,
+        );
+      }
+    }
+
+    // ── Mark the winner ───────────────────────────────────────────────────────
     winner.isWinner = true;
     await this.outcomeRepo.save(winner);
     market.resolvedOutcomeId = winningOutcomeId;
     market.resolvedAt = new Date();
     market.status = MarketStatus.RESOLVED;
+
+    // ── Store public evidence (mandatory when called by admin) ────────────────
+    if (evidenceUrl) {
+      market.evidenceUrl = evidenceUrl;
+      market.evidenceNote = evidenceNote ?? null;
+      market.evidenceSubmittedAt = new Date();
+    }
+    if (adminId && adminId !== "system:auto-resolve") {
+      market.resolvedByAdminId = adminId;
+    }
+
     await this.marketRepo.save(market);
 
-    // Settle dispute bonds — returns slashed bond pool (0 if dispute upheld)
-    const slashedBondPool = await this.settleDisputeBonds(
-      marketId,
-      winningOutcomeId,
-      market.proposedOutcomeId,
-    );
+    // ── Mark each objection and settle bonds ──────────────────────────────────
+    const disputes = await this.disputeRepo.find({ where: { marketId } });
+    if (disputes.length > 0) {
+      const proposalChanged =
+        !!market.proposedOutcomeId &&
+        winningOutcomeId !== market.proposedOutcomeId;
 
-    // Settle — winning bettors get 95% of any slashed bonds on top of normal payout
-    const settlement = await this.settleMarket(market, winner, slashedBondPool);
+      // Split into correct (upheld) and wrong (overruled) objectors
+      const upheldDisputes = disputes.filter(() => proposalChanged); // all upheld when outcome changed
+      const overruledDisputes = disputes.filter(() => !proposalChanged); // all overruled when outcome kept
+
+      // Total forfeited pool = sum of bonds from wrong objectors
+      const forfeitPool = overruledDisputes.reduce(
+        (sum, d) => sum + Number(d.bondAmount),
+        0,
+      );
+
+      // Total bond staked by correct objectors (for pro-rata reward split)
+      const upheldTotalBond = upheldDisputes.reduce(
+        (sum, d) => sum + Number(d.bondAmount),
+        0,
+      );
+
+      // Persist the forfeit pool onto the market record for audit trail
+      market.disputeBondPool = forfeitPool;
+      await this.marketRepo.save(market);
+
+      // Process each dispute — settle their bond
+      for (const d of disputes) {
+        d.upheld = !!proposalChanged;
+
+        if (proposalChanged) {
+          // ✓ Correct objector: return bond + pro-rata share of forfeit pool
+          const rewardShare =
+            upheldTotalBond > 0
+              ? Math.floor(
+                  (Number(d.bondAmount) / upheldTotalBond) * forfeitPool,
+                )
+              : 0;
+          const totalReturn = Number(d.bondAmount) + rewardShare;
+
+          const { balance: rawBal } = await this.transactionRepo
+            .createQueryBuilder("t")
+            .select("COALESCE(SUM(t.amount), 0)", "balance")
+            .where("t.userId = :userId", { userId: d.userId })
+            .getRawOne();
+          const balBefore = Number(rawBal);
+
+          await this.transactionRepo.save(
+            this.transactionRepo.create({
+              userId: d.userId,
+              type: TransactionType.DISPUTE_BOND_REWARD,
+              amount: totalReturn,
+              balanceBefore: balBefore,
+              balanceAfter: balBefore + totalReturn,
+              note:
+                `Objection UPHELD on "${market.title}" — bond returned + ` +
+                `Nu ${rewardShare} reward from forfeit pool`,
+            }),
+          );
+          d.bondStatus = DisputeBondStatus.REWARDED;
+
+          this.logger.log(
+            `[Bond] User ${d.userId} objection UPHELD — returned Nu ${d.bondAmount} + reward Nu ${rewardShare}`,
+          );
+        } else {
+          // ✗ Wrong objector: bond already deducted at lock time — just mark forfeited
+          d.bondStatus = DisputeBondStatus.FORFEITED;
+          this.logger.log(
+            `[Bond] User ${d.userId} objection OVERRULED — bond Nu ${d.bondAmount} forfeited`,
+          );
+        }
+      }
+      await this.disputeRepo.save(disputes);
+
+      this.logger.log(
+        `[Dispute] Market ${marketId} resolved with ${disputes.length} objection(s). ` +
+          `Admin ${adminId ?? "unknown"} chose outcome ${winningOutcomeId}. ` +
+          `Proposal was ${market.proposedOutcomeId}. Changed: ${!!proposalChanged}. ` +
+          `Forfeit pool: Nu ${forfeitPool}. Rewarded: ${upheldDisputes.length} objector(s).`,
+      );
+
+      // ── Admin accountability: track & publicise wrong resolutions ───────────
+      if (proposalChanged && adminId && adminId !== "system:auto-resolve") {
+        try {
+          const adminUser = await this.dataSource
+            .getRepository(User)
+            .findOne({ where: { id: adminId } });
+
+          if (adminUser) {
+            adminUser.adminTotalResolutions =
+              (adminUser.adminTotalResolutions ?? 0) + 1;
+            adminUser.adminWrongResolutions =
+              (adminUser.adminWrongResolutions ?? 0) + 1;
+            await this.dataSource.getRepository(User).save(adminUser);
+
+            const total = adminUser.adminTotalResolutions;
+            const wrong = adminUser.adminWrongResolutions;
+            const pct = Math.round((wrong / total) * 100);
+            const adminHandle = adminUser.username
+              ? `@${adminUser.username}`
+              : `Admin ${adminId.slice(0, 8)}`;
+
+            // Public Telegram alert — visible to all users, no hiding this
+            this.telegramSimple
+              .postToChannel(
+                `⚠️ <b>Resolution Overturned</b>\n\n` +
+                  `📊 Market: <i>${market.title}</i>\n` +
+                  `👤 Resolved by: <b>${adminHandle}</b>\n\n` +
+                  `The original proposed outcome was changed after objectors raised concerns.\n\n` +
+                  `📈 Admin accuracy record: <b>${total - wrong}/${total}</b> correct (<b>${100 - pct}%</b>)\n` +
+                  `🏅 Wrong resolutions: <b>${wrong}</b>\n\n` +
+                  `✅ Objectors who were right had their bonds returned + rewarded.\n` +
+                  `All affected users have been correctly paid out.`,
+              )
+              .catch(() => undefined);
+
+            this.logger.warn(
+              `[AdminAccountability] Admin ${adminId} overturned resolution on market ${marketId}. ` +
+                `Total: ${total}, Wrong: ${wrong} (${pct}% overturn rate).`,
+            );
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `[AdminAccountability] Failed to update admin stats for ${adminId}: ${err.message}`,
+          );
+        }
+      } else if (
+        !proposalChanged &&
+        adminId &&
+        adminId !== "system:auto-resolve"
+      ) {
+        // Admin kept the proposal — still count as a resolved market
+        try {
+          await this.dataSource
+            .getRepository(User)
+            .increment({ id: adminId }, "adminTotalResolutions", 1);
+        } catch (_) {
+          // non-critical
+        }
+      }
+
+      // Bust balance caches for all objectors
+      await Promise.all(
+        disputes.map((d) => this.redis.del(`oro:cache:balance:${d.userId}`)),
+      );
+    }
+
+    // ── Settle payouts ────────────────────────────────────────────────────────
+    // If no disputes existed but a real admin resolved (not system), count the clean resolution
+    if (disputes.length === 0 && adminId && adminId !== "system:auto-resolve") {
+      try {
+        await this.dataSource
+          .getRepository(User)
+          .increment({ id: adminId }, "adminTotalResolutions", 1);
+      } catch (_) {
+        // non-critical
+      }
+    }
+
+    const settlement = await this.settleMarket(market, winner, 0);
 
     // Bust balance cache for every bettor so the TMA reflects payouts immediately
     const allBets = await this.betRepo.find({ where: { marketId } });
@@ -642,81 +836,6 @@ export class ParimutuelEngine implements OnModuleInit {
       );
 
     return settlement;
-  }
-
-  /**
-   * Settle dispute bonds after final resolution.
-   *
-   * - If the final winner matches the proposed outcome → disputants were WRONG:
-   *     bonds are slashed (no refund). Returns the total slashed pool so 95%
-   *     can be redistributed to winning bettors (5% is the platform fee).
-   *
-   * - If the final winner differs from the proposed outcome → disputants were RIGHT:
-   *     bonds are fully returned via a DISPUTE_REFUND transaction.
-   *     Returns 0 (no slashed pool to distribute).
-   *
-   * In both cases `bondRefunded` is set to `true` to mark the record as processed.
-   */
-  private async settleDisputeBonds(
-    marketId: string,
-    winningOutcomeId: string,
-    proposedOutcomeId: string | null | undefined,
-  ): Promise<number> {
-    const disputes = await this.disputeRepo.find({
-      where: { marketId, bondRefunded: false },
-    });
-
-    if (disputes.length === 0) return 0;
-
-    // Dispute is upheld when the admin's final call differs from the proposal
-    const disputeUpheld =
-      proposedOutcomeId && winningOutcomeId !== proposedOutcomeId;
-
-    let slashedPool = 0;
-
-    for (const dispute of disputes) {
-      await this.dataSource.transaction(async (em) => {
-        if (disputeUpheld) {
-          // Disputant was CORRECT — return bond (credits path only;
-          // DK Bank path bonds were external payments, not credited)
-          if (!dispute.bondPaymentId) {
-            const balanceBefore = await this.getCreditsBalance(
-              em,
-              dispute.userId,
-            );
-            await em.save(
-              Transaction,
-              em.create(Transaction, {
-                type: TransactionType.DISPUTE_REFUND,
-                amount: Number(dispute.bondAmount),
-                balanceBefore,
-                balanceAfter: balanceBefore + Number(dispute.bondAmount),
-                userId: dispute.userId,
-                note: "Dispute upheld — bond returned",
-              }),
-            );
-          }
-        } else {
-          // Disputant was WRONG — bond slashed, no refund
-          slashedPool += Number(dispute.bondAmount);
-          this.logger.log(
-            `[Dispute] Bond slashed for user ${dispute.userId}: Nu ${dispute.bondAmount} (proposal confirmed)`,
-          );
-        }
-        // Mark processed regardless of outcome
-        dispute.bondRefunded = true;
-        await em.save(Dispute, dispute);
-      });
-    }
-
-    if (slashedPool > 0) {
-      const platformFee = slashedPool * 0.05;
-      this.logger.log(
-        `[Dispute] Total slashed: Nu ${slashedPool} | Platform fee (5%): Nu ${platformFee.toFixed(2)} | To winning bettors (95%): Nu ${(slashedPool * 0.95).toFixed(2)}`,
-      );
-    }
-
-    return slashedPool;
   }
 
   /**

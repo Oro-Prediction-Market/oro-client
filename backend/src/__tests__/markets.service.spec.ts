@@ -86,14 +86,12 @@ function makeService({
 
   const svc = new MarketsService(
     mockMarketRepo as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
-    null as any,
+    null as any, // outcomeRepo
+    null as any, // disputeRepo
+    null as any, // userRepo
+    null as any, // engine
     new LMSRService(),
-    null as any,
+    null as any, // dataSource
     mockRedis as any,
     mockReputationService as any,
     { postToChannel: jest.fn().mockResolvedValue(undefined) } as any, // TelegramSimpleService
@@ -300,14 +298,12 @@ describe("MarketsService channel auto-posts", () => {
     };
     const mockReputationService = {
       computeMarketSignal: jest.fn().mockResolvedValue({}),
-      computeSignalConfidence: jest
-        .fn()
-        .mockResolvedValue({
-          participantCount: 0,
-          reputationDepth: 0,
-          maturityScore: 0,
-          composite: 0,
-        }),
+      computeSignalConfidence: jest.fn().mockResolvedValue({
+        participantCount: 0,
+        reputationDepth: 0,
+        maturityScore: 0,
+        composite: 0,
+      }),
       computeReputationWeightedShares: jest.fn().mockResolvedValue({}),
     };
     const mockRedis = {
@@ -319,13 +315,11 @@ describe("MarketsService channel auto-posts", () => {
     const svc = new MarketsService(
       mockMarketRepo as any,
       mockOutcomeRepo as any,
-      null as any,
-      null as any,
-      null as any,
-      null as any,
-      null as any,
+      null as any, // disputeRepo
+      null as any, // userRepo
+      null as any, // engine
       new LMSRService(),
-      null as any,
+      null as any, // dataSource
       mockRedis as any,
       mockReputationService as any,
       mockTelegram as any,

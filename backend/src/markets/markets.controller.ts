@@ -16,7 +16,10 @@ import {
   ApiResponse,
   ApiQuery,
 } from "@nestjs/swagger";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 import { Dispute } from "../entities/dispute.entity";
+import { User } from "../entities/user.entity";
 import { JwtAuthGuard, Public, AdminGuard } from "../auth/guards";
 import {
   MarketsService,
@@ -30,7 +33,10 @@ import {
 @UseGuards(JwtAuthGuard)
 @Controller("markets")
 export class MarketsController {
-  constructor(private marketsService: MarketsService) {}
+  constructor(
+    private marketsService: MarketsService,
+    @InjectRepository(User) private userRepo: Repository<User>,
+  ) {}
 
   @Get()
   @Public()
@@ -48,14 +54,73 @@ export class MarketsController {
 
   @Get("resolved")
   @Public()
-  @ApiOperation({ summary: "List resolved/settled markets with winner and resolution criteria" })
+  @ApiOperation({
+    summary:
+      "List resolved/settled markets with winner, resolution criteria and evidence",
+  })
   getResolved() {
     return this.marketsService.getResolvedMarkets();
   }
 
+  @Get("resolution-log")
+  @Public()
+  @ApiOperation({
+    summary:
+      "Public resolution transparency log — every past market with its decision, " +
+      "evidence URL, objection count, and whether the outcome was changed after objections. " +
+      "Used for the public trust dashboard.",
+  })
+  getResolutionLog() {
+    return this.marketsService.getResolutionLog();
+  }
+
+  @Get("admin-accuracy")
+  @Public()
+  @ApiOperation({
+    summary:
+      "Public admin accountability scoreboard. Shows how often each admin's resolution " +
+      "was overturned by objectors. Admins with >20% overturn rate are flagged.",
+  })
+  async getAdminAccuracy() {
+    const admins = await this.userRepo.find({
+      where: { isAdmin: true },
+      select: [
+        "id",
+        "username",
+        "firstName",
+        "adminTotalResolutions",
+        "adminWrongResolutions",
+      ],
+    });
+
+    return admins
+      .filter((a) => (a.adminTotalResolutions ?? 0) > 0)
+      .map((a) => {
+        const total = a.adminTotalResolutions ?? 0;
+        const wrong = a.adminWrongResolutions ?? 0;
+        const correct = total - wrong;
+        const accuracyPct =
+          total > 0 ? Math.round((correct / total) * 100) : null;
+        const overturnPct =
+          total > 0 ? Math.round((wrong / total) * 100) : null;
+        return {
+          name: a.username ? `@${a.username}` : (a.firstName ?? "Admin"),
+          totalResolutions: total,
+          correctResolutions: correct,
+          wrongResolutions: wrong,
+          accuracyPct,
+          overturnPct,
+          flagged: overturnPct !== null && overturnPct > 20,
+        };
+      })
+      .sort((a, b) => b.totalResolutions - a.totalResolutions);
+  }
+
   @Get("activity")
   @Public()
-  @ApiOperation({ summary: "Recent bet/win events for the live activity ticker" })
+  @ApiOperation({
+    summary: "Recent bet/win events for the live activity ticker",
+  })
   getRecentActivity() {
     return this.marketsService.getRecentActivity(20);
   }
@@ -76,7 +141,11 @@ export class MarketsController {
 
   @Post(":id/bets")
   @ApiOperation({ summary: "Place a bet on a market outcome" })
-  placeBet(@Param("id") id: string, @Body() dto: OpenPositionDto, @Request() req: any) {
+  placeBet(
+    @Param("id") id: string,
+    @Body() dto: OpenPositionDto,
+    @Request() req: any,
+  ) {
     return this.marketsService.placeBet(req.user.userId, id, dto);
   }
 
@@ -88,16 +157,21 @@ export class MarketsController {
     return this.marketsService.getDisputesByMarket(id);
   }
 
-  @Get(":id/dispute-requirements")
+  @Get(":id/dispute-info")
   @Public()
-  @ApiOperation({ summary: "Get minimum bond and eligibility for raising a dispute" })
-  getDisputeRequirements(@Param("id") id: string) {
-    return this.marketsService.getDisputeRequirements(id);
+  @ApiOperation({
+    summary:
+      "Get objection count, window status, deadline, and your bond cost to object (if authenticated)",
+  })
+  getDisputeInfo(@Param("id") id: string, @Request() req: any) {
+    const userId = req?.user?.userId as string | undefined;
+    return this.marketsService.getDisputeInfo(id, userId);
   }
 
   @Post(":id/disputes")
   @ApiOperation({
-    summary: "Submit a dispute bond during the 24h resolution window",
+    summary:
+      "Submit an objection during the resolution window. A bond of max(Nu 10, 2% of your position) is locked. Bond is returned + rewarded if you are right, forfeited if wrong.",
   })
   @ApiResponse({ status: 201, type: Dispute })
   submitDispute(

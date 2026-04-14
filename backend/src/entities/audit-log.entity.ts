@@ -19,6 +19,10 @@ export enum AuditAction {
   MARKET_TRANSITION = "market.transition",
   MARKET_PROPOSE = "market.propose",
   MARKET_RESOLVE = "market.resolve",
+  MARKET_RESOLVE_DISPUTED = "market.resolve_disputed", // resolved while objections were open
+  MARKET_RESOLUTION_OVERTURNED = "market.resolution_overturned", // admin changed outcome after objection — admin accountability event
+  MARKET_AUTO_RESOLVED = "market.auto_resolved", // auto-settled by cron after clean window
+  MARKET_DISPUTE = "market.dispute", // user raised an objection
   MARKET_CANCEL = "market.cancel",
 
   // Balance / financial

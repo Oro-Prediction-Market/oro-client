@@ -19,9 +19,204 @@ import {
   ExternalLink,
   Smartphone,
   Calendar,
+  BookOpen,
+  X,
+  Coins,
+  Target,
+  BarChart2,
+  Trophy,
+  Sword
 } from "lucide-react";
 
 const BOT_USERNAME = "OroPredictBot";
+
+// ── How It Works modal ────────────────────────────────────────────────────────
+const STEPS = [
+  {
+    emoji: <User />,
+    title: "Open the app",
+    desc: "Launch Oro via Telegram. Your account is created automatically from your Telegram profile — no sign-up needed.",
+  },
+  {
+    emoji: <Building2 />,
+    title: "Link your DK Bank account",
+    desc: "Go to Profile → Enter your 11-digit CID. This links your real bank account so you can deposit and withdraw Ngultrum.",
+  },
+  {
+    emoji: <Coins />,
+    title: "Add funds to your wallet",
+    desc: "Tap Wallet → Deposit and pay via DK Bank. Your Oro credits top up instantly. Minimum deposit is Nu 100.",
+  },
+  {
+    emoji: <Target />,
+    title: "Pick a market & predict",
+    desc: 'Browse the Feed, tap a market, choose an outcome (e.g. "Argentina wins"), and enter your amount. Your prediction is locked in immediately.',
+  },
+  {
+    emoji: <BarChart2 />,
+    title: "Watch the odds move",
+    desc: "Oro uses a parimutuel pool — odds shift as more people bet. The more people agree with you, the lower your payout multiplier.",
+  },
+  {
+    emoji: <Trophy />,
+    title: "Market resolves — collect winnings",
+    desc: "When the real-world event ends, admins resolve the market. If your outcome wins, your share of the pool lands in your wallet automatically.",
+  },
+  {
+    emoji: <Sword />,
+    title: "Challenge a friend (Duels)",
+    desc: "Already placed a bet? Create a duel on the same market. Pick your outcome, set a wager, and share the link. First person to accept takes the opposite side — winner takes the pot.",
+  },
+];
+
+function HowItWorksModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 200,
+        background: "rgba(0,0,0,0.7)",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--bg-card)",
+          borderRadius: "20px 20px 0 0",
+          maxHeight: "88vh",
+          overflowY: "auto",
+          padding: "0 0 40px",
+        }}
+      >
+        {/* Handle + header */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            background: "var(--bg-card)",
+            zIndex: 1,
+            padding: "14px 16px 10px",
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 2,
+              background: "var(--glass-border)",
+              margin: "0 auto 14px",
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 17,
+                fontWeight: 900,
+                color: "var(--text-main)",
+              }}
+            >
+              How Oro Works
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: "var(--bg-secondary)",
+                border: "none",
+                borderRadius: 8,
+                width: 30,
+                height: 30,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                color: "var(--text-muted)",
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Steps */}
+        <div style={{ padding: "4px 16px 0" }}>
+          {STEPS.map((step, i) => (
+            <div key={i} style={{ display: "flex", gap: 14, marginBottom: 20 }}>
+              {/* Left: number + line */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: "50%",
+                    background: "var(--bg-secondary)",
+                    border: "1.5px solid var(--glass-border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 18,
+                  }}
+                >
+                  {step.emoji}
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div
+                    style={{
+                      width: 1,
+                      flex: 1,
+                      minHeight: 16,
+                      background: "var(--glass-border)",
+                      marginTop: 4,
+                    }}
+                  />
+                )}
+              </div>
+              {/* Right: text */}
+              <div style={{ paddingTop: 6, paddingBottom: 4 }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "var(--text-main)",
+                    marginBottom: 4,
+                  }}
+                >
+                  {i + 1}. {step.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {step.desc}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Section header ────────────────────────────────────────────────────────────
 function SectionLabel({ label }: { label: string }) {
@@ -127,6 +322,7 @@ export const TmaSettingsPage: FC = () => {
     "idle" | "loading" | "success" | "error"
   >("idle");
   const [linkError, setLinkError] = useState("");
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
 
   useEffect(() => {
     getMe()
@@ -610,6 +806,19 @@ export const TmaSettingsPage: FC = () => {
           }}
         >
           <SettingsRow
+            icon={<BookOpen size={17} />}
+            label="How It Works"
+            value="Quick guide to getting started"
+            onClick={() => setShowHowItWorks(true)}
+          >
+            <ChevronLeft
+              size={15}
+              color="var(--text-subtle)"
+              style={{ transform: "rotate(180deg)" }}
+            />
+          </SettingsRow>
+
+          <SettingsRow
             icon={<MessageCircle size={17} />}
             label="Support"
             value="Chat with us on Telegram"
@@ -639,6 +848,10 @@ export const TmaSettingsPage: FC = () => {
           input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
         `}</style>
       </div>
+
+      {showHowItWorks && (
+        <HowItWorksModal onClose={() => setShowHowItWorks(false)} />
+      )}
     </Page>
   );
 };

@@ -175,6 +175,23 @@ export class User {
   @Column({ default: false })
   freeCreditGranted: boolean;
 
+  // ── Admin accountability ───────────────────────────────────────────────────
+
+  /**
+   * Total number of markets this admin has manually resolved (final resolution).
+   * Incremented every time POST /admin/markets/:id/resolve succeeds.
+   */
+  @Column({ default: 0 })
+  adminTotalResolutions: number;
+
+  /**
+   * Number of times this admin's resolution was overturned —
+   * i.e. at least one objector was UPHELD (admin changed the outcome after review).
+   * A high ratio of wrongResolutions / totalResolutions is a red flag.
+   */
+  @Column({ default: 0 })
+  adminWrongResolutions: number;
+
   /**
    * Running total of bonus (free-credit) balance still in play.
    * Incremented when FREE_CREDIT is granted; decremented when bonus bets settle.

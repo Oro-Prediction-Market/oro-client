@@ -18,14 +18,10 @@ import {
 } from "../entities/market.entity";
 import { Outcome } from "../entities/outcome.entity";
 import { Dispute } from "../entities/dispute.entity";
-import {
-  Payment,
-  PaymentMethod,
-  PaymentStatus,
-} from "../entities/payment.entity";
-import { Transaction, TransactionType } from "../entities/transaction.entity";
+import { DisputeBondStatus } from "../entities/dispute.entity";
 import { Position, PositionStatus } from "../entities/position.entity";
 import { User } from "../entities/user.entity";
+import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { ParimutuelEngine } from "./parimutuel.engine";
 import { LMSRService } from "./lmsr.service";
 import { ReputationService } from "./reputation.service";
@@ -41,9 +37,6 @@ export class MarketsService {
     @InjectRepository(Market) private marketRepo: Repository<Market>,
     @InjectRepository(Outcome) private outcomeRepo: Repository<Outcome>,
     @InjectRepository(Dispute) private disputeRepo: Repository<Dispute>,
-    @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
-    @InjectRepository(Transaction)
-    private transactionRepo: Repository<Transaction>,
     @InjectRepository(User) private userRepo: Repository<User>,
     private engine: ParimutuelEngine,
     private lmsrService: LMSRService,
@@ -337,28 +330,35 @@ export class MarketsService {
     return result;
   }
 
-  async proposeResolution(marketId: string, proposedOutcomeId: string) {
+  async proposeResolution(
+    marketId: string,
+    proposedOutcomeId: string,
+    windowMinutes: number = 60,
+  ) {
     const result = await this.engine.proposeResolution(
       marketId,
       proposedOutcomeId,
+      windowMinutes,
     );
     await this.invalidateMarketCache(marketId);
     return result;
   }
 
-  async resolve(marketId: string, winningOutcomeId: string) {
-    const result = await this.engine.resolveMarket(marketId, winningOutcomeId);
+  async resolve(
+    marketId: string,
+    winningOutcomeId: string,
+    adminId?: string,
+    evidenceUrl?: string,
+    evidenceNote?: string,
+  ) {
+    const result = await this.engine.resolveMarket(
+      marketId,
+      winningOutcomeId,
+      adminId,
+      evidenceUrl,
+      evidenceNote,
+    );
     await this.invalidateMarketCache(marketId);
-    // Post resolution to channel (non-blocking)
-    const market = await this.findOne(marketId).catch(() => null);
-    if (market) {
-      const winner = market.outcomes.find((o) => o.id === winningOutcomeId);
-      this.telegram
-        .postToChannel(
-          `Market resolved: <b>${market.title}</b>\nWinner: <b>${winner?.label ?? "Unknown"}</b>`,
-        )
-        .catch(() => undefined);
-    }
     return result;
   }
 
@@ -410,192 +410,129 @@ export class MarketsService {
     return result;
   }
 
-  // Dispute constants
-  private readonly DISPUTE_MIN_PARTICIPANTS = 3;
-  private readonly DISPUTE_MIN_BOND = 10;
-  private readonly DISPUTE_BOND_PCT = 0.01;
+  // ─── Dispute / Objection System ─────────────────────────────────────────────
+  // Objectors must lock a small bond: max(10, 2% of their position in this market).
+  // ✓ Correct objection  → bond returned + pro-rata share of the forfeit pool
+  // ✗ Wrong objection    → bond forfeited to reward pool for correct objectors
+  // ○ Auto-settled (0 objections) → bonds irrelevant, no deductions ever
 
+  /** Minimum bond in BTN regardless of position size */
+  private readonly DISPUTE_BOND_MIN = 10;
+  /** Bond as a % of the user's position in this market */
+  private readonly DISPUTE_BOND_PCT = 2;
+
+  private calcBond(positionAmount: number): number {
+    return Math.max(
+      this.DISPUTE_BOND_MIN,
+      Math.round((positionAmount * this.DISPUTE_BOND_PCT) / 100),
+    );
+  }
+
+  /**
+   * File an objection against the proposed outcome.
+   * Only bettors with an active position can object.
+   * A bond of max(10, 2% of position) is locked immediately.
+   * Bond is forfeited if wrong, or returned + rewarded if right.
+   */
   async submitDispute(
     userId: string,
     marketId: string,
     dto: SubmitDisputeDto,
-  ): Promise<Dispute> {
-    if (!dto.paymentId && !dto.bondAmount)
-      throw new BadRequestException(
-        "Either paymentId (DK Bank) or bondAmount (credits) is required",
-      );
-
-    // Serialize concurrent financial ops per user so the balance check and
-    // the DISPUTE_BOND deduction are atomic with respect to any concurrent
-    // bet placement that might also be touching this user's ledger.
-    let lockToken: string | null = null;
-    try {
-      lockToken = await this.redis.acquireLockWithRetry(
-        `user:${userId}:wallet`,
-        10,
-        3,
-        150,
-      );
-    } catch {
-      // Redis unavailable — proceed; DB transaction still prevents negative balance
-      // as long as no concurrent writes slip through (low probability in practice)
-    }
-
-    try {
-      return await this._submitDisputeInner(userId, marketId, dto);
-    } finally {
-      if (lockToken)
-        await this.redis.releaseLock(`user:${userId}:wallet`, lockToken);
-      await this.redis.del(`oro:cache:balance:${userId}`);
-    }
-  }
-
-  private async _submitDisputeInner(
-    userId: string,
-    marketId: string,
-    dto: SubmitDisputeDto,
-  ): Promise<Dispute> {
+  ): Promise<Dispute & { bondAmount: number; bondNote: string }> {
     const market = await this.findOne(marketId);
+
     if (market.status !== MarketStatus.RESOLVING)
       throw new BadRequestException(
-        "Disputes can only be submitted during the resolution window",
+        "Objections can only be raised during the resolution window",
       );
 
     if (market.disputeDeadlineAt && new Date() > market.disputeDeadlineAt)
-      throw new BadRequestException("Dispute window has closed");
-
-    // Guard 1: market must have at least 3 unique participants
-    const { count: participantCount } = await this.dataSource
-      .getRepository(Position)
-      .createQueryBuilder("p")
-      .select("COUNT(DISTINCT p.userId)", "count")
-      .where("p.marketId = :marketId", { marketId })
-      .getRawOne();
-    if (Number(participantCount) < this.DISPUTE_MIN_PARTICIPANTS)
       throw new BadRequestException(
-        `Disputes require at least ${this.DISPUTE_MIN_PARTICIPANTS} participants in the market`,
+        "The objection window for this market has closed",
       );
 
-    // Guard 2: disputer must hold an active position in this market
-    const hasPosition = await this.dataSource.getRepository(Position).findOne({
-      where: {
+    // Must hold an active position to object
+    const position = await this.dataSource.getRepository(Position).findOne({
+      where: { userId, marketId, status: PositionStatus.PENDING },
+    });
+    if (!position)
+      throw new BadRequestException(
+        "You must have an active position in this market to raise an objection",
+      );
+
+    // One objection per user per market
+    const alreadyObjected = await this.disputeRepo.findOne({
+      where: { userId, marketId },
+    });
+    if (alreadyObjected)
+      throw new BadRequestException(
+        "You have already raised an objection for this market",
+      );
+
+    const bondAmount = this.calcBond(Number(position.amount));
+
+    // Lock the bond in a single DB transaction
+    const saved = await this.dataSource.transaction(async (em) => {
+      const user = await em.findOne(User, { where: { id: userId } });
+      if (!user) throw new BadRequestException("User not found");
+
+      const { balance } = await em
+        .getRepository(Transaction)
+        .createQueryBuilder("t")
+        .select("COALESCE(SUM(t.amount), 0)", "balance")
+        .where("t.userId = :userId", { userId })
+        .getRawOne();
+      const currentBalance = Number(balance);
+
+      if (currentBalance < bondAmount)
+        throw new BadRequestException(
+          `You need at least Nu ${bondAmount} available to raise an objection ` +
+            `(bond = ${this.DISPUTE_BOND_PCT}% of your position, min Nu ${this.DISPUTE_BOND_MIN}). ` +
+            `Your current balance is Nu ${currentBalance.toFixed(0)}.`,
+        );
+
+      // Deduct the bond
+      const txn = em.getRepository(Transaction).create({
+        userId,
+        type: TransactionType.DISPUTE_BOND_LOCK,
+        amount: -bondAmount,
+        balanceBefore: currentBalance,
+        balanceAfter: currentBalance - bondAmount,
+        note: `Bond locked for objection on market "${market.title}"`,
+      });
+      await em.getRepository(Transaction).save(txn);
+
+      const dispute = em.getRepository(Dispute).create({
         userId,
         marketId,
-        status: PositionStatus.PENDING,
-      },
+        reason: dto.reason,
+        upheld: null,
+        bondAmount,
+        bondStatus: DisputeBondStatus.LOCKED,
+      });
+      return em.getRepository(Dispute).save(dispute);
     });
-    if (!hasPosition)
-      throw new BadRequestException(
-        "You must have an active position in this market to raise a dispute",
-      );
 
-    // Guard 3: one dispute per user per market
-    const alreadyDisputed = await this.dataSource
-      .getRepository(Dispute)
-      .findOne({ where: { userId, marketId } });
-    if (alreadyDisputed)
-      throw new BadRequestException(
-        "You have already submitted a dispute for this market",
-      );
+    // Bust balance cache
+    await this.redis.del(`oro:cache:balance:${userId}`);
 
-    // Guard 4: minimum bond = max(MIN_BOND, pool × BOND_PCT)
-    const pool = Number(market.totalPool);
-    const minBond = Math.max(
-      this.DISPUTE_MIN_BOND,
-      Math.ceil(pool * this.DISPUTE_BOND_PCT),
-    );
-    const submittedBond = dto.bondAmount ?? 0;
-    // For DK Bank path we validate after reading payment amount below,
-    // so only check here for the credits path
-    if (!dto.paymentId && submittedBond < minBond)
-      throw new BadRequestException(
-        `Dispute bond must be at least Nu ${minBond} (1% of pool, min Nu ${this.DISPUTE_MIN_BOND})`,
-      );
+    // Notify admin channel
+    this.telegram
+      .postToChannel(
+        `⚠️ <b>New Objection — Bond Locked</b>\n` +
+          `Market: <i>${market.title}</i>\n` +
+          `User: ${userId}\n` +
+          `Bond: <b>Nu ${bondAmount}</b>\n` +
+          `Reason: ${dto.reason.slice(0, 200)}`,
+      )
+      .catch(() => undefined);
 
-    return await this.dataSource.transaction(async (em) => {
-      let bondAmount: number;
-
-      if (dto.paymentId) {
-        //  DK Bank path: verify a completed payment
-        const payment = await em.getRepository(Payment).findOne({
-          where: {
-            id: dto.paymentId,
-            userId,
-            status: PaymentStatus.SUCCESS,
-            method: PaymentMethod.DK_BANK,
-          },
-        });
-        if (!payment)
-          throw new BadRequestException(
-            "DK Bank payment not found, not completed, or does not belong to you",
-          );
-
-        // Ensure this payment hasn't already been used for a dispute
-        const existing = await em
-          .getRepository(Dispute)
-          .findOne({ where: { bondPaymentId: dto.paymentId } });
-        if (existing)
-          throw new BadRequestException(
-            "This payment has already been used for a dispute",
-          );
-
-        bondAmount = Number(payment.amount);
-
-        if (bondAmount < minBond)
-          throw new BadRequestException(
-            `Dispute bond must be at least Nu ${minBond} (1% of pool, min Nu ${this.DISPUTE_MIN_BOND})`,
-          );
-
-        return em.save(
-          Dispute,
-          em.create(Dispute, {
-            userId,
-            marketId,
-            bondAmount,
-            bondPaymentId: dto.paymentId,
-            reason: dto.reason ?? null,
-            bondRefunded: false,
-          }),
-        );
-      } else {
-        // Credits path: deduct from balance
-        bondAmount = dto.bondAmount!;
-        const { balance } = await em
-          .getRepository(Transaction)
-          .createQueryBuilder("t")
-          .select("COALESCE(SUM(t.amount), 0)", "balance")
-          .where("t.userId = :userId", { userId })
-          .getRawOne();
-        const balanceBefore = Number(balance);
-        if (balanceBefore < bondAmount)
-          throw new BadRequestException(
-            "Insufficient balance for dispute bond",
-          );
-
-        await em.save(
-          Transaction,
-          em.create(Transaction, {
-            type: TransactionType.DISPUTE_BOND,
-            amount: -bondAmount,
-            balanceBefore,
-            balanceAfter: balanceBefore - bondAmount,
-            userId,
-            note: `Dispute bond for market resolution`,
-          }),
-        );
-
-        return em.save(
-          Dispute,
-          em.create(Dispute, {
-            userId,
-            marketId,
-            bondAmount,
-            reason: dto.reason ?? null,
-            bondRefunded: false,
-          }),
-        );
-      }
-    });
+    await this.invalidateMarketCache(marketId);
+    return {
+      ...saved,
+      bondAmount,
+      bondNote: `Nu ${bondAmount} has been locked as a bond. You will get it back (plus a reward) if the admin agrees the outcome was wrong. If the admin upholds their decision, you lose the bond.`,
+    };
   }
 
   async getResolvedMarkets(): Promise<object[]> {
@@ -645,6 +582,115 @@ export class MarketsService {
         resolvedAt: m.resolvedAt,
         participantCount: participantMap.get(m.id) ?? 0,
         winner: winner ? { id: winner.id, label: winner.label } : null,
+        evidence: {
+          url: m.evidenceUrl ?? null,
+          note: m.evidenceNote ?? null,
+          submittedAt: m.evidenceSubmittedAt ?? null,
+        },
+      };
+    });
+  }
+
+  /**
+   * Public resolution transparency log.
+   * Returns every settled/resolved market with full evidence, objection counts,
+   * and whether the final decision matched the original proposal.
+   * Used by the public "Resolution Log" dashboard in the TMA.
+   */
+  async getResolutionLog(): Promise<object[]> {
+    const markets = await this.marketRepo
+      .createQueryBuilder("market")
+      .leftJoinAndSelect("market.outcomes", "outcome")
+      .where("market.status IN (:...statuses)", {
+        statuses: [MarketStatus.RESOLVED, MarketStatus.SETTLED],
+      })
+      .orderBy("market.resolvedAt", "DESC")
+      .getMany();
+
+    if (!markets.length) return [];
+
+    const marketIds = markets.map((m) => m.id);
+
+    // Participant counts
+    const participantRows: { marketId: string; count: string }[] =
+      await this.dataSource
+        .getRepository(Position)
+        .createQueryBuilder("p")
+        .select("p.marketId", "marketId")
+        .addSelect("COUNT(DISTINCT p.userId)", "count")
+        .where("p.marketId IN (:...marketIds)", { marketIds })
+        .groupBy("p.marketId")
+        .getRawMany();
+    const participantMap = new Map(
+      participantRows.map((r) => [r.marketId, Number(r.count)]),
+    );
+
+    // Objection counts per market
+    const objectionRows: { marketId: string; count: string }[] =
+      await this.dataSource
+        .getRepository(Dispute)
+        .createQueryBuilder("d")
+        .select("d.marketId", "marketId")
+        .addSelect("COUNT(*)", "count")
+        .where("d.marketId IN (:...marketIds)", { marketIds })
+        .groupBy("d.marketId")
+        .getRawMany();
+    const objectionMap = new Map(
+      objectionRows.map((r) => [r.marketId, Number(r.count)]),
+    );
+
+    // Upheld objection counts (objector was right = admin changed outcome)
+    const upheldRows: { marketId: string; count: string }[] =
+      await this.dataSource
+        .getRepository(Dispute)
+        .createQueryBuilder("d")
+        .select("d.marketId", "marketId")
+        .addSelect("COUNT(*)", "count")
+        .where("d.marketId IN (:...marketIds)", { marketIds })
+        .andWhere("d.upheld = true")
+        .groupBy("d.marketId")
+        .getRawMany();
+    const upheldMap = new Map(
+      upheldRows.map((r) => [r.marketId, Number(r.count)]),
+    );
+
+    return markets.map((m) => {
+      const winner =
+        m.outcomes.find((o) => o.id === m.resolvedOutcomeId) ?? null;
+      const proposed =
+        m.outcomes.find((o) => o.id === m.proposedOutcomeId) ?? null;
+      const objections = objectionMap.get(m.id) ?? 0;
+      const upheld = upheldMap.get(m.id) ?? 0;
+      const outcomeChanged =
+        !!m.proposedOutcomeId && m.resolvedOutcomeId !== m.proposedOutcomeId;
+
+      return {
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        category: m.category,
+        status: m.status,
+        totalPool: Number(m.totalPool),
+        participantCount: participantMap.get(m.id) ?? 0,
+        opensAt: m.opensAt,
+        closesAt: m.closesAt,
+        resolvedAt: m.resolvedAt,
+        windowMinutes: m.windowMinutes ?? 60,
+        // Transparency fields
+        proposedOutcome: proposed
+          ? { id: proposed.id, label: proposed.label }
+          : null,
+        winner: winner ? { id: winner.id, label: winner.label } : null,
+        outcomeChanged, // true = admin overrode their own proposal after objections
+        objectionCount: objections,
+        uppheldObjectionCount: upheld,
+        resolutionCriteria: m.resolutionCriteria ?? null,
+        evidence: {
+          url: m.evidenceUrl ?? null,
+          note: m.evidenceNote ?? null,
+          submittedAt: m.evidenceSubmittedAt ?? null,
+        },
+        resolvedBySystem: !m.resolvedByAdminId, // true = auto-settled by cron (zero objections)
       };
     });
   }
@@ -656,37 +702,53 @@ export class MarketsService {
     });
   }
 
-  /** Returns the minimum bond required to raise a dispute on this market. */
-  async getDisputeRequirements(marketId: string): Promise<{
-    minBond: number;
-    minParticipants: number;
-    eligible: boolean;
-    reason: string | null;
+  /** Returns objection count, window info, and the bond cost for this user to object. */
+  async getDisputeInfo(
+    marketId: string,
+    userId?: string,
+  ): Promise<{
+    objectionCount: number;
+    windowOpen: boolean;
+    windowClosesAt: Date | null;
+    windowMinutes: number;
+    canObject: boolean;
+    bondRequired: number | null;
+    bondNote: string;
   }> {
     const market = await this.findOne(marketId);
-    const pool = Number(market.totalPool);
-    const minBond = Math.max(
-      this.DISPUTE_MIN_BOND,
-      Math.ceil(pool * this.DISPUTE_BOND_PCT),
-    );
+    const objectionCount = await this.disputeRepo.count({
+      where: { marketId },
+    });
+    const now = new Date();
+    const windowOpen =
+      market.status === MarketStatus.RESOLVING &&
+      !!market.disputeDeadlineAt &&
+      now < market.disputeDeadlineAt;
 
-    const { count } = await this.dataSource
-      .getRepository(Position)
-      .createQueryBuilder("p")
-      .select("COUNT(DISTINCT p.userId)", "count")
-      .where("p.marketId = :marketId", { marketId })
-      .getRawOne();
-
-    const participantCount = Number(count);
-    const eligible = participantCount >= this.DISPUTE_MIN_PARTICIPANTS;
+    let bondRequired: number | null = null;
+    if (userId && windowOpen) {
+      const position = await this.dataSource.getRepository(Position).findOne({
+        where: { userId, marketId, status: PositionStatus.PENDING },
+      });
+      if (position) {
+        bondRequired = this.calcBond(Number(position.amount));
+      }
+    }
 
     return {
-      minBond,
-      minParticipants: this.DISPUTE_MIN_PARTICIPANTS,
-      eligible,
-      reason: eligible
-        ? null
-        : `Market needs at least ${this.DISPUTE_MIN_PARTICIPANTS} participants (currently ${participantCount})`,
+      objectionCount,
+      windowOpen,
+      windowClosesAt: market.disputeDeadlineAt ?? null,
+      windowMinutes: market.windowMinutes ?? 60,
+      canObject: windowOpen,
+      bondRequired,
+      bondNote:
+        bondRequired !== null
+          ? `Objecting costs Nu ${bondRequired} (${this.DISPUTE_BOND_PCT}% of your position, min Nu ${this.DISPUTE_BOND_MIN}). ` +
+            `You get it back + a reward share if the admin agrees with you. ` +
+            `You lose it if the admin upholds their original decision.`
+          : `Bond = ${this.DISPUTE_BOND_PCT}% of your position (min Nu ${this.DISPUTE_BOND_MIN}). ` +
+            `Returned + rewarded if correct, forfeited if wrong.`,
     };
   }
 
