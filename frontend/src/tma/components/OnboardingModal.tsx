@@ -7,7 +7,7 @@ const STEPS = [
   {
     icon: <TrendingUp size={40} color="#3b82f6" />,
     title: "Predict markets",
-    body: "Bet on real-world outcomes — sports, politics, crypto, and more. Earn Nu when you're right.",
+    body: "Predict on real-world outcomes — sports, politics, crypto, and more. Earn Nu when you're right.",
   },
   {
     icon: <Target size={40} color="#22c55e" />,

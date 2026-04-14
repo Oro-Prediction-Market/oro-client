@@ -1413,6 +1413,13 @@ function MyDuelsTab({
   onChallengeCreated: (c: Challenge) => void;
   onChallengeJoined: (c: Challenge) => void;
 }) {
+  const [showAllDuels, setShowAllDuels] = useState(false);
+  const DUEL_PREVIEW = 3;
+  const visibleChallenges = showAllDuels
+    ? challenges
+    : challenges.slice(0, DUEL_PREVIEW);
+  const hiddenCount = challenges.length - DUEL_PREVIEW;
+
   return (
     <>
       <CardInventoryStrip inventory={cardInventory} />
@@ -1480,7 +1487,7 @@ function MyDuelsTab({
             margin: "0 16px",
           }}
         >
-          {challenges.map((c) => (
+          {visibleChallenges.map((c) => (
             <ChallengeCard
               key={c.id}
               challenge={c}
@@ -1488,6 +1495,35 @@ function MyDuelsTab({
               onJoin={onChallengeJoined}
             />
           ))}
+          {challenges.length > DUEL_PREVIEW && (
+            <button
+              onClick={() => setShowAllDuels((v) => !v)}
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: 10,
+                background: "var(--bg-card)",
+                border: "1px solid var(--glass-border)",
+                color: "var(--text-muted)",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              {showAllDuels ? (
+                "▲ Show less"
+              ) : (
+                <>
+                  <Swords size={13} />
+                  View {hiddenCount} more duel{hiddenCount !== 1 ? "s" : ""}
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
     </>

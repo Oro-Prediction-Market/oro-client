@@ -1,6 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { ParimutuelEngine } from "../markets/parimutuel.engine";
 import { TransactionType } from "../entities/transaction.entity";
+import { ChallengeStatus } from "../entities/challenge.entity";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -180,6 +181,7 @@ describe("ParimutuelEngine.placePosition — pre-flight guards", () => {
         }),
       }),
       find: jest.fn().mockResolvedValue(market.outcomes),
+      // First findOne → User, second findOne (Challenge) never reached
       findOne: jest.fn().mockResolvedValue(user),
     };
     const mockDataSource = {
@@ -243,6 +245,7 @@ describe("ParimutuelEngine.placePosition — pre-flight guards", () => {
         }),
       }),
       find: jest.fn().mockResolvedValue(market.outcomes),
+      // First findOne → User, second findOne (Challenge) never reached
       findOne: jest.fn().mockResolvedValue(user),
     };
     const mockDataSource = {
@@ -275,6 +278,236 @@ describe("ParimutuelEngine.placePosition — pre-flight guards", () => {
 
     await expect(engine.placePosition("u1", "m1", "o1", 100)).rejects.toThrow(
       "verified phone number",
+    );
+  });
+
+  it("throws when user is the CREATOR of an ACTIVE duel on the same market", async () => {
+    const market = {
+      id: "m1",
+      status: "open",
+      outcomes: [
+        { id: "o1", totalBetAmount: 0, currentOdds: 0, lmsrProbability: 0.5 },
+        { id: "o2", totalBetAmount: 0, currentOdds: 0, lmsrProbability: 0.5 },
+      ],
+      totalPool: 0,
+      houseEdgePct: 8,
+      liquidityParam: 1000,
+    };
+    const user = {
+      id: "u1",
+      telegramId: "111",
+      dkAccountNumber: "ACC001",
+      phoneNumber: "17000001",
+    };
+    const activeDuel = {
+      id: "duel-1",
+      marketId: "m1",
+      creatorId: "u1",
+      joinerId: "u2",
+      status: ChallengeStatus.ACTIVE,
+    };
+
+    const mockEm = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue({
+          setLock: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          getOne: jest.fn().mockResolvedValue(market),
+        }),
+      }),
+      find: jest.fn().mockResolvedValue(market.outcomes),
+      // First call → User, second call → Challenge (active duel found)
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(activeDuel),
+    };
+    const mockDataSource = {
+      transaction: jest.fn().mockImplementation((cb: Function) => cb(mockEm)),
+    };
+    const mockRedis = {
+      acquireLockWithRetry: jest.fn().mockResolvedValue("lock-token"),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const engine = new ParimutuelEngine(
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      mockDataSource as any,
+      null as any,
+      mockRedis as any,
+      null as any,
+      null as any,
+      null as any,
+      bypassConfigService,
+      null as any,
+      null as any,
+    );
+
+    await expect(engine.placePosition("u1", "m1", "o1", 100)).rejects.toThrow(
+      "active duel on this market",
+    );
+  });
+
+  it("throws when user is the JOINER of an ACTIVE duel on the same market", async () => {
+    const market = {
+      id: "m1",
+      status: "open",
+      outcomes: [
+        { id: "o1", totalBetAmount: 0, currentOdds: 0, lmsrProbability: 0.5 },
+        { id: "o2", totalBetAmount: 0, currentOdds: 0, lmsrProbability: 0.5 },
+      ],
+      totalPool: 0,
+      houseEdgePct: 8,
+      liquidityParam: 1000,
+    };
+    const user = {
+      id: "u2",
+      telegramId: "222",
+      dkAccountNumber: "ACC002",
+      phoneNumber: "17000002",
+    };
+    // u2 joined u1's duel — both wagers locked (ACTIVE)
+    const activeDuel = {
+      id: "duel-1",
+      marketId: "m1",
+      creatorId: "u1",
+      joinerId: "u2",
+      status: ChallengeStatus.ACTIVE,
+    };
+
+    const mockEm = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue({
+          setLock: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          getOne: jest.fn().mockResolvedValue(market),
+        }),
+      }),
+      find: jest.fn().mockResolvedValue(market.outcomes),
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(activeDuel),
+    };
+    const mockDataSource = {
+      transaction: jest.fn().mockImplementation((cb: Function) => cb(mockEm)),
+    };
+    const mockRedis = {
+      acquireLockWithRetry: jest.fn().mockResolvedValue("lock-token"),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const engine = new ParimutuelEngine(
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      mockDataSource as any,
+      null as any,
+      mockRedis as any,
+      null as any,
+      null as any,
+      null as any,
+      bypassConfigService,
+      null as any,
+      null as any,
+    );
+
+    await expect(engine.placePosition("u2", "m1", "o2", 100)).rejects.toThrow(
+      "active duel on this market",
+    );
+  });
+
+  it("allows bet when user has only an OPEN (not yet accepted) duel on the same market", async () => {
+    const market = {
+      id: "m1",
+      status: "open",
+      outcomes: [
+        { id: "o1", totalBetAmount: 0, currentOdds: 0, lmsrProbability: 0.5 },
+      ],
+      totalPool: 0,
+      houseEdgePct: 8,
+      liquidityParam: 1000,
+    };
+    const user = {
+      id: "u1",
+      telegramId: "111",
+      dkAccountNumber: "ACC001",
+      phoneNumber: "17000001",
+    };
+
+    const mockEm = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue({
+          setLock: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          select: jest.fn().mockReturnThis(),
+          getRawOne: jest.fn().mockResolvedValue({ balance: "0" }), // 0 credits → Insufficient balance
+          getOne: jest.fn().mockResolvedValue(market),
+        }),
+      }),
+      find: jest.fn().mockResolvedValue(market.outcomes),
+      // Challenge lookup returns null → no ACTIVE duel, proceed
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(null),
+      save: jest
+        .fn()
+        .mockImplementation((entity: any, val: any) => val ?? entity),
+      create: jest
+        .fn()
+        .mockImplementation((_: any, data: any) => ({ ...data, id: "pos-1" })),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    const mockDataSource = {
+      transaction: jest.fn().mockImplementation((cb: Function) => cb(mockEm)),
+    };
+    const mockRedis = {
+      acquireLockWithRetry: jest.fn().mockResolvedValue("lock-token"),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+      del: jest.fn().mockResolvedValue(undefined),
+      invalidateMarketCache: jest.fn().mockResolvedValue(undefined),
+      setJsonEx: jest.fn().mockResolvedValue(undefined),
+    };
+    const mockLmsr = {
+      calculateProbabilities: jest.fn().mockReturnValue([0.5]),
+    };
+
+    const engine = new ParimutuelEngine(
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      mockDataSource as any,
+      null as any,
+      mockRedis as any,
+      mockLmsr as any,
+      null as any,
+      null as any,
+      bypassConfigService,
+      null as any,
+      null as any,
+    );
+
+    // Should NOT throw — duel is OPEN, not ACTIVE
+    // (will eventually fail at credit balance check, which is fine)
+    await expect(engine.placePosition("u1", "m1", "o1", 100)).rejects.toThrow(
+      "Insufficient balance",
     );
   });
 });

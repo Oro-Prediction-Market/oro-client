@@ -272,20 +272,20 @@ function MarketCard({
   };
 
   const sentiment = (() => {
-    const raw = market.outcomes.map((o) => ({
-      ...o,
-      // After betting: prefer intelligence-weighted prob, then LMSR.
-      // Before betting: use LMSR (avoids 0%/100% on single-bettor markets).
-      // Raw parimutuel ratio is only a last resort when no LMSR is stored.
-      pct:
-        hasBet && o.intelligenceProb != null && o.intelligenceProb > 0
-          ? o.intelligenceProb * 100
-          : o.lmsrProbability != null && o.lmsrProbability > 0
-            ? o.lmsrProbability * 100
-            : totalPool > 0
-              ? (Number(o.totalBetAmount) / totalPool) * 100
-              : 100 / market.outcomes.length,
-    }));
+    const n = market.outcomes.length || 1;
+    const raw = market.outcomes.map((o) => {
+      let pct: number;
+      if (hasBet && o.intelligenceProb != null && o.intelligenceProb > 0) {
+        pct = o.intelligenceProb * 100;
+      } else if (o.lmsrProbability != null && o.lmsrProbability > 0) {
+        pct = o.lmsrProbability * 100;
+      } else if (totalPool > 0) {
+        pct = (Number(o.totalBetAmount) / totalPool) * 100;
+      } else {
+        pct = 100 / n;
+      }
+      return { ...o, pct: isNaN(pct) ? 100 / n : pct };
+    });
     const sorted = [...raw].sort((a, b) => b.pct - a.pct);
     return raw.map((o) => {
       const rank = sorted.findIndex((s) => s.id === o.id);
@@ -1138,6 +1138,7 @@ export const TmaFeedPage: FC = () => {
               }}
             >
               {trendingMarkets.map((m) => {
+                if (!m.outcomes?.length) return null;
                 const prob = (o: (typeof m.outcomes)[0]) =>
                   o.intelligenceProb != null && o.intelligenceProb > 0
                     ? o.intelligenceProb
@@ -1150,7 +1151,8 @@ export const TmaFeedPage: FC = () => {
                   (a, b) => (prob(b) > prob(a) ? b : a),
                   m.outcomes[0],
                 );
-                const topPct = Math.round(prob(top) * 100);
+                const rawPct = prob(top) * 100;
+                const topPct = isNaN(rawPct) ? 0 : Math.round(rawPct);
                 return (
                   <button
                     key={m.id}

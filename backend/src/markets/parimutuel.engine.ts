@@ -15,6 +15,7 @@ import { Payment } from "../entities/payment.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { Settlement } from "../entities/settlement.entity";
 import { Dispute } from "../entities/dispute.entity";
+import { Challenge, ChallengeStatus } from "../entities/challenge.entity";
 import { User } from "../entities/user.entity";
 import { LMSRService } from "./lmsr.service";
 import { ReputationService } from "./reputation.service";
@@ -175,6 +176,23 @@ export class ParimutuelEngine implements OnModuleInit {
         if (!user.phoneNumber) {
           throw new BadRequestException(
             "A verified phone number is required to place a bet. Go to Profile → Link DK Bank.",
+          );
+        }
+
+        // Block betting when the user already has an ACTIVE duel on this market.
+        // An ACTIVE duel means both sides have locked a wager on a specific outcome —
+        // placing an additional parimutuel bet on the *opposite* outcome would be a
+        // self-contradicting position, and placing on the *same* outcome would give
+        // the user an unfair double stake advantage.
+        const activeDuel = await em.findOne(Challenge, {
+          where: [
+            { marketId, creatorId: userId, status: ChallengeStatus.ACTIVE },
+            { marketId, joinerId: userId, status: ChallengeStatus.ACTIVE },
+          ],
+        });
+        if (activeDuel) {
+          throw new BadRequestException(
+            "You have an active duel on this market. Settle or wait for the duel to complete before placing a new bet.",
           );
         }
 

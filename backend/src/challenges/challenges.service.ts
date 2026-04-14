@@ -16,7 +16,7 @@ import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { User } from "../entities/user.entity";
 
 const MIN_PREDICTIONS_REQUIRED = 5;
-const CHALLENGE_TTL_HOURS = 24;
+const CHALLENGE_TTL_HOURS = 72;
 const PLATFORM_FEE_PCT = 0.1;
 
 const CARD_MILESTONES: Record<number, CardType> = {
@@ -53,7 +53,7 @@ export class ChallengesService {
     userId: string,
     amount: number,
     note: string,
-    referenceId: string,
+    referenceId: string | null,
   ): Promise<void> {
     const balanceBefore = await this.getBalance(userId);
     if (balanceBefore < amount) {
@@ -66,7 +66,7 @@ export class ChallengesService {
       balanceBefore,
       balanceAfter: balanceBefore - amount,
       note,
-      positionId: referenceId,
+      positionId: referenceId ?? undefined,
     });
     await this.dataSource.getRepository(Transaction).save(tx);
   }
@@ -75,7 +75,7 @@ export class ChallengesService {
     userId: string,
     amount: number,
     note: string,
-    referenceId: string,
+    referenceId: string | null,
   ): Promise<void> {
     const balanceBefore = await this.getBalance(userId);
     const tx = this.dataSource.getRepository(Transaction).create({
@@ -85,7 +85,7 @@ export class ChallengesService {
       balanceBefore,
       balanceAfter: balanceBefore + amount,
       note,
-      positionId: referenceId,
+      positionId: referenceId ?? undefined,
     });
     await this.dataSource.getRepository(Transaction).save(tx);
   }
@@ -150,7 +150,7 @@ export class ChallengesService {
         creatorId,
         wagerAmount,
         `Duel wager locked — market ${marketId}`,
-        `challenge-create-${creatorId}-${marketId}`,
+        null, // challenge ID not yet assigned at this point
       );
     }
 
@@ -268,7 +268,7 @@ export class ChallengesService {
         joiningUserId,
         Number(challenge.wagerAmount),
         `Duel wager locked — challenge ${challengeId}`,
-        `challenge-join-${joiningUserId}-${challengeId}`,
+        challengeId,
       );
     }
 
@@ -463,6 +463,8 @@ export class ChallengesService {
       .andWhere("c.settledAt >= :weekAgo", { weekAgo })
       .andWhere("c.winnerId IS NOT NULL")
       .groupBy("c.winnerId")
+      .addGroupBy("c.creatorId")
+      .addGroupBy("c.joinerId")
       .addGroupBy("creator.username")
       .addGroupBy("joiner.username")
       .orderBy("wins", "DESC")
