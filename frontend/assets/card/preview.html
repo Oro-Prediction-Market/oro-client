@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Power Cards Preview</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: #0f0f18;
+        color: #f1f5f9;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 20px;
+        gap: 48px;
+      }
+      h1 {
+        font-size: 1.1rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #818cf8;
+      }
+
+      /* ── Inventory Strip ── */
+      .section-label {
+        font-size: 0.65rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: #818cf8;
+        margin-bottom: 12px;
+      }
+      .strip-wrapper {
+        background: linear-gradient(
+          135deg,
+          rgba(99, 102, 241, 0.08),
+          rgba(99, 102, 241, 0.03)
+        );
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 16px;
+        padding: 16px;
+        width: 340px;
+      }
+      .strip-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .strip-title {
+        font-size: 0.65rem;
+        font-weight: 800;
+        color: #818cf8;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+      .strip-subtitle {
+        font-size: 0.6rem;
+        color: #94a3b8;
+        font-weight: 600;
+      }
+      .strip-cards {
+        display: flex;
+        gap: 8px;
+      }
+      .strip-card {
+        flex: 1;
+        padding: 0;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0;
+        position: relative;
+        overflow: hidden;
+      }
+      .strip-card.unlocked {
+        background: var(--card-solid-bg);
+        border: 1.5px solid var(--card-color-border);
+      }
+      .strip-card.locked {
+        background: #1a1a2e;
+        border: 1.5px solid rgba(255, 255, 255, 0.08);
+      }
+      .strip-card .glow {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 60px;
+        pointer-events: none;
+        z-index: 1;
+      }
+      /* image wrapper fills full width */
+      .strip-card .img-wrap {
+        position: relative;
+        width: 100%;
+        z-index: 2;
+      }
+      .strip-card .img-wrap img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .strip-card.unlocked .img-wrap img {
+        filter: drop-shadow(0 2px 8px var(--card-glow));
+      }
+      .strip-card.locked .img-wrap img {
+        filter: grayscale(1) brightness(0.4);
+        opacity: 0.5;
+      }
+      .lock-icon {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        background: rgba(0, 0, 0, 0.3);
+        color: #94a3b8;
+      }
+      /* label section below image */
+      .strip-card .card-info {
+        width: 100%;
+        padding: 6px 4px 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      .strip-card.unlocked .card-info {
+        background: var(--card-solid-bg);
+      }
+      .strip-card.locked .card-info {
+        background: transparent;
+      }
+      .card-label {
+        font-size: 0.58rem;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.2;
+      }
+      .unlocked .card-label {
+        color: var(--card-color);
+      }
+      .locked .card-label {
+        color: #64748b;
+      }
+      .card-badge {
+        font-size: 0.72rem;
+        font-weight: 900;
+        border-radius: 6px;
+        padding: 1px 6px;
+      }
+      .unlocked .card-badge {
+        background: var(--card-color-bg2);
+        color: #f1f5f9;
+      }
+      .locked .card-badge {
+        font-size: 0.55rem;
+        font-weight: 600;
+        color: #64748b;
+      }
+      .strip-hint {
+        margin-top: 10px;
+        font-size: 0.65rem;
+        color: #64748b;
+        line-height: 1.5;
+      }
+
+      /* ── Card Picker ── */
+      .picker-wrapper {
+        width: 340px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .picker-title {
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+      }
+      .picker-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1.5px solid;
+        cursor: pointer;
+      }
+      .picker-row.unlocked {
+        background: #151524;
+        border-color: rgba(255, 255, 255, 0.08);
+      }
+      .picker-row.unlocked:hover {
+        background: var(--card-color-bg);
+        border-color: var(--card-color-border);
+      }
+      .picker-row.selected {
+        background: var(--card-solid-bg);
+        border-color: var(--card-color);
+      }
+      .picker-row.locked {
+        background: #151524;
+        border-color: transparent;
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .picker-row .thumb {
+        position: relative;
+        flex-shrink: 0;
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--card-solid-bg, #1a1a2e);
+        border: 1px solid var(--card-color-border, transparent);
+      }
+      .picker-row .thumb img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .picker-row.selected .thumb img {
+        filter: drop-shadow(0 0 6px var(--card-glow));
+      }
+      .picker-row.locked .thumb img {
+        filter: grayscale(1) brightness(0.5);
+      }
+      .picker-row .info {
+        flex: 1;
+      }
+      .picker-row .name {
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+      .picker-row.unlocked .name,
+      .picker-row.selected .name {
+        color: #f1f5f9;
+      }
+      .picker-row.selected .name {
+        color: var(--card-color);
+      }
+      .picker-row.locked .name {
+        color: #64748b;
+      }
+      .picker-row .desc {
+        font-size: 0.65rem;
+        color: #64748b;
+      }
+      .picker-row .qty {
+        font-size: 0.65rem;
+        font-weight: 700;
+        background: #1e1e32;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      .picker-row.unlocked .qty,
+      .picker-row.selected .qty {
+        color: #f1f5f9;
+      }
+      .picker-row.locked .qty {
+        color: #64748b;
+      }
+
+      /* ── Large card showcase ── */
+      .showcase {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .showcase-card {
+        width: 120px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 20px 12px 16px;
+        border-radius: 16px;
+        position: relative;
+        overflow: hidden;
+      }
+      .showcase-card img {
+        width: 80px;
+        height: 80px;
+        object-fit: contain;
+      }
+      .showcase-card .sc-name {
+        font-size: 0.75rem;
+        font-weight: 800;
+      }
+      .showcase-card .sc-desc {
+        font-size: 0.6rem;
+        color: #94a3b8;
+        text-align: center;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>⚡ Power Cards Preview</h1>
+
+    <!-- ── Large Showcase ── -->
+    <div>
+      <div
+        class="section-label"
+        style="text-align: center; margin-bottom: 16px"
+      >
+        Full Size
+      </div>
+      <div class="showcase">
+        <!-- Double Down: image bg is pure black → match exactly -->
+        <div
+          class="showcase-card"
+          style="
+            background: #000000;
+            border: 1.5px solid #f59e0b50;
+            --card-color: #f59e0b;
+            padding: 0;
+            overflow: hidden;
+          "
+        >
+          <img
+            src="doubleDown.png"
+            alt="Double Down"
+            style="
+              width: 100%;
+              height: auto;
+              display: block;
+              border-radius: 14px 14px 0 0;
+            "
+          />
+          <div
+            style="
+              padding: 10px 12px 14px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              gap: 4px;
+              background: #000;
+            "
+          >
+            <div class="sc-name" style="color: #f59e0b">Double Down</div>
+            <div class="sc-desc">Full 2× pot — no fee</div>
+          </div>
+        </div>
+
+        <!-- Shield: image bg is near-black deep navy → match exactly -->
+        <div
+          class="showcase-card"
+          style="
+            background: #010107;
+            border: 1.5px solid #3b82f650;
+            --card-color: #3b82f6;
+            padding: 0;
+            overflow: hidden;
+          "
+        >
+          <img
+            src="shield.png"
+            alt="Shield"
+            style="
+              width: 100%;
+              height: auto;
+              display: block;
+              border-radius: 14px 14px 0 0;
+            "
+          />
+          <div
+            style="
+              padding: 10px 12px 14px;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              gap: 4px;
+              background: #010107;
+            "
+          >
+            <div class="sc-name" style="color: #3b82f6">Shield</div>
+            <div class="sc-desc">Streak safe on loss</div>
+          </div>
+        </div>
+
+        <!-- Ghost: image has transparent bg → sits naturally on dark body -->
+        <div
+          class="showcase-card"
+          style="
+            background: linear-gradient(160deg, #a78bfa18, #a78bfa05);
+            border: 1.5px solid #a78bfa50;
+            --card-color: #a78bfa;
+          "
+        >
+          <div
+            style="
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              height: 60px;
+              background: radial-gradient(
+                ellipse at 50% 0%,
+                #a78bfa30,
+                transparent 70%
+              );
+            "
+          ></div>
+          <img
+            src="ghost.png"
+            alt="Ghost"
+            style="filter: drop-shadow(0 4px 12px #a78bfa88)"
+          />
+          <div class="sc-name" style="color: #a78bfa">Ghost</div>
+          <div class="sc-desc">Stake hidden until accept</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Inventory Strip — All Unlocked ── -->
+    <div>
+      <div class="section-label">Inventory Strip — Unlocked</div>
+      <div class="strip-wrapper">
+        <div class="strip-header">
+          <div class="strip-title">⚡ Power Cards</div>
+          <div class="strip-subtitle">Win duels to unlock</div>
+        </div>
+        <div class="strip-cards">
+          <div
+            class="strip-card unlocked"
+            style="
+              --card-color: #f59e0b;
+              --card-solid-bg: #000000;
+              --card-color-bg: #f59e0b14;
+              --card-color-border: #f59e0b50;
+              --card-color-bg2: #f59e0b25;
+              --card-glow: #f59e0b88;
+            "
+          >
+            <div
+              class="glow"
+              style="
+                background: radial-gradient(
+                  ellipse at 50% 0%,
+                  #f59e0b30,
+                  transparent 70%
+                );
+              "
+            ></div>
+            <div class="img-wrap">
+              <img src="doubleDown.png" alt="Double Down" />
+            </div>
+            <div class="card-info">
+              <div class="card-label">Double Down</div>
+              <div class="card-badge">×2</div>
+            </div>
+          </div>
+
+          <div
+            class="strip-card unlocked"
+            style="
+              --card-color: #3b82f6;
+              --card-solid-bg: #010107;
+              --card-color-bg: #3b82f614;
+              --card-color-border: #3b82f650;
+              --card-color-bg2: #3b82f625;
+              --card-glow: #3b82f688;
+            "
+          >
+            <div
+              class="glow"
+              style="
+                background: radial-gradient(
+                  ellipse at 50% 0%,
+                  #3b82f630,
+                  transparent 70%
+                );
+              "
+            ></div>
+            <div class="img-wrap">
+              <img src="shield.png" alt="Shield" />
+            </div>
+            <div class="card-info">
+              <div class="card-label">Shield</div>
+              <div class="card-badge">×1</div>
+            </div>
+          </div>
+
+          <div
+            class="strip-card unlocked"
+            style="
+              --card-color: #a78bfa;
+              --card-solid-bg: #a78bfa14;
+              --card-color-bg: #a78bfa14;
+              --card-color-border: #a78bfa50;
+              --card-color-bg2: #a78bfa25;
+              --card-glow: #a78bfa88;
+            "
+          >
+            <div
+              class="glow"
+              style="
+                background: radial-gradient(
+                  ellipse at 50% 0%,
+                  #a78bfa30,
+                  transparent 70%
+                );
+              "
+            ></div>
+            <div class="img-wrap">
+              <img src="ghost.png" alt="Ghost" />
+            </div>
+            <div class="card-info">
+              <div class="card-label">Ghost</div>
+              <div class="card-badge">×3</div>
+            </div>
+          </div>
+        </div>
+        <div class="strip-hint">
+          Equip a card when creating a duel for a special edge.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Inventory Strip — All Locked ── -->
+    <div>
+      <div class="section-label">Inventory Strip — Locked</div>
+      <div class="strip-wrapper">
+        <div class="strip-header">
+          <div class="strip-title">⚡ Power Cards</div>
+          <div class="strip-subtitle">Win duels to unlock</div>
+        </div>
+        <div class="strip-cards">
+          <div class="strip-card locked">
+            <div class="img-wrap">
+              <img src="doubleDown.png" alt="Double Down" />
+              <div class="lock-icon">🔒</div>
+            </div>
+            <div class="card-info">
+              <div class="card-label">Double Down</div>
+              <div class="card-badge">3 wins</div>
+            </div>
+          </div>
+
+          <div class="strip-card locked">
+            <div class="img-wrap">
+              <img src="shield.png" alt="Shield" />
+              <div class="lock-icon">🔒</div>
+            </div>
+            <div class="card-info">
+              <div class="card-label">Shield</div>
+              <div class="card-badge">7 wins</div>
+            </div>
+          </div>
+
+          <div class="strip-card locked">
+            <div class="img-wrap">
+              <img src="ghost.png" alt="Ghost" />
+              <div class="lock-icon">🔒</div>
+            </div>
+            <div class="card-info">
+              <div class="card-label">Ghost</div>
+              <div class="card-badge">15 wins</div>
+            </div>
+          </div>
+        </div>
+        <div class="strip-hint">
+          Reach 3 duel wins to unlock your first card.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Card Picker ── -->
+    <div>
+      <div class="section-label">Card Picker (in-duel selector)</div>
+      <div class="picker-wrapper">
+        <div class="picker-title">⚡ Equip a card (optional)</div>
+
+        <!-- Double Down — selected -->
+        <div
+          class="picker-row selected"
+          style="
+            --card-color: #f59e0b;
+            --card-solid-bg: #000000;
+            --card-color-bg: #f59e0b14;
+            --card-color-border: #f59e0b50;
+            --card-glow: #f59e0b88;
+          "
+        >
+          <div class="thumb">
+            <img src="doubleDown.png" alt="Double Down" />
+          </div>
+          <div class="info">
+            <div class="name">Double Down</div>
+            <div class="desc">Full 2× pot — no fee</div>
+          </div>
+          <div class="qty">×2</div>
+        </div>
+
+        <!-- Shield — unlocked -->
+        <div
+          class="picker-row unlocked"
+          style="
+            --card-color: #3b82f6;
+            --card-solid-bg: #010107;
+            --card-color-bg: #3b82f614;
+            --card-color-border: #3b82f650;
+            --card-glow: #3b82f688;
+          "
+        >
+          <div class="thumb"><img src="shield.png" alt="Shield" /></div>
+          <div class="info">
+            <div class="name">Shield</div>
+            <div class="desc">Streak safe on loss</div>
+          </div>
+          <div class="qty">×1</div>
+        </div>
+
+        <!-- Ghost — locked -->
+        <div
+          class="picker-row locked"
+          style="
+            --card-color: #a78bfa;
+            --card-solid-bg: #a78bfa14;
+            --card-color-border: #a78bfa50;
+            --card-glow: #a78bfa88;
+          "
+        >
+          <div class="thumb"><img src="ghost.png" alt="Ghost" /></div>
+          <div class="info">
+            <div class="name">Ghost</div>
+            <div class="desc">Unlock at 15 wins</div>
+          </div>
+          <div class="qty">Locked</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
