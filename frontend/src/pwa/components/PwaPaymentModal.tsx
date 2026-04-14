@@ -11,7 +11,7 @@ import type { DKBankPaymentRequest, PaymentResponse } from "@/types/payment";
 import { PayoutBreakdown } from "@/components/PayoutBreakdown";
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
-const MIN_BET = 50;
+const MIN_BET = 100;
 
 interface PwaPaymentModalProps {
   isOpen: boolean;

@@ -11,7 +11,7 @@ import config from "@/config";
 
 const { minBet } = config.payments.dkBank;
 
-const QUICK_AMOUNTS = [50, 100, 200, 500];
+const QUICK_AMOUNTS = [100, 200, 500, 1000];
 
 /** Returns true if the user's chosen outcome has an intelligence signal < 50%
  *  — meaning they're going against Expert consensus. */
