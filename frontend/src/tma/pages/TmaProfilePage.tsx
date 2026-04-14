@@ -5,7 +5,7 @@ import { getMe, getReferralStats, AuthUser, type ReferralStats } from "@/api/cli
 import { Page } from "@/tma/components/Page";
 import { StreakBenefitsModal } from "@/tma/components/StreakBenefitsModal";
 import { ProfileShareCard } from "@/tma/components/ProfileShareCard";
-import { BadgeGrid, buildBadges } from "@/tma/components/BadgeGrid";
+import { BadgeGrid, buildBadges, type CollectibleBadge } from "@/tma/components/BadgeGrid";
 import {
   Trophy,
   Flame,
@@ -33,9 +33,44 @@ export const TmaProfilePage: FC = () => {
   const [showProfileShare, setShowProfileShare] = useState(false);
   const [collectiblesOpen, setCollectiblesOpen] = useState(false);
 
+  // Badge unlock popup
+  const [newlyUnlockedQueue, setNewlyUnlockedQueue] = useState<CollectibleBadge[]>([]);
+  const [badgePopup, setBadgePopup] = useState<CollectibleBadge | null>(null);
+
   useEffect(() => {
     getMe()
-      .then(setFreshUser)
+      .then((u) => {
+        setFreshUser(u);
+        // Detect newly unlocked badges
+        const storageKey = `oro_seen_badges_${u.id ?? u.telegramId}`;
+        const seenRaw = localStorage.getItem(storageKey);
+        const seen: string[] = seenRaw ? JSON.parse(seenRaw) : [];
+
+        const currentBadges = buildBadges(
+          u.totalPredictions ?? 0,
+          u.correctPredictions ?? 0,
+          u.reputationTier ?? "rookie",
+          Number(u.reputationScore ?? 0),
+          !!u.isPhoneVerified,
+          !!u.dkCid,
+          u.referralCount ?? 0,
+        );
+
+        const newlyUnlocked = currentBadges.filter(
+          (b) => b.unlocked && !seen.includes(b.id),
+        );
+
+        // Mark all currently unlocked as seen so we don't re-show on next visit
+        const allUnlockedIds = currentBadges
+          .filter((b) => b.unlocked)
+          .map((b) => b.id);
+        localStorage.setItem(storageKey, JSON.stringify(allUnlockedIds));
+
+        if (newlyUnlocked.length > 0) {
+          setNewlyUnlockedQueue(newlyUnlocked.slice(1));
+          setBadgePopup(newlyUnlocked[0]);
+        }
+      })
       .catch(() => setFreshUser(authUser))
       .finally(() => setFreshLoading(false));
     getReferralStats()
@@ -90,6 +125,15 @@ export const TmaProfilePage: FC = () => {
     tierProgress = { label: "Hot Hand → Legend", nextColor: "#f59e0b", progress: Math.min((Math.min(total / 100, 1) + Math.min(acc / 0.75, 1)) / 2, 1), hint: left > 0 ? `${left} more picks · aim for 75%+ accuracy` : acc < 0.75 ? `${Math.round((0.75 - acc) * 100)}% more accuracy needed` : "So close to Legend!" };
   }
 
+  const closePopup = () => {
+    if (newlyUnlockedQueue.length > 0) {
+      setBadgePopup(newlyUnlockedQueue[0]);
+      setNewlyUnlockedQueue((q) => q.slice(1));
+    } else {
+      setBadgePopup(null);
+    }
+  };
+
   return (
     <Page>
       <style>{`
@@ -100,6 +144,25 @@ export const TmaProfilePage: FC = () => {
         }
         @keyframes fadeSlideUp {
           from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes badgeUnlockPop {
+          0%   { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+          55%  { transform: scale(1.22) rotate(4deg); opacity: 1; }
+          75%  { transform: scale(0.94) rotate(-2deg); }
+          100% { transform: scale(1) rotate(0deg); }
+        }
+        @keyframes badgeUnlockGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
+          50%       { box-shadow: 0 0 0 28px rgba(245,158,11,0); }
+        }
+        @keyframes confettiFall {
+          0%   { transform: translateY(-40px) rotate(0deg); opacity: 1; }
+          80%  { opacity: 1; }
+          100% { transform: translateY(120vh) rotate(600deg); opacity: 0; }
+        }
+        @keyframes badgeTextSlide {
+          from { opacity: 0; transform: translateY(10px); }
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
@@ -376,6 +439,88 @@ export const TmaProfilePage: FC = () => {
               correctPredictions={user?.correctPredictions ?? 0}
               referralId={String(user?.telegramId ?? user?.id ?? "")}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── Badge Unlock Popup ─────────────────────────────────── */}
+      {badgePopup && (
+        <div
+          onClick={closePopup}
+          style={{ position: "fixed", inset: 0, zIndex: 3000, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}
+        >
+          {/* Confetti */}
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            {Array.from({ length: 24 }).map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  left: `${(i * 41 + 7) % 100}%`,
+                  top: 0,
+                  width: [8, 10, 6, 9, 7][i % 5],
+                  height: [8, 10, 6, 9, 7][i % 5],
+                  borderRadius: i % 3 === 0 ? "50%" : i % 3 === 1 ? 2 : 0,
+                  background: ["#f59e0b", "#6366f1", "#22c55e", "#ec4899", "#3b82f6", "#fbbf24"][i % 6],
+                  animation: `confettiFall ${1.4 + (i % 6) * 0.3}s ease-in ${(i % 5) * 0.18}s both`,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Card */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "linear-gradient(160deg, #1e1b4b, #1a1a2e)", border: "1.5px solid rgba(245,158,11,0.4)", borderRadius: 28, padding: "36px 28px 28px", maxWidth: 320, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 0, boxShadow: "0 32px 80px rgba(0,0,0,0.6), 0 0 60px rgba(245,158,11,0.12)", animation: "fadeSlideUp 0.3s ease forwards", position: "relative" }}
+          >
+            {/* Close button */}
+            <button
+              onClick={closePopup}
+              style={{ position: "absolute", top: 14, right: 14, background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.5)", cursor: "pointer" }}
+            >
+              <X size={14} />
+            </button>
+
+            {/* "Unlocked!" label */}
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "#f59e0b", marginBottom: 20, background: "rgba(245,158,11,0.12)", padding: "4px 14px", borderRadius: 99, border: "1px solid rgba(245,158,11,0.3)", animation: "badgeTextSlide 0.4s ease 0.1s both" }}>
+              Collectible Unlocked
+            </div>
+
+            {/* Badge image */}
+            <div
+              style={{ width: 110, height: 110, borderRadius: badgePopup.legendary ? 30 : 26, overflow: "hidden", marginBottom: 22, animation: "badgeUnlockPop 0.65s cubic-bezier(0.34,1.56,0.64,1) 0.1s both, badgeUnlockGlow 1.6s ease 0.7s 3", border: badgePopup.legendary ? "2.5px solid #ffd700" : "2.5px solid rgba(245,158,11,0.6)", background: "#13131f", display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
+              {badgePopup.img ? (
+                <img src={badgePopup.img} alt={badgePopup.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              ) : (
+                <div style={{ color: "#f59e0b" }}>{badgePopup.icon}</div>
+              )}
+            </div>
+
+            {/* Badge name */}
+            <div style={{ fontSize: 20, fontWeight: 900, color: badgePopup.legendary ? "#ffd700" : "#fff", textAlign: "center", animation: "badgeTextSlide 0.4s ease 0.35s both" }}>
+              {badgePopup.name}
+            </div>
+
+            {/* Requirement text */}
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", textAlign: "center", marginTop: 8, marginBottom: 28, lineHeight: 1.5, animation: "badgeTextSlide 0.4s ease 0.45s both" }}>
+              {badgePopup.requirement}
+            </div>
+
+            {/* Remaining count */}
+            {newlyUnlockedQueue.length > 0 && (
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 14 }}>
+                +{newlyUnlockedQueue.length} more badge{newlyUnlockedQueue.length !== 1 ? "s" : ""} unlocked
+              </div>
+            )}
+
+            {/* Dismiss / next button */}
+            <button
+              onClick={closePopup}
+              style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #f59e0b, #d97706)", color: "#1c1917", fontSize: 15, fontWeight: 800, cursor: "pointer" }}
+            >
+              {newlyUnlockedQueue.length > 0 ? `Next →` : "Awesome!"}
+            </button>
           </div>
         </div>
       )}

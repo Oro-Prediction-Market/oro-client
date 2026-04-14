@@ -46,7 +46,7 @@ import imgDuelOracle from "../../assets/collectibles/duelbadges/dueloracle.png";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type CollectibleBadge = {
+export type CollectibleBadge = {
   id: string;
   img?: string; // image path — if present, renders instead of icon
   icon: React.ReactNode;
