@@ -25,12 +25,12 @@ export enum MarketMechanism {
 }
 
 export enum MarketCategory {
-  SPORTS        = "sports",
-  POLITICS      = "politics",
-  WEATHER       = "weather",
+  SPORTS = "sports",
+  POLITICS = "politics",
+  WEATHER = "weather",
   ENTERTAINMENT = "entertainment",
-  ECONOMY       = "economy",
-  OTHER         = "other",
+  ECONOMY = "economy",
+  OTHER = "other",
 }
 
 @Entity("markets")
@@ -46,6 +46,9 @@ export class Market {
 
   @Column({ type: "varchar", nullable: true })
   imageUrl: string;
+
+  @Column({ type: "varchar", nullable: true })
+  imageUrlAlt: string;
 
   @Index()
   @Column({ type: "enum", enum: MarketStatus, default: MarketStatus.UPCOMING })

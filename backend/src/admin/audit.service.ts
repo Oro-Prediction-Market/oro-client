@@ -39,14 +39,14 @@ export class AuditService {
   ) {}
 
   async log(params: AuditParams): Promise<void> {
-    console.log("[AuditService] Attempting to log audit:", {
-      adminId: params.adminId,
-      username: params.username,
-      isAdmin: params.isAdmin,
-      roleType: params.isAdmin ? RoleType.ADMIN : RoleType.USER,
-      action: params.action,
-      entityType: params.entityType,
-    });
+    // console.log("[AuditService] Attempting to log audit:", {
+    //   adminId: params.adminId,
+    //   username: params.username,
+    //   isAdmin: params.isAdmin,
+    //   roleType: params.isAdmin ? RoleType.ADMIN : RoleType.USER,
+    //   action: params.action,
+    //   entityType: params.entityType,
+    // });
 
     const entry = this.repo.create({
       adminId: params.adminId,
@@ -63,7 +63,7 @@ export class AuditService {
       ipAddress: params.ipAddress,
     });
 
-    console.log("[AuditService] Created entry:", entry);
+    // console.log("[AuditService] Created entry:", entry);
 
     // Fire-and-forget — never block the main request
     await this.repo

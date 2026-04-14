@@ -161,6 +161,14 @@ export class User {
   contrarianBadge: string | null;
 
   /**
+   * Power Cards inventory — earned by reaching duel win milestones.
+   * { doubleDown: N, shield: N, ghost: N }
+   * Null treated as all zeros until first card is awarded.
+   */
+  @Column({ type: "jsonb", nullable: true })
+  cardInventory: { doubleDown: number; shield: number; ghost: number } | null;
+
+  /**
    * True once the one-time Nu 20 welcome free credit has been granted.
    * Prevents double-granting on re-login.
    */

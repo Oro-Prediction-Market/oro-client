@@ -5,7 +5,11 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, DataSource } from "typeorm";
-import { Challenge, ChallengeStatus, CardType } from "../entities/challenge.entity";
+import {
+  Challenge,
+  ChallengeStatus,
+  CardType,
+} from "../entities/challenge.entity";
 import { Position, PositionStatus } from "../entities/position.entity";
 import { Market, MarketStatus } from "../entities/market.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
@@ -13,7 +17,7 @@ import { User } from "../entities/user.entity";
 
 const MIN_PREDICTIONS_REQUIRED = 5;
 const CHALLENGE_TTL_HOURS = 24;
-const PLATFORM_FEE_PCT = 0.1; 
+const PLATFORM_FEE_PCT = 0.1;
 
 const CARD_MILESTONES: Record<number, CardType> = {
   3: CardType.DOUBLE_DOWN,
@@ -95,10 +99,13 @@ export class ChallengesService {
     wagerAmount: number = 0,
     equippedCard?: CardType,
   ): Promise<Challenge> {
-    if (wagerAmount < 0) throw new BadRequestException("Wager cannot be negative");
+    if (wagerAmount < 0)
+      throw new BadRequestException("Wager cannot be negative");
 
     // 1. Eligibility — must have ≥ 5 predictions
-    const totalBets = await this.positionRepo.count({ where: { userId: creatorId } });
+    const totalBets = await this.positionRepo.count({
+      where: { userId: creatorId },
+    });
     if (totalBets < MIN_PREDICTIONS_REQUIRED) {
       throw new BadRequestException(
         `You need at least ${MIN_PREDICTIONS_REQUIRED} bets to create a challenge (you have ${totalBets})`,
@@ -127,7 +134,9 @@ export class ChallengesService {
       where: { creatorId, marketId, status: ChallengeStatus.OPEN },
     });
     if (existing) {
-      throw new BadRequestException("You already have an open challenge on this market");
+      throw new BadRequestException(
+        "You already have an open challenge on this market",
+      );
     }
 
     // 5. Consume equipped card from inventory (if provided)
@@ -145,7 +154,9 @@ export class ChallengesService {
       );
     }
 
-    const expiresAt = new Date(Date.now() + CHALLENGE_TTL_HOURS * 60 * 60 * 1000);
+    const expiresAt = new Date(
+      Date.now() + CHALLENGE_TTL_HOURS * 60 * 60 * 1000,
+    );
     const challenge = this.challengeRepo.create({
       creatorId,
       marketId,
@@ -184,7 +195,9 @@ export class ChallengesService {
 
     const inv = user.cardInventory ?? { doubleDown: 0, shield: 0, ghost: 0 };
     if ((inv[card] ?? 0) < 1) {
-      throw new BadRequestException(`You don't have a ${card} card in your inventory`);
+      throw new BadRequestException(
+        `You don't have a ${card} card in your inventory`,
+      );
     }
     inv[card] -= 1;
     user.cardInventory = inv;
@@ -215,7 +228,11 @@ export class ChallengesService {
       const userRepo = this.dataSource.getRepository(User);
       const user = await userRepo.findOne({ where: { id: userId } });
       if (user) {
-        const inv = user.cardInventory ?? { doubleDown: 0, shield: 0, ghost: 0 };
+        const inv = user.cardInventory ?? {
+          doubleDown: 0,
+          shield: 0,
+          ghost: 0,
+        };
         inv[awarded] = (inv[awarded] ?? 0) + 1;
         user.cardInventory = inv;
         await userRepo.save(user);
@@ -232,7 +249,10 @@ export class ChallengesService {
       where: { id: challengeId },
     });
     if (!challenge) throw new NotFoundException("Challenge not found");
-    if (challenge.status === ChallengeStatus.EXPIRED || challenge.expiresAt < new Date()) {
+    if (
+      challenge.status === ChallengeStatus.EXPIRED ||
+      challenge.expiresAt < new Date()
+    ) {
       throw new BadRequestException("This challenge has expired");
     }
     if (challenge.status !== ChallengeStatus.OPEN) {
@@ -261,7 +281,10 @@ export class ChallengesService {
   // ── Settle by market ───────────────────────────────────────────────────────
   // Called by ParimutuelEngine (fire-and-forget) after a market resolves.
 
-  async settleByMarket(marketId: string, winningOutcomeId: string | null): Promise<void> {
+  async settleByMarket(
+    marketId: string,
+    winningOutcomeId: string | null,
+  ): Promise<void> {
     const challenges = await this.challengeRepo.find({
       where: [
         { marketId, status: ChallengeStatus.ACTIVE },
@@ -415,7 +438,14 @@ export class ChallengesService {
 
   // ── Weekly leaderboard (most duel wins this week) ─────────────────────────
 
-  async getLeaderboard(): Promise<{ userId: string; username: string | null; wins: number; wagerWon: number }[]> {
+  async getLeaderboard(): Promise<
+    {
+      userId: string;
+      username: string | null;
+      wins: number;
+      wagerWon: number;
+    }[]
+  > {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const rows = await this.challengeRepo

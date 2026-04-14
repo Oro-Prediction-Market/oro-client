@@ -6,6 +6,7 @@ import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { JwtAuthGuard, AdminGuard } from "../auth/guards";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+import { LeaguesService } from "../leagues/leagues.service";
 import { User } from "../entities/user.entity";
 import { Market, MarketStatus } from "../entities/market.entity";
 
@@ -15,6 +16,7 @@ export class BotController {
   constructor(
     private readonly telegramSimpleService: TelegramSimpleService,
     private readonly telegramVerificationService: TelegramVerificationService,
+    private readonly leaguesService: LeaguesService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Market) private readonly marketRepo: Repository<Market>,
   ) {}
@@ -56,6 +58,10 @@ export class BotController {
         timingSafeEqual(expectedBuf, receivedBuf);
       if (!valid) throw new UnauthorizedException("Invalid webhook token");
     }
+    // Bot added to / removed from a group
+    if (update.my_chat_member) {
+      await this.handleMyChatMember(update.my_chat_member);
+    }
     if (update.message) {
       await this.handleMessage(update.message);
     }
@@ -67,6 +73,12 @@ export class BotController {
 
   private async handleMessage(message: any) {
     const chatId: number = message.chat.id;
+    const chatType: string = message.chat.type ?? "private";
+
+    // Auto-register Oro users who send messages in group chats
+    if ((chatType === "group" || chatType === "supergroup") && message.from?.id) {
+      await this.leaguesService.registerMember(String(chatId), String(message.from.id)).catch(() => {});
+    }
 
     // Handle shared contact (phone verification)
     if (message.contact) {
@@ -138,22 +150,73 @@ export class BotController {
           await this.handlePredictCommand(chatId, message.from.id);
           break;
 
+        case "/standings":
+          await this.leaguesService.postStandingsToGroup(String(chatId));
+          break;
+
+        case "/mystats": {
+          if (!message.from?.id) break;
+          const board = await this.leaguesService.getGroupLeaderboard(String(chatId));
+          const myTelegramId = String(message.from.id);
+          const user = await this.userRepo.findOne({
+            where: { telegramId: myTelegramId },
+            select: ["id", "reputationTier", "reputationScore", "totalPredictions", "correctPredictions"],
+          });
+          if (!user || (user.totalPredictions ?? 0) === 0) {
+            await this.telegramSimpleService.sendMessage(
+              chatId,
+              "You haven't made any predictions yet. Open the Oro mini app to get started!",
+            );
+            break;
+          }
+          const myEntry = board.find((e) => e.userId === user.id);
+          if (!myEntry) {
+            await this.telegramSimpleService.sendMessage(
+              chatId,
+              "You're not on the group leaderboard yet. Send a message in the group after making predictions!",
+            );
+            break;
+          }
+          const tierLabel =
+            user.reputationTier === "legend" ? "Legend" :
+            user.reputationTier === "hot_hand" ? "Hot Hand" :
+            user.reputationTier === "sharpshooter" ? "Sharpshooter" : "Rookie";
+          const score = user.reputationScore != null ? `${Math.round(user.reputationScore * 100)}%` : "—";
+          const winRate = (user.totalPredictions ?? 0) > 0
+            ? Math.round(((user.correctPredictions ?? 0) / (user.totalPredictions ?? 1)) * 100)
+            : 0;
+          await this.telegramSimpleService.sendMessage(
+            chatId,
+            `🎯 <b>Your group rank: #${myEntry.rank}</b>\n\n` +
+              `Tier: ${tierLabel}\n` +
+              `Accuracy: ${score}\n` +
+              `Win rate: ${winRate}%\n` +
+              `Predictions: ${user.totalPredictions}`,
+          );
+          break;
+        }
+
         case "/help":
           await this.telegramSimpleService.sendMessage(
             chatId,
             "🔧 <b>Available commands:</b>\n" +
-              "/start   - Welcome message\n" +
-              "/verify  - Link your DK Bank phone for secure payments\n" +
-              "/predict - View active markets\n" +
-              "/help    - Show this message",
+              "/start      - Welcome message\n" +
+              "/verify     - Link your DK Bank phone for secure payments\n" +
+              "/predict    - View active markets\n" +
+              "/standings  - Group prediction leaderboard\n" +
+              "/mystats    - Your rank in this group\n" +
+              "/help       - Show this message",
           );
           break;
 
         default:
-          await this.telegramSimpleService.sendMessage(
-            chatId,
-            "❓ Unknown command. Use /help to see available commands.",
-          );
+          // Ignore unknown commands in groups to avoid spam; only respond in private chats
+          if (chatType === "private") {
+            await this.telegramSimpleService.sendMessage(
+              chatId,
+              "❓ Unknown command. Use /help to see available commands.",
+            );
+          }
       }
     }
   }
@@ -287,6 +350,29 @@ export class BotController {
       }
     } catch (err: any) {
       console.error("Failed to send phone request keyboard:", err.message);
+    }
+  }
+
+  /** Fires when the bot's membership status in a chat changes. */
+  private async handleMyChatMember(update: any): Promise<void> {
+    const chat = update.chat;
+    if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+
+    const chatId = String(chat.id);
+    const newStatus: string = update.new_chat_member?.status;
+
+    if (newStatus === "member" || newStatus === "administrator") {
+      await this.leaguesService.upsertGroup(chatId, chat.title ?? null);
+      await this.telegramSimpleService.sendMessage(
+        chat.id,
+        "👋 <b>Oro is here!</b>\n\n" +
+          "I'll track predictions for everyone in this group.\n\n" +
+          "📊 /standings — see the top predictors in this group\n" +
+          "🎯 /mystats — check your own rank here\n\n" +
+          "Rankings update every Sunday. Make your predictions in the Oro mini app!",
+      );
+    } else if (newStatus === "left" || newStatus === "kicked") {
+      await this.leaguesService.deactivateGroup(chatId);
     }
   }
 
