@@ -113,12 +113,12 @@ export const DKBankBetPage: FC = () => {
   let priceImpact: { from: number; to: number } | null = null;
 
   if (selectedOutcome && betAmount >= minBet) {
-    const totalPool = Number(market.totalPool);
-    const outcomePool = Number(selectedOutcome.totalBetAmount);
+    const totalPool = Number(market.totalPool) || 0;
+    const outcomePool = Number(selectedOutcome.totalBetAmount) || 0;
     const newOutcomePool = outcomePool + betAmount;
     const newTotalPool = totalPool + betAmount;
     const houseEdge = Number(market.houseEdgePct) / 100;
-    if (newOutcomePool > 0) {
+    if (newOutcomePool > 0 && !isNaN(newOutcomePool) && !isNaN(newTotalPool)) {
       winAmount = (betAmount / newOutcomePool) * newTotalPool * (1 - houseEdge);
     }
 

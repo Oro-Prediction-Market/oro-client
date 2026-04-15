@@ -411,21 +411,14 @@ export class MarketsService {
   }
 
   // ─── Dispute / Objection System ─────────────────────────────────────────────
-  // Objectors must lock a small bond: max(10, 2% of their position in this market).
+  // Objectors must lock a bond equal to their full position in this market.
   // ✓ Correct objection  → bond returned + pro-rata share of the forfeit pool
   // ✗ Wrong objection    → bond forfeited to reward pool for correct objectors
   // ○ Auto-settled (0 objections) → bonds irrelevant, no deductions ever
 
-  /** Minimum bond in BTN regardless of position size */
-  private readonly DISPUTE_BOND_MIN = 10;
-  /** Bond as a % of the user's position in this market */
-  private readonly DISPUTE_BOND_PCT = 2;
-
   private calcBond(positionAmount: number): number {
-    return Math.max(
-      this.DISPUTE_BOND_MIN,
-      Math.round((positionAmount * this.DISPUTE_BOND_PCT) / 100),
-    );
+    // Bond = full bet amount (skin in the game)
+    return Math.round(positionAmount);
   }
 
   /**
@@ -487,7 +480,7 @@ export class MarketsService {
       if (currentBalance < bondAmount)
         throw new BadRequestException(
           `You need at least Nu ${bondAmount} available to raise an objection ` +
-            `(bond = ${this.DISPUTE_BOND_PCT}% of your position, min Nu ${this.DISPUTE_BOND_MIN}). ` +
+            `(bond = your full bet amount of Nu ${bondAmount}). ` +
             `Your current balance is Nu ${currentBalance.toFixed(0)}.`,
         );
 
@@ -744,10 +737,10 @@ export class MarketsService {
       bondRequired,
       bondNote:
         bondRequired !== null
-          ? `Objecting costs Nu ${bondRequired} (${this.DISPUTE_BOND_PCT}% of your position, min Nu ${this.DISPUTE_BOND_MIN}). ` +
+          ? `Objecting costs Nu ${bondRequired} (equal to your full bet). ` +
             `You get it back + a reward share if the admin agrees with you. ` +
             `You lose it if the admin upholds their original decision.`
-          : `Bond = ${this.DISPUTE_BOND_PCT}% of your position (min Nu ${this.DISPUTE_BOND_MIN}). ` +
+          : `Bond = your full bet amount. ` +
             `Returned + rewarded if correct, forfeited if wrong.`,
     };
   }

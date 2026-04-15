@@ -275,12 +275,10 @@ function MarketCard({
     const n = market.outcomes.length || 1;
     const raw = market.outcomes.map((o) => {
       let pct: number;
-      if (hasBet && o.intelligenceProb != null && o.intelligenceProb > 0) {
-        pct = o.intelligenceProb * 100;
+      if (totalPool > 0) {
+        pct = (Number(o.totalBetAmount) / totalPool) * 100;
       } else if (o.lmsrProbability != null && o.lmsrProbability > 0) {
         pct = o.lmsrProbability * 100;
-      } else if (totalPool > 0) {
-        pct = (Number(o.totalBetAmount) / totalPool) * 100;
       } else {
         pct = 100 / n;
       }
@@ -1139,20 +1137,21 @@ export const TmaFeedPage: FC = () => {
             >
               {trendingMarkets.map((m) => {
                 if (!m.outcomes?.length) return null;
+                const n = m.outcomes.length || 1;
                 const prob = (o: (typeof m.outcomes)[0]) =>
-                  o.intelligenceProb != null && o.intelligenceProb > 0
-                    ? o.intelligenceProb
+                  Number(m.totalPool) > 0
+                    ? Number(o.totalBetAmount) / Number(m.totalPool)
                     : o.lmsrProbability != null && o.lmsrProbability > 0
                       ? o.lmsrProbability
-                      : Number(m.totalPool) > 0
-                        ? Number(o.totalBetAmount) / Number(m.totalPool)
-                        : 0;
+                      : 1 / n;
                 const top = m.outcomes.reduce(
                   (a, b) => (prob(b) > prob(a) ? b : a),
                   m.outcomes[0],
                 );
                 const rawPct = prob(top) * 100;
-                const topPct = isNaN(rawPct) ? 0 : Math.round(rawPct);
+                const topPct = isNaN(rawPct)
+                  ? Math.round(100 / n)
+                  : Math.round(rawPct);
                 return (
                   <button
                     key={m.id}

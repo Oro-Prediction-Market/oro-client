@@ -95,19 +95,26 @@ export class KeeperService {
     this.expiryRunning = true;
     this.lastRunAt = new Date();
     this.addLog("info", `Expiry Watcher: Scanning markets...`);
+
+    // Track markets opened this tick so we never close them in the same run
+    const justOpenedIds = new Set<string>();
+
     try {
-      // ── Step 1: Auto-open UPCOMING markets whose opensAt has passed (or has no opensAt) ──
+      // ── Step 1: Auto-open UPCOMING markets whose opensAt has passed ──────────
+      // NOTE: markets with no opensAt are NOT auto-opened — they require an
+      // explicit admin action (transition) or a set opensAt date.
       const upcomingMarkets = await this.marketRepo.find({
         where: { status: MarketStatus.UPCOMING },
       });
 
       for (const market of upcomingMarkets) {
-        // Open if: no opensAt set, OR opensAt is in the past
-        const shouldOpen =
-          !market.opensAt || new Date() >= new Date(market.opensAt);
+        // Only open if opensAt is explicitly set AND has passed
+        if (!market.opensAt) continue;
+        const shouldOpen = new Date() >= new Date(market.opensAt);
         if (shouldOpen) {
           try {
             await this.marketsService.transition(market.id, MarketStatus.OPEN);
+            justOpenedIds.add(market.id);
             this.addLog("success", `✅ Market "${market.title}" auto-opened.`);
             await this.notifyAdmin(
               `🤖 <b>Keeper: Market Opened</b>\n\n` +
@@ -127,6 +134,8 @@ export class KeeperService {
       }
 
       // ── Step 2: Auto-close OPEN markets whose closesAt has passed ────────────
+      // Skip any market that was just opened this tick — prevents same-tick
+      // open→close when closesAt is accidentally in the past.
       const openMarkets = await this.marketRepo.find({
         where: { status: MarketStatus.OPEN },
         relations: ["outcomes"],
@@ -135,6 +144,14 @@ export class KeeperService {
       let closed = 0;
       for (const market of openMarkets) {
         if (!market.closesAt) continue;
+        // Never close a market that was opened in this same cron tick
+        if (justOpenedIds.has(market.id)) {
+          this.addLog(
+            "warn",
+            `⚠️ Market "${market.title}" was just opened — skipping auto-close this tick. closesAt appears to be in the past; please update it.`,
+          );
+          continue;
+        }
         if (new Date() > new Date(market.closesAt)) {
           try {
             await this.marketsService.transition(
@@ -312,18 +329,27 @@ export class KeeperService {
           },
         );
         if (!res.ok) {
-          this.addLog("warn", `Auto-Proposal: HTTP ${res.status} for match ${matchId}`);
+          this.addLog(
+            "warn",
+            `Auto-Proposal: HTTP ${res.status} for match ${matchId}`,
+          );
           continue;
         }
         matchData = await res.json();
       } catch (err: any) {
-        this.addLog("error", `Auto-Proposal: fetch failed for match ${matchId}: ${err.message}`);
+        this.addLog(
+          "error",
+          `Auto-Proposal: fetch failed for match ${matchId}: ${err.message}`,
+        );
         continue;
       }
 
       const status: string = matchData.status ?? "";
       if (!["FINISHED", "AWARDED"].includes(status)) {
-        this.addLog("info", `Auto-Proposal: match ${matchId} not finished yet (${status})`);
+        this.addLog(
+          "info",
+          `Auto-Proposal: match ${matchId} not finished yet (${status})`,
+        );
         continue;
       }
 
@@ -350,9 +376,14 @@ export class KeeperService {
             );
             continue;
           }
-          await this.marketsService.proposeResolution(market.id, winningOutcomeId);
+          await this.marketsService.proposeResolution(
+            market.id,
+            winningOutcomeId,
+          );
           this.disputeWindowsOpened++;
-          const label = market.outcomes.find((o) => o.id === winningOutcomeId)?.label ?? winningOutcomeId;
+          const label =
+            market.outcomes.find((o) => o.id === winningOutcomeId)?.label ??
+            winningOutcomeId;
           this.addLog(
             "success",
             `Auto-Proposal: proposed "${label}" for "${market.title}"`,
@@ -402,9 +433,10 @@ export class KeeperService {
     const exact = market.outcomes.find((o) => o.label === targetLabel);
     if (exact) return exact.id;
 
-    const partial = market.outcomes.find((o) =>
-      targetLabel.toLowerCase().includes(o.label.toLowerCase()) ||
-      o.label.toLowerCase().includes(targetLabel.toLowerCase()),
+    const partial = market.outcomes.find(
+      (o) =>
+        targetLabel.toLowerCase().includes(o.label.toLowerCase()) ||
+        o.label.toLowerCase().includes(targetLabel.toLowerCase()),
     );
     return partial?.id ?? null;
   }

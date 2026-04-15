@@ -110,10 +110,10 @@ export function TmaPaymentModal({
 
   const estPayout = (() => {
     if (!isValidAmount || !outcome) return 0;
-    const houseEdge = parseFloat(market.houseEdgePct) || 0;
-    const outcomePool = Number(outcome.totalBetAmount) + betAmount;
-    const totalPool = Number(market.totalPool) + betAmount;
-    if (outcomePool <= 0) return 0;
+    const houseEdge = Number(market.houseEdgePct) || 0;
+    const outcomePool = (Number(outcome.totalBetAmount) || 0) + betAmount;
+    const totalPool = (Number(market.totalPool) || 0) + betAmount;
+    if (outcomePool <= 0 || isNaN(outcomePool) || isNaN(totalPool)) return 0;
     return betAmount * ((totalPool * (1 - houseEdge / 100)) / outcomePool);
   })();
   const estProfit = estPayout - betAmount;

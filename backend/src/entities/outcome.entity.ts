@@ -19,6 +19,8 @@ export class Outcome {
 
   @Column({ type: "varchar", nullable: true })
   imageUrl: string | null;
+
+  @Column({ type: "decimal", precision: 18, scale: 2, default: 0 })
   totalBetAmount: number;
 
   // Calculated odds = (totalPool * (1 - houseEdge)) / outcomePool
