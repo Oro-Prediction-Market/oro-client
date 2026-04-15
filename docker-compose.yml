@@ -11,6 +11,12 @@ services:
       - "5432:5432"
     volumes:
       - tara_postgres_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=4MB
 
   # Optional: pgAdmin web UI to browse the database
   pgadmin:

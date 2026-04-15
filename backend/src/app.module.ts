@@ -93,9 +93,10 @@ import { LeaguesModule } from "./leagues/leagues.module";
         synchronize: false,
         logging: false,
         extra: {
-          max: 5,
-          idleTimeoutMillis: 10000,
-          connectionTimeoutMillis: 5000,
+          max: 20,
+          min: 2,
+          idleTimeoutMillis: 30_000,
+          connectionTimeoutMillis: 5_000,
         },
       }),
     }),
