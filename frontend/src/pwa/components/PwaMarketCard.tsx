@@ -98,7 +98,7 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
             position: "absolute",
             top: 12,
             right: 12,
-            background: isUpcoming ? "#3b82f6" : "#f59e0b",
+            background: isUpcoming ? "#3b82f6" : "#22c55e",
             color: "#fff",
             padding: "2px 8px",
             fontSize: "0.6rem",
@@ -131,192 +131,216 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
         {market.title}
       </h3>
 
+      {/* ── Outcomes / Interactive Area ── */}
       <div
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 8,
+          gap: 10,
           marginTop: "auto",
+          minHeight: 124, // Standardize vertical space for outcome controls
+          justifyContent: isUpcoming || isResolving ? "center" : "flex-start",
         }}
       >
         {isResolving ? (
           <div
             style={{
-              padding: "13px 16px",
+              padding: "16px",
               borderRadius: 14,
-              background: "#fffbeb10",
-              border: "1.5px dashed #f59e0b50",
+              background: "rgba(34,197,94,0.06)",
+              border: "1.5px dashed rgba(34,197,94,0.3)",
               fontSize: "0.8rem",
-              color: "#f59e0b",
+              color: "#22c55e",
               fontWeight: 800,
               textAlign: "center",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 6,
+              gap: 8,
             }}
           >
             <svg
-              width="14"
-              height="14"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#f59e0b"
+              stroke="currentColor"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
               <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
+              <polyline points="12 6 12 12 16 14" />
             </svg>
             Resolving soon
           </div>
         ) : isUpcoming ? (
           <div
             style={{
-              padding: "13px 16px",
+              padding: "16px",
               borderRadius: 14,
               background: "rgba(59,130,246,0.06)",
               border: "1.5px solid rgba(59,130,246,0.2)",
               fontSize: "0.8rem",
               color: "#3b82f6",
-              fontWeight: 700,
+              fontWeight: 800,
               textAlign: "center",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
             }}
           >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
             Opens {countdown}
           </div>
         ) : (
-          displayOutcomes.map((s) => {
-            const barWidth = Math.max(4, Math.min(100, s.pct));
-            return (
+          <>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
+            >
+              {displayOutcomes.map((s) => {
+                const barWidth = Math.max(4, Math.min(100, s.pct));
+                return (
+                  <button
+                    key={s.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onBet(s.id);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "0",
+                      borderRadius: 16,
+                      background: "var(--bg-card)",
+                      border: "none",
+                      cursor: "pointer",
+                      overflow: "hidden",
+                      boxShadow: `4px 4px 10px rgba(0,0,0,0.25), -2px -2px 8px rgba(255,255,255,0.04), inset 0 0 0 1px ${s.color}30`,
+                      transition: "all 0.15s ease",
+                      display: "block",
+                      textAlign: "left",
+                      position: "relative",
+                    }}
+                  >
+                    {/* Pool fill */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        width: `${barWidth}%`,
+                        background: `linear-gradient(90deg, ${s.color}44 0%, ${s.color}22 60%, transparent 100%)`,
+                        borderRadius: "16px 0 0 16px",
+                        transition: "width 1s ease",
+                        pointerEvents: "none",
+                      }}
+                    />
+                    {/* Shimmer sweep */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        overflow: "hidden",
+                        borderRadius: 16,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          bottom: 0,
+                          width: "40%",
+                          background: `linear-gradient(90deg, transparent, ${s.color}15, transparent)`,
+                          animation: "shimmer-slide 2.4s ease-in-out infinite",
+                        }}
+                      />
+                    </div>
+                    {/* Content */}
+                    <div
+                      style={{
+                        position: "relative",
+                        padding: "10px 14px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          color: "var(--text-main)",
+                          letterSpacing: "-0.01em",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {s.label}
+                      </span>
+                      <div
+                        style={{
+                          background: `${s.color}12`,
+                          border: `1px solid ${s.color}30`,
+                          color: s.color,
+                          fontSize: "0.72rem",
+                          fontWeight: 800,
+                          padding: "2px 8px",
+                          borderRadius: 99,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {s.pct.toFixed(0)}%
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {market.outcomes.length > 2 && (
               <button
-                key={s.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onBet(s.id);
+                  setShowAll(!showAll);
                 }}
                 style={{
-                  width: "100%",
-                  padding: "0",
-                  borderRadius: 16,
-                  background: "var(--bg-card)",
-                  border: "none",
+                  background: "transparent",
+                  border: "1.5px solid var(--glass-border)",
+                  padding: "7px 10px",
+                  borderRadius: 10,
+                  fontSize: "0.7rem",
+                  color: "var(--text-muted)",
+                  fontWeight: 700,
                   cursor: "pointer",
-                  overflow: "hidden",
-                  boxShadow: `4px 4px 10px rgba(0,0,0,0.25), -2px -2px 8px rgba(255,255,255,0.04), inset 0 0 0 1px ${s.color}30`,
-                  transition: "all 0.15s ease",
-                  display: "block",
-                  textAlign: "left",
-                  position: "relative",
+                  textAlign: "center",
+                  width: "100%",
                 }}
               >
-                {/* Pool fill */}
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    bottom: 0,
-                    width: `${barWidth}%`,
-                    background: `linear-gradient(90deg, ${s.color}44 0%, ${s.color}22 60%, transparent 100%)`,
-                    borderRadius: "16px 0 0 16px",
-                    transition: "width 1s ease",
-                    pointerEvents: "none",
-                  }}
-                />
-                {/* Shimmer sweep */}
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    overflow: "hidden",
-                    borderRadius: 16,
-                    pointerEvents: "none",
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      bottom: 0,
-                      width: "40%",
-                      background: `linear-gradient(90deg, transparent, ${s.color}15, transparent)`,
-                      animation: "shimmer-slide 2.4s ease-in-out infinite",
-                    }}
-                  />
-                </div>
-                {/* Content */}
-                <div
-                  style={{
-                    position: "relative",
-                    padding: "10px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.75rem",
-                      fontWeight: 700,
-                      color: "var(--text-main)",
-                      letterSpacing: "-0.01em",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {s.label}
-                  </span>
-                  <div
-                    style={{
-                      background: `${s.color}12`,
-                      border: `1px solid ${s.color}30`,
-                      color: s.color,
-                      fontSize: "0.72rem",
-                      fontWeight: 800,
-                      padding: "2px 8px",
-                      borderRadius: 99,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {s.pct.toFixed(0)}%
-                  </div>
-                </div>
+                {showAll
+                  ? "Show Less ▲"
+                  : `+${market.outcomes.length - 2} more options`}
               </button>
-            );
-          })
+            )}
+          </>
         )}
       </div>
-
-      {market.outcomes.length > 2 && !isResolving && !isUpcoming && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowAll(!showAll);
-          }}
-          style={{
-            background: "transparent",
-            border: "1.5px solid var(--glass-border)",
-            padding: "7px 10px",
-            borderRadius: 10,
-            fontSize: "0.7rem",
-            color: "var(--text-muted)",
-            fontWeight: 700,
-            cursor: "pointer",
-            textAlign: "center",
-            width: "100%",
-            marginTop: 4,
-          }}
-        >
-          {showAll
-            ? "Show Less ▲"
-            : `+${market.outcomes.length - 2} more options`}
-        </button>
-      )}
 
       <div
         style={{

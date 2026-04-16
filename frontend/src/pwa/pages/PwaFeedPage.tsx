@@ -11,6 +11,7 @@ import type { PaymentResponse } from "@/types/payment";
 import { PwaMarketCard } from "../components/PwaMarketCard";
 import { PwaMarketGrid } from "../components/PwaMarketGrid";
 import { Flame } from "lucide-react";
+import { useFilter } from "@/contexts/FilterContext";
 
 // ── Live Activity Ticker ──────────────────────────────────────────────────────
 
@@ -75,128 +76,86 @@ function LiveTicker() {
   const current = events[idx];
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        background: "var(--bg-card)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: 14,
-        padding: "8px 12px",
-        marginBottom: 32,
-        overflow: "hidden",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-        position: "relative",
-      }}
-    >
+    <>
       <style>{`
-        @keyframes tickerSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes tickerSlideUp {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
       <div
         style={{
-          width: 32,
-          height: 32,
-          borderRadius: "50%",
-          background:
-            current.type === "win"
-              ? "linear-gradient(135deg, #22c55e, #16a34a)"
-              : "linear-gradient(135deg, #3b82f6, #2563eb)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 14,
-          fontWeight: 800,
-          color: "#fff",
+          width: 1,
+          height: 14,
+          background: "var(--glass-border)",
           flexShrink: 0,
-          boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+          margin: "0 4px",
         }}
-      >
-        {current.initials === "@" ? (
-          <Flame size={16} color="#fff" fill="#fff" />
-        ) : (
-          current.initials
-        )}
-      </div>
+      />
+      <Flame
+        size={12}
+        color="#ff6b00"
+        fill="#ff9500"
+        style={{ flexShrink: 0 }}
+      />
       <div
         style={{
           flex: 1,
           minWidth: 0,
-          display: "flex",
-          flexDirection: "column",
-          gap: 1,
           animation: visible ? "tickerSlideUp 0.4s ease-out forwards" : "none",
           opacity: visible ? 1 : 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          overflow: "hidden",
         }}
       >
-        <div
+        <span
           style={{
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: 700,
             color: "var(--text-main)",
             whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            flexShrink: 0,
           }}
         >
-          {current.userName}{" "}
-          <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>
-            {current.action}
-          </span>{" "}
-          <span
-            style={{ color: current.type === "win" ? "#22c55e" : "#3b82f6" }}
-          >
-            {current.amount}
-          </span>
-        </div>
-        <div
+          {current.userName}
+        </span>
+        <span
           style={{
-            fontSize: 10,
-            fontWeight: 600,
+            fontSize: 11,
+            fontWeight: 500,
+            color: "var(--text-muted)",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          {current.action}
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            color: current.type === "win" ? "#22c55e" : "#3b82f6",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          {current.amount}
+        </span>
+        <span
+          style={{
+            fontSize: 11,
             color: "var(--text-subtle)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
           }}
         >
-          on{" "}
-          <span style={{ color: "var(--text-muted)" }}>{current.outcome}</span>{" "}
-          · {current.marketTitle}
-        </div>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          background: "rgba(239, 68, 68, 0.1)",
-          padding: "4px 8px",
-          borderRadius: 8,
-          flexShrink: 0,
-          animation: "liveBadgePulse 2.4s ease-in-out infinite",
-        }}
-      >
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "#ef4444",
-            animation: "heartbeat 2.4s ease-in-out infinite",
-          }}
-        />
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 900,
-            color: "#ef4444",
-            textTransform: "uppercase",
-          }}
-        >
-          Live
+          · {current.outcome}
         </span>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -209,19 +168,27 @@ export function PwaFeedPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeBet, setActiveBet] = useState<ActiveBet | null>(null);
+  const {
+    searchQuery,
+    selectedCategory,
+    setAvailableCategories,
+  } = useFilter();
 
   useEffect(() => {
     getMarkets()
       .then((d) => {
         // Only show live/upcoming for feed
-        setMarkets(
-          d.filter(
-            (m) =>
-              m.status === "open" ||
-              m.status === "upcoming" ||
-              m.status === "resolving",
-          ),
+        const active = d.filter(
+          (m) =>
+            m.status === "open" ||
+            m.status === "upcoming" ||
+            m.status === "resolving",
         );
+        setMarkets(active);
+
+        // Update global categories
+        const cats = ["All", ...Array.from(new Set(active.map((m) => m.category).filter(Boolean))) as string[]];
+        setAvailableCategories(cats);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -337,9 +304,17 @@ export function PwaFeedPage() {
       </div>
     );
 
-  const openMarkets = markets.filter((m) => m.status === "open");
-  const resolvingMarkets = markets.filter((m) => m.status === "resolving");
-  const upcomingMarkets = markets.filter((m) => m.status === "upcoming");
+  const filteredMarkets = markets.filter((m) => {
+    const matchesSearch = m.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      selectedCategory === "All" ||
+      (m.category && m.category.toLowerCase() === selectedCategory.toLowerCase());
+    return matchesSearch && matchesCategory;
+  });
+
+  const openMarkets = filteredMarkets.filter((m) => m.status === "open");
+  const resolvingMarkets = filteredMarkets.filter((m) => m.status === "resolving");
+  const upcomingMarkets = filteredMarkets.filter((m) => m.status === "upcoming");
   const activeMarket = activeBet
     ? markets.find((m) => m.id === activeBet.marketId)
     : null;
@@ -384,7 +359,6 @@ export function PwaFeedPage() {
       `}</style>
       <div className="mesh-bg" />
 
-      <LiveTicker />
 
       {openMarkets.length > 0 && (
         <section style={{ marginBottom: 48 }}>
@@ -424,15 +398,17 @@ export function PwaFeedPage() {
             </div>
             <h2
               style={{
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: 800,
                 color: "var(--text-main)",
                 margin: 0,
                 fontFamily: "var(--font-display)",
+
               }}
             >
               Active Markets
             </h2>
+            <LiveTicker />
           </div>
           {renderGrid(openMarkets)}
         </section>
