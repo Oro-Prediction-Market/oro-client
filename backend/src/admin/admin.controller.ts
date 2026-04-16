@@ -49,6 +49,7 @@ import { ResolveDto } from "./dto/resolve.dto";
 import { ProposeResolutionDto } from "./dto/propose-resolution.dto";
 import { GetUsersQueryDto } from "./dto/get-users-query.dto";
 import { ToggleAdminDto } from "./dto/toggle-admin.dto";
+import { HealthCheckResponse } from "./dto/health-check.dto";
 
 class CreditUserDto {
   @ApiProperty({ example: 500, description: "Amount to credit (BTN)" })
@@ -84,6 +85,71 @@ export class AdminController {
     @InjectRepository(Transaction)
     private transactionRepo: Repository<Transaction>,
   ) {}
+
+  // ── Health Check ──────────────────────────────────────────────────────────
+  @Get("health")
+  @ApiOperation({ summary: "System health check - database, redis, memory" })
+  @ApiResponse({ status: 200, type: HealthCheckResponse })
+  async healthCheck(): Promise<HealthCheckResponse> {
+    const startTime = Date.now();
+    const status: HealthCheckResponse = {
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: { status: "disconnected" },
+      redis: { status: "disconnected" },
+      memory: { used: 0, total: 0, percentage: 0 },
+      apiResponseTime: 0,
+    };
+
+    // Check database connection
+    try {
+      const dbStart = Date.now();
+      await this.dataSource.query("SELECT 1");
+      status.database = {
+        status: "connected",
+        responseTime: Date.now() - dbStart,
+      };
+    } catch (error) {
+      status.database = { status: "disconnected" };
+      status.status = "unhealthy";
+    }
+
+    // Check Redis connection
+    try {
+      const redisStart = Date.now();
+      await this.redis.get("oro:health:ping");
+      status.redis = {
+        status: "connected",
+        responseTime: Date.now() - redisStart,
+      };
+    } catch (error) {
+      status.redis = { status: "disconnected" };
+      status.status = status.status === "unhealthy" ? "unhealthy" : "degraded";
+    }
+
+    // Memory usage
+    const memUsage = process.memoryUsage();
+    const totalMem = memUsage.heapTotal;
+    const usedMem = memUsage.heapUsed;
+    const rss = memUsage.rss; // Resident Set Size - actual memory used by the process
+
+    status.memory = {
+      used: Math.round(rss / 1024 / 1024), // MB - actual memory in use (RSS)
+      total: Math.round(totalMem / 1024 / 1024), // MB - allocated heap
+      percentage: Math.round((usedMem / totalMem) * 100), // heap usage percentage
+    };
+
+    // Warn if memory is concerning (>500MB RSS or heap is consistently full)
+    if (rss > 500 * 1024 * 1024 || status.memory.percentage > 95) {
+      if (status.status === "healthy") {
+        status.status = "degraded";
+      }
+    }
+
+    status.apiResponseTime = Date.now() - startTime;
+    return status;
+  }
 
   // ── Markets ────────────────────────────────────────────────────────────────
   @Post("markets")

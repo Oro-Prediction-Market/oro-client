@@ -230,13 +230,13 @@ function PwaLayout() {
         >
           {/* Section 1: Branding (Flex 1) */}
           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 12 }}>
-            <OroLogo size={54} />
+            <OroLogo size={65} />
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
-              <span style={{ fontWeight: 900, fontSize: "1.3rem", color: "var(--text-main)", letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>
+              <span style={{ fontWeight: 900, fontSize: "1.45rem", color: "var(--text-main)", letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>
                 Oro
               </span>
-              <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                Pramimutuel Predictions
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                Parimutuel Predictions
               </span>
             </div>
           </div>

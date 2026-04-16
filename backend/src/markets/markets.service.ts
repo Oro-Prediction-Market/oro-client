@@ -106,9 +106,10 @@ export class MarketsService {
 
     try {
       // 1. Create outcome objects and initialize them
-      const outcomes = dto.outcomes.map((label) =>
+      const outcomes = dto.outcomes.map((item) =>
         this.outcomeRepo.create({
-          label,
+          label: typeof item === "string" ? item : item.label,
+          imageUrl: typeof item === "string" ? null : (item.imageUrl ?? null),
           totalBetAmount: 0,
           currentOdds: 0,
           lmsrProbability: 0,

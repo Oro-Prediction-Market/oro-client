@@ -10,6 +10,11 @@ import {
 } from "class-validator";
 import { Transform } from "class-transformer";
 
+export class OutcomeInputDto {
+  label: string;
+  imageUrl?: string | null;
+}
+
 export class CreateMarketDto {
   @ApiProperty() @IsString() title: string;
   @ApiPropertyOptional() @IsOptional() @IsString() description?: string;
@@ -31,25 +36,19 @@ export class CreateMarketDto {
   liquidityParam?: number;
 
   @ApiProperty({
-    type: [String],
-    description: 'Outcome labels e.g. ["Team A wins","Draw","Team B wins"]',
+    description:
+      'Outcome labels as strings ["Team A", "Team B"] or objects [{ label: "Team A", imageUrl: "https://..." }]',
   })
   @IsArray()
-  @IsString({ each: true })
   @Transform(({ value }) => {
-    // If outcomes is an array of objects with a 'label' property, extract the labels
-    if (
-      Array.isArray(value) &&
-      value.length > 0 &&
-      typeof value[0] === "object" &&
-      value[0].label
-    ) {
-      return value.map((item: any) => item.label);
-    }
-    // Otherwise, return as-is (should be array of strings)
-    return value;
+    if (!Array.isArray(value)) return value;
+    // Normalise to OutcomeInputDto objects
+    return value.map((item: any) => {
+      if (typeof item === "string") return { label: item, imageUrl: null };
+      return { label: item.label, imageUrl: item.imageUrl ?? null };
+    });
   })
-  outcomes: string[];
+  outcomes: OutcomeInputDto[];
 
   /** football-data.org match ID — set when creating a market from a fixture */
   @ApiPropertyOptional()

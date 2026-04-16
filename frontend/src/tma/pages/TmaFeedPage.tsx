@@ -845,6 +845,7 @@ export const TmaFeedPage: FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeBet, setActiveBet] = useState<ActiveBet | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   // Set of marketIds where the current user already has a position
   const [bettedMarketIds, setBettedMarketIds] = useState<Set<string>>(
@@ -871,10 +872,10 @@ export const TmaFeedPage: FC = () => {
     return () => observer.disconnect();
   }); // no dep array — re-runs every render so it always picks up the latest sentinel el
 
-  // Reset visible count whenever the search query changes
+  // Reset visible count whenever search or category changes
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [searchQuery]);
+  }, [searchQuery, selectedCategory]);
 
   useEffect(() => {
     getMarkets()
@@ -982,14 +983,24 @@ export const TmaFeedPage: FC = () => {
     : null;
 
   const filterByQuery = (list: Market[]) => {
-    if (!searchQuery.trim()) return list;
+    let filtered = list;
+    
+    // Category Filter
+    if (selectedCategory !== "All") {
+      filtered = filtered.filter(m => (m.category ?? "other").toLowerCase() === selectedCategory.toLowerCase());
+    }
+
+    // Search Filter
+    if (!searchQuery.trim()) return filtered;
     const q = searchQuery.toLowerCase();
-    return list.filter(
+    return filtered.filter(
       (m) =>
         m.title.toLowerCase().includes(q) ||
         (m.description ?? "").toLowerCase().includes(q),
     );
   };
+
+  const availableCategories = ["All", ...Array.from(new Set(markets.map(m => m.category || "other"))).sort()];
 
   const filteredOpen = filterByQuery(openMarkets).sort(
     (a, b) => Number(b.totalPool) - Number(a.totalPool),
@@ -1096,6 +1107,49 @@ export const TmaFeedPage: FC = () => {
               ✕
             </button>
           )}
+        </div>
+
+        {/* ── Category Tabs ── */}
+        <div 
+          style={{ 
+            display: "flex", 
+            gap: 8, 
+            overflowX: "auto", 
+            marginBottom: 20, 
+            paddingBottom: 4,
+            scrollbarWidth: "none", // standard
+            msOverflowStyle: "none", // IE/Edge
+          }}
+          className="hide-scrollbar"
+        >
+          <style>{`.hide-scrollbar::-webkit-scrollbar { display: none; }`}</style>
+          {availableCategories.map((cat) => {
+            const isActive = selectedCategory === cat;
+            const vis = getCategoryVisual(cat);
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                style={{
+                  flexShrink: 0,
+                  padding: "8px 16px",
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  border: isActive ? `1.5px solid ${vis.accentColor}60` : "1px solid var(--glass-border)",
+                  background: isActive ? `${vis.accentColor}15` : "var(--glass-bg)",
+                  color: isActive ? vis.accentColor : "var(--text-muted)",
+                  backdropFilter: "blur(8px)",
+                  WebkitBackdropFilter: "blur(8px)",
+                  transition: "all 0.2s ease",
+                  textTransform: "capitalize",
+                  boxShadow: isActive ? `0 4px 12px ${vis.accentColor}20` : "none",
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
         </div>
 
         {/* ── Trending strip ── */}
