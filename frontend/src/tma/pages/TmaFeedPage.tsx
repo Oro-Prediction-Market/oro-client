@@ -11,9 +11,10 @@ import {
 import { useAuth } from "@/tma/hooks/useAuth";
 import { TmaBetModal } from "@/tma/components/TmaBetModal";
 import { Link } from "@/tma/components/Link/Link";
-import { Flame, X } from "lucide-react";
+import { Flame, X, Sparkles } from "lucide-react";
 import { BetShareCard } from "@/components/BetShareCard";
 import { getCategoryVisual } from "@/helpers/visuals";
+import { OracleOrbit } from "@/tma/components/OracleOrbit";
 
 // Live Activity Ticker
 
@@ -851,6 +852,7 @@ export const TmaFeedPage: FC = () => {
   const [bettedMarketIds, setBettedMarketIds] = useState<Set<string>>(
     new Set(),
   );
+  const [isOrbitOpen, setIsOrbitOpen] = useState(false);
 
   const loadMore = useCallback(() => {
     setVisibleCount((c) => c + PAGE_SIZE);
@@ -1503,6 +1505,33 @@ export const TmaFeedPage: FC = () => {
           onFailure={(e: string) => console.error(e)}
         />
       )}
+
+      {/* ── Oracle Orbit Pulse Button ── */}
+      <button
+        onClick={() => setIsOrbitOpen(true)}
+        style={{
+          position: "fixed",
+          bottom: 90,
+          right: 20,
+          width: 40,
+          height: 40,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #2775d0, #1a5bb5)",
+          border: "none",
+          boxShadow: "0 8px 24px rgba(39, 117, 208, 0.4)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          zIndex: 1000,
+          cursor: "pointer",
+          animation: "pulseGlow 2.5s ease-in-out infinite",
+        }}
+      >
+        <Sparkles size={24} />
+      </button>
+
+      <OracleOrbit isOpen={isOrbitOpen} onClose={() => setIsOrbitOpen(false)} />
     </Page>
   );
 };
