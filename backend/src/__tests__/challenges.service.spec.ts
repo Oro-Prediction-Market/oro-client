@@ -10,11 +10,14 @@ import { MarketStatus } from "../entities/market.entity";
 
 // ── Factories ────────────────────────────────────────────────────────────────
 
+const MARKET_CLOSES_AT = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6h from now
+
 function makeMarket(overrides: any = {}) {
   return {
     id: "market-1",
     title: "Will it rain?",
     status: MarketStatus.OPEN,
+    closesAt: MARKET_CLOSES_AT,
     ...overrides,
   };
 }
@@ -220,22 +223,18 @@ describe("ChallengesService.create()", () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it("sets expiresAt ~24h in the future", async () => {
+  it("sets expiresAt to market closesAt", async () => {
     const challengeRepo = makeChallengeRepo();
     challengeRepo.findOne.mockResolvedValueOnce(null);
     challengeRepo.save.mockImplementation((d: any) => Promise.resolve(d));
 
-    const before = Date.now();
     const { service } = makeService({
       challengeRepo,
       positionRepo: makePositionRepo(makePosition(), 10),
     });
     const result = await service.create("user-1", "market-1", "outcome-1");
-    const after = Date.now();
 
-    const expiresMs = result.expiresAt.getTime();
-    expect(expiresMs).toBeGreaterThanOrEqual(before + 23 * 60 * 60 * 1000);
-    expect(expiresMs).toBeLessThanOrEqual(after + 25 * 60 * 60 * 1000);
+    expect(result.expiresAt.getTime()).toBe(MARKET_CLOSES_AT.getTime());
   });
 
   it("deducts wager from creator balance when wagerAmount > 0", async () => {

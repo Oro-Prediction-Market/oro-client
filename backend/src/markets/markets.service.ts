@@ -352,6 +352,7 @@ export class MarketsService {
     evidenceUrl?: string,
     evidenceNote?: string,
   ) {
+    const market = await this.marketRepo.findOne({ where: { id: marketId } });
     const result = await this.engine.resolveMarket(
       marketId,
       winningOutcomeId,
@@ -360,6 +361,14 @@ export class MarketsService {
       evidenceNote,
     );
     await this.invalidateMarketCache(marketId);
+    if (market) {
+      const winner = market.outcomes?.find((o: any) => o.id === winningOutcomeId);
+      this.telegram
+        .postToChannel(
+          `✅ <b>Market Resolved: ${market.title}</b>\n\nWinner: <b>${winner?.label ?? winningOutcomeId}</b>`,
+        )
+        .catch(() => undefined);
+    }
     return result;
   }
 

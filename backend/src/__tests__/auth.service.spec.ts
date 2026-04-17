@@ -1,6 +1,7 @@
 import { createHmac } from "crypto";
 import { UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import * as bcrypt from "bcryptjs";
 import { AuthService } from "../auth/auth.service";
 import { AuthProvider } from "../entities/auth-method.entity";
 import { TransactionType } from "../entities/transaction.entity";
@@ -390,6 +391,14 @@ describe("AuthService.loginWithDKBank", () => {
   };
 
   beforeEach(() => {
+    jest.spyOn(bcrypt, "compare").mockResolvedValue(true as never);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  beforeEach(() => {
     process.env.NODE_ENV = "test";
     userRepo = makeUserRepo();
     authMethodRepo = makeAuthMethodRepo();
@@ -415,9 +424,9 @@ describe("AuthService.loginWithDKBank", () => {
       dkCid: "11000000001",
       isAdmin: false,
     });
-    userRepo.findOneBy.mockResolvedValue({ id: "new-dk-user", isAdmin: false });
+    userRepo.findOneBy.mockResolvedValue({ id: "new-dk-user", isAdmin: false, pwaPasswordHash: "hashed" });
 
-    const result = await service.loginWithDKBank("11000000001");
+    const result = await service.loginWithDKBank("11000000001", undefined, "test-password");
 
     expect(result.token).toBe("mock-jwt-token");
     expect(result.dkAccount).not.toHaveProperty("phoneNumber");
@@ -451,15 +460,15 @@ describe("AuthService.loginWithDKBank", () => {
     authMethodRepo.findOne.mockResolvedValue(null);
     userRepo.findOneBy.mockResolvedValue(null);
     userRepo.save.mockResolvedValue({ id: "u1", isAdmin: false });
-    userRepo.findOneBy.mockResolvedValue({ id: "u1", isAdmin: false });
+    userRepo.findOneBy.mockResolvedValue({ id: "u1", isAdmin: false, pwaPasswordHash: "hashed" });
 
-    const result = await service.loginWithDKBank("11000000001");
+    const result = await service.loginWithDKBank("11000000001", undefined, "test-password");
 
     expect(result.dkAccount).not.toHaveProperty("phoneNumber");
   });
 
   it("uses existing auth method for a returning user", async () => {
-    const existingUser = { id: "u-existing", isAdmin: false };
+    const existingUser = { id: "u-existing", isAdmin: false, pwaPasswordHash: "hashed" };
     authMethodRepo.findOne.mockResolvedValue({
       userId: "u-existing",
       user: existingUser,
@@ -467,7 +476,7 @@ describe("AuthService.loginWithDKBank", () => {
     userRepo.update.mockResolvedValue(undefined);
     userRepo.findOneBy.mockResolvedValue(existingUser);
 
-    const result = await service.loginWithDKBank("11000000001");
+    const result = await service.loginWithDKBank("11000000001", undefined, "test-password");
 
     expect(result.token).toBe("mock-jwt-token");
     expect(userRepo.update).toHaveBeenCalledWith(

@@ -16,7 +16,6 @@ import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { User } from "../entities/user.entity";
 
 const MIN_PREDICTIONS_REQUIRED = 5;
-const CHALLENGE_TTL_HOURS = 72;
 const PLATFORM_FEE_PCT = 0.1;
 
 const CARD_MILESTONES: Record<number, CardType> = {
@@ -154,9 +153,7 @@ export class ChallengesService {
       );
     }
 
-    const expiresAt = new Date(
-      Date.now() + CHALLENGE_TTL_HOURS * 60 * 60 * 1000,
-    );
+    const expiresAt = new Date(market.closesAt);
     const challenge = this.challengeRepo.create({
       creatorId,
       marketId,

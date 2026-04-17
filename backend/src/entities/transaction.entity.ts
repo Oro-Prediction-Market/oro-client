@@ -50,7 +50,7 @@ export class Transaction {
   balanceAfter: number;
 
   @Index()
-  @Column({ type: "uuid", nullable: true })
+  @Column({ type: "uuid", nullable: true, unique: true })
   paymentId: string;
 
   @Index()
