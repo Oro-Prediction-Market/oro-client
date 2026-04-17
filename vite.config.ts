@@ -75,6 +75,19 @@ export default defineConfig({
   build: {
     target: "esnext",
     minify: "terser",
+    terserOptions: {
+      compress: { drop_console: true, drop_debugger: true },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-tma": ["@tma.js/sdk-react", "@telegram-apps/telegram-ui"],
+          "vendor-socket": ["socket.io-client"],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
   },
   publicDir: "./public",
   server: {

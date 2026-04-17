@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import {
   setDebug,
   themeParams,
@@ -23,12 +24,15 @@ export async function init(options: {
   setDebug(options.debug);
   initSDK();
 
-  // Add Eruda if needed.
-  options.eruda &&
+  // Add Eruda only in dev/debug mode — never in production.
+  // import.meta.env.DEV must be first so Vite can statically tree-shake the
+  // dynamic import() in production builds (prevents eruda from being bundled).
+  if (import.meta.env.DEV && options.eruda) {
     void import("eruda").then(({ default: eruda }) => {
       eruda.init();
       eruda.position({ x: window.innerWidth - 50, y: 0 });
     });
+  }
 
   // Telegram for macOS has a ton of bugs, including cases, when the client doesn't
   // even response to the "web_app_request_theme" method. It also generates an incorrect

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useMemo, useCallback, ReactNode } from "react";
 
 interface FilterContextType {
   searchQuery: string;
@@ -19,19 +19,33 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [availableCategories, setAvailableCategories] = useState<string[]>(["All"]);
   const [hasTrendingMarkets, setHasTrendingMarkets] = useState(false);
 
+  const handleSetSearchQuery = useCallback((query: string) => setSearchQuery(query), []);
+  const handleSetSelectedCategory = useCallback((category: string) => setSelectedCategory(category), []);
+  const handleSetAvailableCategories = useCallback((categories: string[]) => setAvailableCategories(categories), []);
+  const handleSetHasTrendingMarkets = useCallback((v: boolean) => setHasTrendingMarkets(v), []);
+
+  const value = useMemo(() => ({
+    searchQuery,
+    setSearchQuery: handleSetSearchQuery,
+    selectedCategory,
+    setSelectedCategory: handleSetSelectedCategory,
+    availableCategories,
+    setAvailableCategories: handleSetAvailableCategories,
+    hasTrendingMarkets,
+    setHasTrendingMarkets: handleSetHasTrendingMarkets,
+  }), [
+    searchQuery,
+    selectedCategory,
+    availableCategories,
+    hasTrendingMarkets,
+    handleSetSearchQuery,
+    handleSetSelectedCategory,
+    handleSetAvailableCategories,
+    handleSetHasTrendingMarkets,
+  ]);
+
   return (
-    <FilterContext.Provider
-      value={{
-        searchQuery,
-        setSearchQuery,
-        selectedCategory,
-        setSelectedCategory,
-        availableCategories,
-        setAvailableCategories,
-        hasTrendingMarkets,
-        setHasTrendingMarkets,
-      }}
-    >
+    <FilterContext.Provider value={value}>
       {children}
     </FilterContext.Provider>
   );

@@ -41,36 +41,66 @@ export function isTokenValid(): boolean {
   return payload.exp * 1000 > Date.now() + 30_000;
 }
 
-// Base fetch wrapper — automatically attaches Bearer token
-export async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+// ─── In-memory GET cache (stale-while-revalidate, 15s TTL) ───────────────────
+const _cache = new Map<string, { data: unknown; expiresAt: number; inflight?: Promise<unknown> }>();
+const CACHE_TTL_MS = 15_000;
+
+export function bustCache(pathPrefix?: string) {
+  if (!pathPrefix) { _cache.clear(); return; }
+  for (const key of _cache.keys()) {
+    if (key.startsWith(pathPrefix)) _cache.delete(key);
+  }
+}
+
+async function fetchAndCache<T>(path: string, options: RequestInit, cacheKey: string): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-
-  if (_token) {
-    headers["Authorization"] = `Bearer ${_token}`;
-  }
+  if (_token) headers["Authorization"] = `Bearer ${_token}`;
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    // Token rejected by server — clear it and notify the app
     clearToken();
     window.dispatchEvent(new Event("oro:unauthorized"));
     const err = await res.json().catch(() => ({ message: "Unauthorized" }));
     throw new Error(err.message || "Unauthorized");
   }
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(err.message || `HTTP ${res.status}`);
   }
 
-  return res.json();
+  const data: T = await res.json();
+  _cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  return data;
+}
+
+// Base fetch wrapper — automatically attaches Bearer token
+export async function request<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const isGet = !options.method || options.method.toUpperCase() === "GET";
+  const cacheKey = isGet ? `${path}::${_token ?? ""}` : null;
+
+  if (cacheKey) {
+    const hit = _cache.get(cacheKey);
+    if (hit) {
+      if (hit.expiresAt > Date.now()) return hit.data as T;
+      // Stale — serve cached value but revalidate in background
+      if (!hit.inflight) {
+        hit.inflight = fetchAndCache<T>(path, options, cacheKey).catch(() => undefined);
+      }
+      return hit.data as T;
+    }
+    return fetchAndCache<T>(path, options, cacheKey);
+  }
+
+  // Non-GET: never cache, bust any cached version of this path
+  bustCache(path);
+  return fetchAndCache<T>(path, options, `__nocache__${Date.now()}`);
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────

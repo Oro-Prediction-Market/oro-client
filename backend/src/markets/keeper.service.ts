@@ -203,6 +203,13 @@ export class KeeperService {
       return;
     }
     this.disputeRunning = true;
+    // Safety: force-release the lock after 55s so a hung run never blocks the next tick
+    const lockTimeout = setTimeout(() => {
+      if (this.disputeRunning) {
+        this.logger.warn("[Keeper] Dispute Guard force-released after timeout");
+        this.disputeRunning = false;
+      }
+    }, 55_000);
     try {
       // Find RESOLVING markets whose dispute deadline has passed and have a proposed outcome
       const resolvingMarkets = await this.marketRepo.find({
@@ -259,6 +266,7 @@ export class KeeperService {
         }
       }
     } finally {
+      clearTimeout(lockTimeout);
       this.disputeRunning = false;
     }
   }

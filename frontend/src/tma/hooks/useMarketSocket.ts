@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 
 const WS_URL = (
@@ -26,18 +26,26 @@ export interface MarketUpdate {
  *   const liveData = useMarketSocket(marketId);
  *   // liveData?.outcomes[i].lmsrProbability is always the latest value
  */
+const DEBOUNCE_MS = 300;
+
 export function useMarketSocket(
   marketId: string | undefined,
 ): MarketUpdate | null {
   const [update, setUpdate] = useState<MarketUpdate | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedSetUpdate = useCallback((payload: MarketUpdate) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setUpdate(payload), DEBOUNCE_MS);
+  }, []);
 
   useEffect(() => {
     if (!marketId) return;
 
     const socket = io(`${WS_URL}/markets`, {
       query: { marketId },
-      transports: ["websocket", "polling"], // allow polling fallback
+      transports: ["websocket", "polling"],
       reconnectionDelay: 2000,
       reconnectionAttempts: 20,
     });
@@ -45,17 +53,12 @@ export function useMarketSocket(
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      // Re-emit the marketId room subscription after reconnect
-      // (handshake query is resent automatically by socket.io on reconnect)
-      console.debug(
-        `[WS] connected to market:${marketId} socket id=${socket.id}`,
-      );
+      console.debug(`[WS] connected to market:${marketId} socket id=${socket.id}`);
     });
 
     socket.on("market_updated", (payload: MarketUpdate) => {
-      console.debug(`[WS] market_updated for ${payload.marketId}`, payload);
       if (payload.marketId === marketId) {
-        setUpdate(payload);
+        debouncedSetUpdate(payload);
       }
     });
 
@@ -64,10 +67,11 @@ export function useMarketSocket(
     });
 
     return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [marketId]);
+  }, [marketId, debouncedSetUpdate]);
 
   return update;
 }

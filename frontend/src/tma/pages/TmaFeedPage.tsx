@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useRef, useCallback } from "react";
+import { FC, useState, useEffect, useRef, useCallback, memo } from "react";
 import { Spinner } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
 import {
@@ -202,7 +202,7 @@ function useCountdown(targetAt: string | null): string {
 
 // ── Market Card ───────────────────────────────────────────────────────────────
 
-function MarketCard({
+const MarketCard = memo(function MarketCard({
   market,
   onBet,
   hasBet,
@@ -829,7 +829,7 @@ function MarketCard({
       )}
     </div>
   );
-}
+});
 
 // ── Feed page ─────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC } from "react";
+import { useState, useEffect, memo, type FC } from "react";
 import type { Market } from "@/api/client";
 import { getCategoryVisual } from "@/helpers/visuals";
 
@@ -40,7 +40,7 @@ interface PwaMarketCardProps {
   onBet: (outcomeId: string) => void;
 }
 
-export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
+export const PwaMarketCard: FC<PwaMarketCardProps> = memo(({ market, onBet }) => {
   const [showAll, setShowAll] = useState(false);
   const [imgError, setImgError] = useState(false);
   const isUpcoming = market.status === "upcoming";
@@ -461,4 +461,6 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
       </div>
     </div>
   );
-};
+});
+
+PwaMarketCard.displayName = "PwaMarketCard";
