@@ -417,9 +417,12 @@ export class MarketsService {
   // ✗ Wrong objection    → bond forfeited to reward pool for correct objectors
   // ○ Auto-settled (0 objections) → bonds irrelevant, no deductions ever
 
-  private calcBond(positionAmount: number): number {
-    // Bond = full bet amount (skin in the game)
-    return Math.round(positionAmount);
+  // Fixed dispute bond — high enough to deter casual/abusive objections
+  // while still being accessible to bettors with genuine grievances.
+  private static readonly DISPUTE_BOND = 5_000;
+
+  private calcBond(_positionAmount: number): number {
+    return MarketsService.DISPUTE_BOND;
   }
 
   /**
@@ -480,8 +483,8 @@ export class MarketsService {
 
       if (currentBalance < bondAmount)
         throw new BadRequestException(
-          `You need at least Nu ${bondAmount} available to raise an objection ` +
-            `(bond = your full bet amount of Nu ${bondAmount}). ` +
+          `You need at least Nu ${bondAmount.toLocaleString()} available to raise an objection. ` +
+            `This bond is non-refundable if the admin upholds their decision. ` +
             `Your current balance is Nu ${currentBalance.toFixed(0)}.`,
         );
 
@@ -525,7 +528,7 @@ export class MarketsService {
     return {
       ...saved,
       bondAmount,
-      bondNote: `Nu ${bondAmount} has been locked as a bond. You will get it back (plus a reward) if the admin agrees the outcome was wrong. If the admin upholds their decision, you lose the bond.`,
+      bondNote: `Nu ${bondAmount.toLocaleString()} has been locked as a bond. You will get it back (plus a reward) if the admin agrees the outcome was wrong. If the admin upholds their decision, you lose the bond.`,
     };
   }
 
@@ -756,10 +759,10 @@ export class MarketsService {
       bondRequired,
       bondNote:
         bondRequired !== null
-          ? `Objecting costs Nu ${bondRequired} (equal to your full bet). ` +
+          ? `Raising an objection requires a Nu ${bondRequired.toLocaleString()} bond. ` +
             `You get it back + a reward share if the admin agrees with you. ` +
             `You lose it if the admin upholds their original decision.`
-          : `Bond = your full bet amount. ` +
+          : `Raising an objection requires a fixed Nu ${MarketsService.DISPUTE_BOND.toLocaleString()} bond. ` +
             `Returned + rewarded if correct, forfeited if wrong.`,
     };
   }

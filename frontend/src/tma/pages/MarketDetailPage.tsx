@@ -26,7 +26,6 @@ export const MarketDetailPage: FC = () => {
   const [disputeReqs, setDisputeReqs] = useState<DisputeRequirements | null>(
     null,
   );
-  const [bondAmount, setBondAmount] = useState("10");
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeSubmitting, setDisputeSubmitting] = useState(false);
   const [disputeError, setDisputeError] = useState<string | null>(null);
@@ -92,25 +91,21 @@ export const MarketDetailPage: FC = () => {
     getDisputeRequirements(id)
       .then((reqs) => {
         setDisputeReqs(reqs);
-        setBondAmount(String(reqs.minBond));
       })
       .catch(() => {});
   }, [id, market?.status]);
 
   const handleSubmitDispute = async () => {
     if (!id) return;
-    const amount = parseFloat(bondAmount);
-    const minBond = disputeReqs?.minBond ?? 10;
-    if (!amount || amount < minBond) {
-      setDisputeError(`Minimum bond is Nu ${minBond}.`);
+    if (!disputeReason.trim()) {
+      setDisputeError("Please explain why the proposed outcome is incorrect.");
       return;
     }
     setDisputeSubmitting(true);
     setDisputeError(null);
     try {
       await submitDispute(id, {
-        bondAmount: amount,
-        reason: disputeReason || undefined,
+        reason: disputeReason,
       });
       setDisputeSuccess(true);
       getDisputes(id)
@@ -622,43 +617,17 @@ export const MarketDetailPage: FC = () => {
                       gap: 12,
                     }}
                   >
-                    <div>
-                      <input
-                        type="number"
-                        value={bondAmount}
-                        onChange={(e) => setBondAmount(e.target.value)}
-                        min={disputeReqs?.minBond ?? 10}
-                        placeholder={`Bond (min Nu ${disputeReqs?.minBond ?? 10})`}
-                        disabled={disputeReqs != null && !disputeReqs.eligible}
-                        style={{
-                          width: "100%",
-                          padding: "12px",
-                          borderRadius: 10,
-                          border: "1.5px solid #fde68a",
-                          fontSize: "0.9rem",
-                          fontWeight: 700,
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                      {disputeReqs && (
-                        <div
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "#b45309",
-                            fontWeight: 600,
-                            marginTop: 4,
-                          }}
-                        >
-                          Min bond: Nu {disputeReqs.minBond} · requires{" "}
-                          {disputeReqs.minParticipants} participants
-                        </div>
-                      )}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 10, background: "rgba(245,158,11,0.1)", border: "1.5px solid #fde68a" }}>
+                      <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>Dispute Bond</span>
+                      <span style={{ fontSize: "1rem", fontWeight: 900, color: "#b45309" }}>Nu 5,000</span>
+                    </div>
+                    <div style={{ fontSize: "0.7rem", color: "#b45309", fontWeight: 600, lineHeight: 1.5 }}>
+                      This bond is locked when you raise an objection. You get it back + a reward if the admin agrees the outcome was wrong. You lose it if the admin upholds their decision.
                     </div>
                     <textarea
                       value={disputeReason}
                       onChange={(e) => setDisputeReason(e.target.value)}
-                      placeholder="Reason (optional)"
+                      placeholder="Explain why the proposed outcome is incorrect..."
                       rows={2}
                       disabled={disputeReqs != null && !disputeReqs.eligible}
                       style={{

@@ -11,7 +11,7 @@ export function PwaMarketDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [_disputes, setDisputes] = useState<Dispute[]>([]);
-  const [bondAmount, setBondAmount] = useState("10");
+
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeSubmitting, setDisputeSubmitting] = useState(false);
   const [disputeError, setDisputeError] = useState<string | null>(null);
@@ -45,12 +45,11 @@ export function PwaMarketDetailPage() {
 
   const handleSubmitDispute = async () => {
     if (!id) return;
-    const amount = parseFloat(bondAmount);
-    if (!amount || amount < 1) { setDisputeError("Minimum bond is 1 credit."); return; }
+    if (!disputeReason.trim()) { setDisputeError("Please explain why the proposed outcome is incorrect."); return; }
     setDisputeSubmitting(true);
     setDisputeError(null);
     try {
-      await submitDispute(id, { bondAmount: amount, reason: disputeReason || undefined });
+      await submitDispute(id, { reason: disputeReason });
       setDisputeSuccess(true);
       getDisputes(id).then(setDisputes).catch(() => {});
     } catch (e: any) {
@@ -411,17 +410,12 @@ export function PwaMarketDetailPage() {
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-                    <div>
-                      <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 800, display: "block", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Bond Amount (Nu)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={bondAmount}
-                        onChange={(e) => setBondAmount(e.target.value)}
-                        style={{ width: "100%", boxSizing: "border-box", padding: "14px", borderRadius: "12px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text-main)", fontSize: "1rem", fontWeight: 800, outline: "none", transition: "all 0.2s" }}
-                        onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-warning)")}
-                        onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                      />
+                    <div style={{ padding: "12px 16px", borderRadius: "12px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: "0.8rem", color: "var(--color-warning)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>Dispute Bond</span>
+                      <span style={{ fontSize: "1.1rem", fontWeight: 900, color: "var(--color-warning)" }}>Nu 5,000</span>
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, lineHeight: 1.5 }}>
+                      This bond is locked when you raise an objection. You get it back + a reward if the admin agrees the outcome was wrong. You lose it if the admin upholds their decision.
                     </div>
                     <div>
                       <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 800, display: "block", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Dispute Reasoning</label>
