@@ -2,7 +2,7 @@ import { FC, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "@/tma/components/Page";
 import { useAuth } from "@/tma/hooks/useAuth";
-import { linkDKBank, getMe, type AuthUser } from "@/api/client";
+import { linkDKBank, getMe, setPwaPassword, type AuthUser } from "@/api/client";
 import {
   ChevronLeft,
   Copy,
@@ -27,6 +27,9 @@ import {
   Trophy,
   Sword,
   ClipboardList,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const BOT_USERNAME = "OroPredictBot";
@@ -325,6 +328,14 @@ export const TmaSettingsPage: FC = () => {
   const [linkError, setLinkError] = useState("");
   const [showHowItWorks, setShowHowItWorks] = useState(false);
 
+  // PWA Password state
+  const [showPwaForm, setShowPwaForm] = useState(false);
+  const [pwaPassword, setPwaPasswordInput] = useState("");
+  const [pwaConfirm, setPwaConfirm] = useState("");
+  const [showPwaPassword, setShowPwaPassword] = useState(false);
+  const [pwaStep, setPwaStep] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [pwaError, setPwaError] = useState("");
+
   useEffect(() => {
     getMe()
       .then(setUser)
@@ -368,6 +379,31 @@ export const TmaSettingsPage: FC = () => {
     } catch (err: any) {
       setLinkError(err.message || "Failed to link CID. Please try again.");
       setLinkStep("error");
+    }
+  };
+
+  const handleSetPwaPassword = async () => {
+    if (pwaPassword.length < 6) {
+      setPwaError("Password must be at least 6 characters.");
+      setPwaStep("error");
+      return;
+    }
+    if (pwaPassword !== pwaConfirm) {
+      setPwaError("Passwords do not match.");
+      setPwaStep("error");
+      return;
+    }
+    setPwaStep("loading");
+    setPwaError("");
+    try {
+      await setPwaPassword(pwaPassword);
+      setPwaStep("success");
+      setPwaPasswordInput("");
+      setPwaConfirm("");
+      setTimeout(() => { setPwaStep("idle"); setShowPwaForm(false); }, 2000);
+    } catch (err: any) {
+      setPwaError(err.message || "Failed to set password.");
+      setPwaStep("error");
     }
   };
 
@@ -790,6 +826,160 @@ export const TmaSettingsPage: FC = () => {
                 <XCircle size={18} color="#94a3b8" />
               )}
             </div>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════
+            PWA ACCESS
+        ══════════════════════════════════════════════════════ */}
+        <SectionLabel label="PWA Access" />
+        <div
+          style={{
+            background: "var(--bg-card)",
+            borderRadius: 16,
+            margin: "0 16px",
+            border: "1px solid var(--glass-border)",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: "var(--bg-secondary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  color: "var(--text-muted)",
+                }}
+              >
+                <Lock size={17} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>
+                  PWA Password
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-subtle)", marginTop: 1 }}>
+                  Set a password to log in at oro.app without Telegram
+                </div>
+              </div>
+              {pwaStep === "success" ? (
+                <CheckCircle2 size={18} color="#10b981" />
+              ) : (
+                <button
+                  onClick={() => { setShowPwaForm(!showPwaForm); setPwaStep("idle"); setPwaError(""); }}
+                  style={{
+                    background: "var(--bg-secondary)",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "var(--color-primary)",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {showPwaForm ? "Cancel" : "Set Password"}
+                </button>
+              )}
+            </div>
+
+            {showPwaForm && pwaStep !== "success" && (
+              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Password input */}
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showPwaPassword ? "text" : "password"}
+                    placeholder="New password (min 6 chars)"
+                    value={pwaPassword}
+                    onChange={(e) => { setPwaPasswordInput(e.target.value); if (pwaStep === "error") setPwaStep("idle"); }}
+                    style={{
+                      width: "100%",
+                      padding: "10px 40px 10px 12px",
+                      borderRadius: 10,
+                      border: `1px solid ${pwaStep === "error" ? "#ef4444" : "var(--glass-border)"}`,
+                      background: "var(--bg-secondary)",
+                      color: "var(--text-main)",
+                      fontSize: 14,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    onClick={() => setShowPwaPassword(!showPwaPassword)}
+                    style={{
+                      position: "absolute", right: 10, top: "50%",
+                      transform: "translateY(-50%)", background: "none",
+                      border: "none", cursor: "pointer", color: "var(--text-subtle)",
+                      padding: 0, display: "flex",
+                    }}
+                  >
+                    {showPwaPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+
+                {/* Confirm input */}
+                <input
+                  type={showPwaPassword ? "text" : "password"}
+                  placeholder="Confirm password"
+                  value={pwaConfirm}
+                  onChange={(e) => { setPwaConfirm(e.target.value); if (pwaStep === "error") setPwaStep("idle"); }}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: `1px solid ${pwaStep === "error" ? "#ef4444" : "var(--glass-border)"}`,
+                    background: "var(--bg-secondary)",
+                    color: "var(--text-main)",
+                    fontSize: 14,
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+
+                {pwaStep === "error" && (
+                  <div style={{ fontSize: 12, color: "#f87171" }}>{pwaError}</div>
+                )}
+
+                <button
+                  onClick={handleSetPwaPassword}
+                  disabled={pwaStep === "loading" || pwaPassword.length < 6 || pwaConfirm.length < 6}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 7,
+                    padding: "11px 0",
+                    borderRadius: 10,
+                    border: "none",
+                    background: pwaPassword.length >= 6 && pwaConfirm.length >= 6
+                      ? "#2563eb" : "var(--bg-secondary)",
+                    color: pwaPassword.length >= 6 && pwaConfirm.length >= 6
+                      ? "#fff" : "var(--text-subtle)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: pwaPassword.length >= 6 && pwaConfirm.length >= 6 ? "pointer" : "not-allowed",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {pwaStep === "loading"
+                    ? <><Loader2 size={14} style={{ animation: "spin 0.8s linear infinite" }} /> Saving…</>
+                    : <><Lock size={14} /> Save Password</>
+                  }
+                </button>
+              </div>
+            )}
+
+            {pwaStep === "success" && (
+              <div style={{ marginTop: 10, fontSize: 12, color: "#4ade80", display: "flex", alignItems: "center", gap: 6 }}>
+                <Check size={13} /> PWA password set successfully!
+              </div>
+            )}
           </div>
         </div>
 

@@ -402,7 +402,7 @@ export function PwaFeedPage() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Featured Feed
+            Active Markets
             </h2>
             <LiveTicker />
           </div>

@@ -211,6 +211,14 @@ export class User {
   referredByUserId: string | null;
 
   /**
+   * bcryptjs hash of the user's self-chosen PWA login password.
+   * Set from the TMA Settings page. Null = no PWA password set yet
+   * (CID-only login is allowed for backwards compat until the user sets one).
+   */
+  @Column({ type: "varchar", nullable: true })
+  pwaPasswordHash: string | null;
+
+  /**
    * True once the referrer has been credited their bonus for this user's first bet.
    * Ensures the bonus fires exactly once regardless of how many bets this user places.
    */

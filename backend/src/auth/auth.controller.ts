@@ -18,13 +18,37 @@ import {
   ApiBearerAuth,
 } from "@nestjs/swagger";
 import { createHmac, timingSafeEqual } from "crypto";
-import { IsNumber, IsString } from "class-validator";
+import { IsNumber, IsString, IsOptional, MinLength as MinLengthValidator } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { Public, JwtAuthGuard } from "./guards";
 import { TelegramAuthDto } from "./dto/telegram-auth.dto";
 import { DKBankAuthDto } from "./dto/dkbank-auth.dto";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+
+class SetPwaPasswordDto {
+  @ApiProperty({ example: "MySecret123", description: "New PWA password (min 6 chars)" })
+  @IsString()
+  @MinLengthValidator(6)
+  password: string;
+}
+
+class DKBankAuthWithPasswordDto {
+  @ApiProperty({ description: "CID (11-digit national ID)", example: "11000000000" })
+  @IsString()
+  cid: string;
+
+  @ApiProperty({ description: "PWA password (required if one has been set)", required: false })
+  @IsOptional()
+  @IsString()
+  password?: string;
+}
+
+class PwaStatusDto {
+  @ApiProperty({ description: "11-digit CID", example: "11000000000" })
+  @IsString()
+  cid: string;
+}
 
 class VerifyPhoneTmaDto {
   @ApiProperty({ example: "+97517123456", description: "Phone from Telegram contact" })
@@ -66,14 +90,42 @@ export class AuthController {
   @HttpCode(200)
   @Public()
   @ApiOperation({
-    summary: "Login or register with DK Bank CID (no JWT required)",
+    summary: "Login or register with DK Bank CID (password required if set)",
   })
-  @ApiBody({ type: DKBankAuthDto })
-  async dkBankLogin(@Body() dto: DKBankAuthDto, @Request() req: any) {
+  @ApiBody({ type: DKBankAuthWithPasswordDto })
+  async dkBankLogin(@Body() dto: DKBankAuthWithPasswordDto, @Request() req: any) {
     // If the caller already carries a valid JWT, treat this as an authenticated
     // link request so we merge into the existing row rather than create a duplicate.
     const callerUserId: string | undefined = req.user?.userId;
-    return this.authService.loginWithDKBank(dto.cid, callerUserId);
+    return this.authService.loginWithDKBank(dto.cid, callerUserId, dto.password);
+  }
+
+  /**
+   * Returns whether the account for a given CID has a PWA password set.
+   * Used by the PWA login form to decide whether to show the password field.
+   * Does NOT leak any user data — only returns a boolean.
+   */
+  @Get("pwa-status")
+  @Public()
+  @ApiOperation({ summary: "Check if a CID account has a PWA password set" })
+  @ApiQuery({ name: "cid", required: true })
+  async pwaStatus(@Query("cid") cid: string) {
+    return this.authService.getPwaStatus(cid);
+  }
+
+  /**
+   * Called from the TMA Settings page (JWT required).
+   * Sets or changes the user's PWA login password.
+   */
+  @Post("set-pwa-password")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Set or change the PWA login password (TMA only)" })
+  @ApiBody({ type: SetPwaPasswordDto })
+  async setPwaPassword(@Body() dto: SetPwaPasswordDto, @Request() req: any) {
+    await this.authService.setPwaPassword(req.user.userId, dto.password);
+    return { ok: true, message: "PWA password updated successfully." };
   }
 
   /**

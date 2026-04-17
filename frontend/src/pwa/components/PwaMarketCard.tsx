@@ -76,14 +76,11 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
     <div
       style={{
         background: "var(--bg-card)",
-        border: "1px solid var(--border)",
         borderRadius: "var(--radius-lg)",
-        padding: "var(--space-md)",
         display: "flex",
         flexDirection: "column",
         height: "100%",
         boxSizing: "border-box",
-        gap: "var(--space-md)",
         position: "relative",
         boxShadow: "var(--shadow-md)",
         transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
@@ -92,68 +89,66 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
       }}
       onClick={() => navigate(`/market/${market.id}`)}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
+        e.currentTarget.style.transform = "translateY(-3px)";
         e.currentTarget.style.boxShadow = "var(--shadow-lg)";
-        e.currentTarget.style.borderColor = "rgba(39, 117, 208, 0.3)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = "translateY(0)";
         e.currentTarget.style.boxShadow = "var(--shadow-md)";
-        e.currentTarget.style.borderColor = "var(--border)";
       }}
     >
       <style>{`@keyframes shimmer-slide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}`}</style>
 
-      {(isUpcoming || isResolving) && (
-        <div
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            background: isUpcoming ? "var(--color-info)" : "var(--color-success)",
-            color: "#fff",
-            padding: "4px 10px",
-            fontSize: "0.65rem",
-            fontWeight: 900,
-            borderRadius: "var(--radius-sm)",
-            textTransform: "uppercase",
-            zIndex: 1,
-            letterSpacing: "0.05em",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.2)",
-          }}
-        >
-          {isUpcoming ? "Soon" : "Resolved"}
-        </div>
-      )}
 
-      <h3
-        style={{
-          fontSize: "1.05rem",
-          fontWeight: 800,
-          lineHeight: 1.3,
-          color: "var(--text-main)",
-          margin: 0,
-          minHeight: "2.6em",
-          overflow: "hidden",
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          fontFamily: "var(--font-display)",
-          paddingRight: isUpcoming || isResolving ? 60 : 0,
-          letterSpacing: "-0.01em",
-        }}
-      >
-        {market.title}
-      </h3>
+      {/* Card body */}
+      <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+
+        {/* Header row: status badge + title */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          {(isUpcoming || isResolving) && (
+            <div
+              style={{
+                flexShrink: 0,
+                marginTop: 2,
+                background: isUpcoming ? "rgba(59,130,246,0.12)" : "rgba(34,197,94,0.12)",
+                color: isUpcoming ? "var(--color-info)" : "var(--color-success)",
+                padding: "2px 7px",
+                fontSize: "0.58rem",
+                fontWeight: 900,
+                borderRadius: "var(--radius-sm)",
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+              }}
+            >
+              {isUpcoming ? "Soon" : "Resolving"}
+            </div>
+          )}
+          <h3
+            style={{
+              fontSize: "0.95rem",
+              fontWeight: 800,
+              lineHeight: 1.35,
+              color: "var(--text-main)",
+              margin: 0,
+              overflow: "hidden",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              fontFamily: "var(--font-display)",
+              letterSpacing: "-0.01em",
+              flex: 1,
+            }}
+          >
+            {market.title}
+          </h3>
+        </div>
 
       {/* ── Outcomes Area ── */}
       <div
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: "var(--space-sm)",
-          marginTop: "auto",
-          minHeight: 120,
+          gap: 6,
           justifyContent: isUpcoming || isResolving ? "center" : "flex-start",
         }}
       >
@@ -268,27 +263,26 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
                     <div
                       style={{
                         position: "relative",
-                        padding: "10px 14px",
+                        padding: "7px 10px",
                         display: "flex",
                         alignItems: "center",
-                        gap: 12,
-                        minHeight: 52,
+                        gap: 9,
                       }}
                     >
-                      {/* TMA-Style Circular Avatar */}
+                      {/* Avatar */}
                       <div
                         style={{
                           flexShrink: 0,
-                          width: 34,
-                          height: 34,
+                          width: 26,
+                          height: 26,
                           borderRadius: "var(--radius-full)",
                           overflow: "hidden",
                           background: vis.gradient,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          border: "1.5px solid #fff",
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                          border: "1.5px solid rgba(255,255,255,0.15)",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
                         }}
                       >
                         {avatarUrl ? (
@@ -306,7 +300,7 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
                         ) : (
                           <span
                             style={{
-                              fontSize: 14,
+                              fontSize: 11,
                               fontWeight: 900,
                               color: "#fff",
                               textShadow: "0 1px 2px rgba(0,0,0,0.2)",
@@ -319,7 +313,7 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
 
                       <span
                         style={{
-                          fontSize: "0.9rem",
+                          fontSize: "0.82rem",
                           fontWeight: 700,
                           color: "var(--text-main)",
                           letterSpacing: "-0.01em",
@@ -336,9 +330,9 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
                         style={{
                           background: `${s.color}20`,
                           color: s.color,
-                          fontSize: "0.75rem",
+                          fontSize: "0.7rem",
                           fontWeight: 900,
-                          padding: "4px 10px",
+                          padding: "3px 8px",
                           borderRadius: "var(--radius-full)",
                           flexShrink: 0,
                           marginLeft: "auto",
@@ -362,9 +356,9 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
                 style={{
                   background: "transparent",
                   border: "1px solid var(--border)",
-                  padding: "8px 12px",
+                  padding: "5px 10px",
                   borderRadius: "var(--radius-md)",
-                  fontSize: "0.75rem",
+                  fontSize: "0.7rem",
                   color: "var(--text-muted)",
                   fontWeight: 700,
                   cursor: "pointer",
@@ -375,54 +369,40 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
                 onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--text-subtle)")}
                 onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
               >
-                {showAll
-                  ? "Show Less"
-                  : `+ ${market.outcomes.length - 2} outcomes`}
+                {showAll ? "Show Less" : `+ ${market.outcomes.length - 2} more`}
               </button>
             )}
           </>
         )}
       </div>
 
+      {/* Footer */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          fontSize: "0.7rem",
+          fontSize: "0.68rem",
           color: "var(--text-subtle)",
-          fontWeight: 800,
-          paddingTop: "var(--space-md)",
+          fontWeight: 700,
+          paddingTop: 8,
           borderTop: "1px solid var(--border)",
-          marginTop: "var(--space-xs)",
+          marginTop: "auto",
         }}
       >
-        <div
-          style={{
-            color: "var(--color-success)",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <span style={{ fontSize: "0.85rem", fontWeight: 900 }}>Nu {Number(market.totalPool).toLocaleString()}</span>
-          <span style={{ fontSize: "0.6rem", opacity: 0.8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Pool</span>
+        <div style={{ color: "var(--color-success)", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: "0.78rem", fontWeight: 900 }}>Nu {Number(market.totalPool).toLocaleString()}</span>
+          <span style={{ fontSize: "0.58rem", opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.05em" }}>Pool</span>
         </div>
-        
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
             </svg>
             {!isUpcoming && !isResolving ? countdown : "Closed"}
           </div>
-          
+
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -439,26 +419,27 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
               background: "var(--bg-secondary)",
               border: "none",
               borderRadius: "var(--radius-sm)",
-              padding: "6px 12px",
+              padding: "4px 9px",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
-              gap: 6,
+              gap: 5,
               color: "var(--text-muted)",
-              fontSize: "0.7rem",
+              fontSize: "0.68rem",
               fontWeight: 800,
               transition: "all 0.2s",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-main)"; e.currentTarget.style.color = "var(--text-main)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg-secondary)"; e.currentTarget.style.color = "var(--text-muted)"; }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
               <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
             </svg>
             Share
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

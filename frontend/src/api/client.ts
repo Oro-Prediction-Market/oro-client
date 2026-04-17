@@ -136,13 +136,32 @@ export async function loginWithTelegram(
 }
 
 /** Login / register using DK Bank CID — for PWA users without Telegram */
-export async function loginWithDKBank(cid: string): Promise<AuthResponse> {
+export async function loginWithDKBank(cid: string, password?: string): Promise<AuthResponse> {
   const result = await request<AuthResponse>("/auth/dkbank", {
     method: "POST",
-    body: JSON.stringify({ cid }),
+    body: JSON.stringify({ cid, ...(password ? { password } : {}) }),
   });
   setToken(result.token);
   return result;
+}
+
+/**
+ * Check whether the account for a given CID has a PWA password set.
+ * Used by the PWA login form to know whether to show the password field.
+ */
+export async function getPwaStatus(cid: string): Promise<{ hasPassword: boolean }> {
+  return request<{ hasPassword: boolean }>(`/auth/pwa-status?cid=${encodeURIComponent(cid)}`);
+}
+
+/**
+ * Set or change the PWA login password from inside the TMA.
+ * Requires a valid JWT (TMA session).
+ */
+export async function setPwaPassword(password: string): Promise<{ ok: boolean; message: string }> {
+  return request("/auth/set-pwa-password", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
 }
 
 /**

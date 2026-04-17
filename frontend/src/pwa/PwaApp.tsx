@@ -5,6 +5,7 @@ import { PwaMarketsPage } from "./pages/PwaMarketsPage";
 import { PwaMarketDetailPage } from "./pages/PwaMarketDetailPage";
 import { PwaPaymentTestPage } from "./pages/PwaPaymentTestPage";
 import { PwaBottomNav } from "./components/PwaBottomNav";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 import { TonConnectUIProvider } from "@tonconnect/ui-react";
 import { publicUrl } from "@/helpers/publicUrl.ts";
@@ -13,6 +14,7 @@ import { OroLogo } from "@/components/OroLogo";
 import { FilterProvider, useFilter } from "@/contexts/FilterContext";
 import { Search, ChevronDown, CircleHelp } from "lucide-react";
 import { HowItWorksModal } from "./components/HowItWorksModal";
+import { isTokenValid, clearToken } from "@/api/client";
 
 // ── Navbar Controls ──────────────────────────────────────────────────────────
 
@@ -276,6 +278,26 @@ function PwaLayout() {
 // ── App Root ─────────────────────────────────────────────────────────────────
 
 export function PwaApp() {
+  const [authed, setAuthed] = useState(() => isTokenValid());
+
+  // Listen for 401s from the API client — force back to login
+  useEffect(() => {
+    const handler = () => { clearToken(); setAuthed(false); };
+    window.addEventListener("oro:unauthorized", handler);
+    return () => window.removeEventListener("oro:unauthorized", handler);
+  }, []);
+
+  if (!authed) {
+    return (
+      <ThemeProvider>
+        <div style={{ minHeight: "100vh", background: "var(--bg-main)", color: "var(--text-main)" }}>
+          <div className="mesh-bg" />
+          <ProtectedRoute onLogin={() => setAuthed(true)} />
+        </div>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <TonConnectUIProvider manifestUrl={publicUrl("tonconnect-manifest.json")}>

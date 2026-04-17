@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import * as bcrypt from "bcryptjs";
+import { Injectable, Logger, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -248,6 +249,25 @@ export class AuthService {
     return { token, user: stripSensitiveFields(freshUser!) };
   }
 
+  // ── Check if a CID account has a PWA password set (no sensitive data) ──────
+  async getPwaStatus(cid: string): Promise<{ hasPassword: boolean }> {
+    if (!cid || cid.length !== 11) return { hasPassword: false };
+    const user = await this.userRepo.findOne({
+      where: { dkCid: cid },
+      select: ["pwaPasswordHash"],
+    });
+    return { hasPassword: !!(user?.pwaPasswordHash) };
+  }
+
+  // ── Set / Change PWA password (called from TMA, requires valid JWT) ────────
+  async setPwaPassword(userId: string, password: string): Promise<void> {
+    if (!password || password.length < 6) {
+      throw new BadRequestException("Password must be at least 6 characters.");
+    }
+    const hash = await bcrypt.hash(password, 12);
+    await this.userRepo.update(userId, { pwaPasswordHash: hash });
+  }
+
   // ── Login / Register via DK Bank CID ──────────────────────────────────────
   /**
    * Links a DK Bank CID to a Oro account.
@@ -256,8 +276,9 @@ export class AuthService {
    * @param callerUserId - When called from the TMA (already JWT-authenticated),
    *   pass the authenticated user's UUID so the DK fields + dkPhoneHash are
    *   written to that existing Telegram user row instead of creating a new one.
+   * @param password - Required when the account has a PWA password set.
    */
-  async loginWithDKBank(cid: string, callerUserId?: string) {
+  async loginWithDKBank(cid: string, callerUserId?: string, password?: string) {
     const account = await this.dkGateway.lookupAccountByCID(cid);
 
     // ── If called by an already-authenticated Telegram user, merge into their row ──
@@ -483,6 +504,20 @@ export class AuthService {
     const freshUser = await this.userRepo.findOneBy({
       id: authMethod.user?.id ?? authMethod.userId,
     });
+
+    // ── PWA password check ─────────────────────────────────────────────────
+    // Only applies when NOT called from TMA (callerUserId absent).
+    // If the user has a PWA password set, the caller must supply it.
+    if (!callerUserId && freshUser!.pwaPasswordHash) {
+      if (!password) {
+        throw new UnauthorizedException("This account requires a PWA password.");
+      }
+      const valid = await bcrypt.compare(password, freshUser!.pwaPasswordHash);
+      if (!valid) {
+        throw new UnauthorizedException("Incorrect password.");
+      }
+    }
+
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
