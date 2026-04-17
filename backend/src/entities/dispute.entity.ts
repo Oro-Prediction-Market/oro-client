@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from "typeorm";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { User } from "./user.entity";
@@ -21,6 +22,8 @@ export enum DisputeBondStatus {
   NOT_APPLICABLE = "not_applicable",
 }
 
+@Index(["userId"])
+@Index(["bondStatus"])
 @Entity("disputes")
 export class Dispute {
   @ApiProperty({ example: "uuid" })
