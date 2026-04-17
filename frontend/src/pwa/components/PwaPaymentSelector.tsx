@@ -22,7 +22,7 @@ export function PwaPaymentSelector({
       currency: "BTN",
       enabled: true,
       minAmount: 100,
-      maxAmount: 10000,
+      maxAmount: 15000,
     },
     {
       id: "ton",

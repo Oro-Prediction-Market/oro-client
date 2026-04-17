@@ -557,9 +557,25 @@ export class MarketsService {
       participantRows.map((r) => [r.marketId, Number(r.count)]),
     );
 
+    // Objection counts per market
+    const objectionRows: { marketId: string; count: string }[] =
+      await this.dataSource
+        .getRepository(Dispute)
+        .createQueryBuilder("d")
+        .select("d.marketId", "marketId")
+        .addSelect("COUNT(*)", "count")
+        .where("d.marketId IN (:...marketIds)", { marketIds })
+        .groupBy("d.marketId")
+        .getRawMany();
+    const objectionMap = new Map(
+      objectionRows.map((r) => [r.marketId, Number(r.count)]),
+    );
+
     return markets.map((m) => {
       const winner =
         m.outcomes.find((o) => o.id === m.resolvedOutcomeId) ?? null;
+      const outcomeChanged =
+        !!m.proposedOutcomeId && m.resolvedOutcomeId !== m.proposedOutcomeId;
       return {
         id: m.id,
         title: m.title,
@@ -576,6 +592,8 @@ export class MarketsService {
         resolvedAt: m.resolvedAt,
         participantCount: participantMap.get(m.id) ?? 0,
         winner: winner ? { id: winner.id, label: winner.label } : null,
+        objectionCount: objectionMap.get(m.id) ?? 0,
+        outcomeChanged,
         evidence: {
           url: m.evidenceUrl ?? null,
           note: m.evidenceNote ?? null,

@@ -194,8 +194,8 @@ export const OracleOrbit: React.FC<OracleOrbitProps> = ({ isOpen, onClose }) => 
             <Sparkles size={20} color="#fff" />
           </div>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>Oracle Orbit</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Community Prophecies</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>Community</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Feed Page</div>
           </div>
         </div>
         <button
@@ -465,7 +465,7 @@ export const OracleOrbit: React.FC<OracleOrbitProps> = ({ isOpen, onClose }) => 
           }}
         >
           <MessageCircle size={20} />
-          Cast your Prophecy
+          Ask the Crowd
         </button>
       )}
     </div>

@@ -276,7 +276,7 @@ export class PaymentController {
           currency: "BTN",
           enabled: true,
           minAmount: 100,
-          maxAmount: 10000,
+          maxAmount: 15000,
           icon: "🏦",
         },
         {

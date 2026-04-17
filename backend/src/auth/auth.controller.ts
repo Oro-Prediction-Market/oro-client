@@ -6,6 +6,7 @@ import {
   Get,
   Query,
   UnauthorizedException,
+  BadRequestException,
   UseGuards,
   Request,
 } from "@nestjs/common";
@@ -17,15 +18,39 @@ import {
   ApiBearerAuth,
 } from "@nestjs/swagger";
 import { createHmac, timingSafeEqual } from "crypto";
+import { IsNumber, IsString } from "class-validator";
+import { ApiProperty } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { Public, JwtAuthGuard } from "./guards";
 import { TelegramAuthDto } from "./dto/telegram-auth.dto";
 import { DKBankAuthDto } from "./dto/dkbank-auth.dto";
+import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+
+class VerifyPhoneTmaDto {
+  @ApiProperty({ example: "+97517123456", description: "Phone from Telegram contact" })
+  @IsString()
+  phoneNumber: string;
+
+  @ApiProperty({ example: 123456789, description: "Telegram user_id from contact data" })
+  @IsNumber()
+  userId: number;
+
+  @ApiProperty({ example: 1700000000, description: "auth_date from Telegram" })
+  @IsNumber()
+  authDate: number;
+
+  @ApiProperty({ description: "HMAC-SHA-256 hash from Telegram contact data" })
+  @IsString()
+  hash: string;
+}
 
 @ApiTags("auth")
 @Controller("auth")
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private telegramVerification: TelegramVerificationService,
+  ) {}
 
   @Post("telegram")
   @HttpCode(200)
@@ -67,6 +92,72 @@ export class AuthController {
   @ApiBody({ type: DKBankAuthDto })
   async linkDKBank(@Body() dto: DKBankAuthDto, @Request() req: any) {
     return this.authService.loginWithDKBank(dto.cid, req.user.userId);
+  }
+
+  /**
+   * Called from the TMA when the user shares their phone via Telegram.WebApp.requestContact().
+   * Telegram signs the contact data with the bot token — we verify that signature here
+   * before trusting the phone number. Security is equivalent to the bot /verify flow.
+   */
+  @Post("verify-phone-tma")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Verify phone from Telegram.WebApp.requestContact() inside the TMA",
+  })
+  @ApiBody({ type: VerifyPhoneTmaDto })
+  async verifyPhoneTma(@Body() dto: VerifyPhoneTmaDto, @Request() req: any) {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) throw new BadRequestException("Bot not configured");
+
+    // ── Verify Telegram-signed hash ────────────────────────────────────────────
+    // Build the data-check string from the fields Telegram signed.
+    // Only include non-empty fields, sorted alphabetically, excluding hash.
+    const fields: Record<string, string> = {
+      auth_date: String(dto.authDate),
+      phone_number: dto.phoneNumber,
+      user_id: String(dto.userId),
+    };
+    const dataCheckString = Object.keys(fields)
+      .sort()
+      .map((k) => `${k}=${fields[k]}`)
+      .join("\n");
+
+    const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest();
+    const expectedHash = createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest("hex");
+
+    const expectedBuf = Buffer.from(expectedHash, "hex");
+    const receivedBuf = Buffer.from(dto.hash, "hex");
+    const hashValid =
+      expectedBuf.length === receivedBuf.length &&
+      timingSafeEqual(expectedBuf, receivedBuf);
+
+    if (!hashValid) {
+      throw new UnauthorizedException("Invalid contact data signature — possible tampering.");
+    }
+
+    // ── Auth_date freshness check (5 minutes) ─────────────────────────────────
+    const ageSeconds = Math.floor(Date.now() / 1000) - dto.authDate;
+    if (ageSeconds > 300) {
+      throw new BadRequestException("Contact data expired. Please try again.");
+    }
+
+    // ── userId in contact must match the authenticated user ───────────────────
+    const telegramId = String(req.user.telegramId ?? req.user.userId);
+    if (String(dto.userId) !== telegramId) {
+      throw new UnauthorizedException("Contact user_id does not match your Telegram account.");
+    }
+
+    // ── Delegate to existing verification logic ───────────────────────────────
+    return this.telegramVerification.linkTelegramPhone(
+      telegramId,       // telegramUserId
+      telegramId,       // telegramChatId (same as userId for TMA context)
+      String(dto.userId), // contactUserId — must equal telegramUserId
+      dto.phoneNumber,
+    );
   }
 
   /**

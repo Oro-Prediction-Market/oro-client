@@ -3,6 +3,7 @@ import dkBankLogo from "../../../assets/dk blue.png";
 import { useAuth } from "@/tma/hooks/useAuth";
 import {
   linkDKBank,
+  verifyPhoneTma,
   getMe,
   getMyTransactions,
   AuthUser,
@@ -57,6 +58,7 @@ type PaymentStep = "amount" | "otp" | "success" | "failed";
 const QUICK_DEPOSIT_AMOUNTS = [100, 200, 500, 1000];
 const QUICK_WITHDRAW_AMOUNTS = [100, 200, 500, 1000];
 const MIN_DEPOSIT = 50;
+const MAX_DEPOSIT = 15000;
 const MIN_WITHDRAW = 50;
 
 const TX_COLOR_IN = "#22c55e";
@@ -295,6 +297,12 @@ export const TmaWalletPage: FC = () => {
   const [linkError, setLinkError] = useState("");
   const [linkedName, setLinkedName] = useState("");
 
+  // Phone verification state
+  const [phoneVerifyStep, setPhoneVerifyStep] = useState<
+    "idle" | "waiting" | "success" | "error" | "unsupported"
+  >("idle");
+  const [phoneVerifyError, setPhoneVerifyError] = useState("");
+
   useEffect(() => {
     getMe()
       .then(setFreshUser)
@@ -422,6 +430,10 @@ export const TmaWalletPage: FC = () => {
       );
       return;
     }
+    if (paymentModal === "deposit" && amount > MAX_DEPOSIT) {
+      setPayError(`Maximum deposit is Nu ${MAX_DEPOSIT.toLocaleString()} per transaction.`);
+      return;
+    }
     setPayError("");
     setPayProcessing(true);
     if (paymentModal === "deposit") {
@@ -504,6 +516,40 @@ export const TmaWalletPage: FC = () => {
       setLinkError(err.message || "Failed to link CID. Please try again.");
       setLinkStep("error");
     }
+  };
+
+  const handleVerifyPhone = () => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (!tg?.requestContact) {
+      setPhoneVerifyStep("unsupported");
+      return;
+    }
+    setPhoneVerifyStep("waiting");
+    setPhoneVerifyError("");
+
+    tg.onEvent("contactRequested", async (result: any) => {
+      tg.offEvent("contactRequested");
+      if (result?.status !== "sent" || !result?.contact?.phone_number) {
+        setPhoneVerifyStep("idle");
+        return;
+      }
+      try {
+        await verifyPhoneTma({
+          phoneNumber: result.contact.phone_number,
+          userId: result.contact.user_id,
+          authDate: result.auth_date,
+          hash: result.hash,
+        });
+        setPhoneVerifyStep("success");
+        const updated = await getMe();
+        setFreshUser(updated);
+      } catch (err: any) {
+        setPhoneVerifyStep("error");
+        setPhoneVerifyError(err.message || "Verification failed. Please try again.");
+      }
+    });
+
+    tg.requestContact();
   };
 
   if (loading) {
@@ -1241,31 +1287,112 @@ export const TmaWalletPage: FC = () => {
                 Verify Your Phone
               </span>
             </h3>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 14,
-                color: "var(--text-muted)",
-                lineHeight: 1.6,
-              }}
-            >
-              After linking your DK Bank CID above, go to the Oro bot and send{" "}
-              <strong>/verify</strong> to verify your phone number.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <Step n={1} done={hasDKBank} text="Link DK Bank CID (above)" />
-              <Step n={2} done={false} text='Open Oro bot → send "/verify"' />
-              <Step
-                n={3}
-                done={false}
-                text="Tap Share Phone Number in the bot"
-              />
-              <Step
-                n={4}
-                done={hasPhoneVerified}
-                text="Phone verified — payments unlocked!"
-              />
-            </div>
+
+            {phoneVerifyStep === "success" ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "12px 14px",
+                  borderRadius: 10,
+                  background: "rgba(5,150,105,0.08)",
+                  border: "1px solid rgba(5,150,105,0.25)",
+                }}
+              >
+                <ShieldCheck size={20} color="#059669" style={{ flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#059669" }}>
+                    Phone verified!
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                    Your Telegram is now securely linked to DK Bank. Payments unlocked.
+                  </div>
+                </div>
+              </div>
+            ) : phoneVerifyStep === "unsupported" ? (
+              <>
+                <p style={{ margin: 0, fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                  Your Telegram version doesn't support in-app phone sharing. Open the Oro bot and send <strong>/verify</strong> instead.
+                </p>
+                <Step n={1} done={hasDKBank} text="Link DK Bank CID (above)" />
+                <Step n={2} done={false} text='Open Oro bot → send "/verify"' />
+                <Step n={3} done={false} text="Tap Share Phone Number in the bot" />
+              </>
+            ) : (
+              <>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 14,
+                    color: "var(--text-muted)",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Link your DK Bank CID above, then tap the button below to verify your phone. Telegram will confirm it matches your DK Bank account.
+                </p>
+
+                {phoneVerifyStep === "error" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "rgba(220,38,38,0.08)",
+                      border: "1px solid rgba(220,38,38,0.2)",
+                      fontSize: 13,
+                      color: "#dc2626",
+                    }}
+                  >
+                    <XCircle size={14} color="#dc2626" style={{ flexShrink: 0 }} />
+                    {phoneVerifyError}
+                  </div>
+                )}
+
+                <button
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    background: hasDKBank
+                      ? "linear-gradient(135deg, #00499cff, #1a5bb5)"
+                      : "var(--glass-border)",
+                    color: hasDKBank ? "#fff" : "var(--text-muted)",
+                    border: "none",
+                    borderRadius: 12,
+                    cursor: hasDKBank ? "pointer" : "not-allowed",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    opacity: phoneVerifyStep === "waiting" ? 0.7 : 1,
+                  }}
+                  disabled={!hasDKBank || phoneVerifyStep === "waiting"}
+                  onClick={handleVerifyPhone}
+                >
+                  {phoneVerifyStep === "waiting" ? (
+                    <>
+                      <Loader2 size={15} style={{ animation: "spin 0.8s linear infinite" }} />
+                      Waiting for Telegram…
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={15} />
+                      {phoneVerifyStep === "error" ? "Try Again" : "Verify Phone with Telegram"}
+                    </>
+                  )}
+                </button>
+
+                {!hasDKBank && (
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
+                    Link your DK Bank account first to enable phone verification.
+                  </p>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -1694,6 +1821,7 @@ export const TmaWalletPage: FC = () => {
                   type="number"
                   inputMode="numeric"
                   min={paymentModal === "deposit" ? MIN_DEPOSIT : MIN_WITHDRAW}
+                  max={paymentModal === "deposit" ? MAX_DEPOSIT : undefined}
                   placeholder="Enter amount"
                   value={payAmountStr}
                   onChange={(e) => {

@@ -10,6 +10,7 @@ import { ConfigService } from "@nestjs/config";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
 import { LeaguesService } from "../leagues/leagues.service";
+import { RedisService } from "../redis/redis.service";
 import { User } from "../entities/user.entity";
 import { Market, MarketStatus } from "../entities/market.entity";
 import { Outcome } from "../entities/outcome.entity";
@@ -46,6 +47,7 @@ export class BotPollingService
     private readonly telegramSimple: TelegramSimpleService,
     private readonly telegramVerification: TelegramVerificationService,
     private readonly leaguesService: LeaguesService,
+    private readonly redis: RedisService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Market) private readonly marketRepo: Repository<Market>,
     @InjectRepository(Outcome)
@@ -655,6 +657,7 @@ export class BotPollingService
         market.disputeDeadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         market.status = MarketStatus.RESOLVING;
         await this.marketRepo.save(market);
+        await this.redis.del("oro:cache:markets:all", `oro:cache:market:${marketId}`);
 
         const deadline = market.disputeDeadlineAt.toLocaleString();
         await this.telegramSimple.sendMessage(
@@ -722,6 +725,7 @@ export class BotPollingService
         market.disputeDeadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         market.status = MarketStatus.RESOLVING;
         await this.marketRepo.save(market);
+        await this.redis.del("oro:cache:markets:all", `oro:cache:market:${marketId}`);
 
         const deadline = market.disputeDeadlineAt.toLocaleString();
         await this.telegramSimple.sendMessage(

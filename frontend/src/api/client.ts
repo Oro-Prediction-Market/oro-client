@@ -157,6 +157,23 @@ export async function linkDKBank(cid: string): Promise<AuthResponse> {
   });
 }
 
+/**
+ * Verify phone from Telegram.WebApp.requestContact() inside the TMA.
+ * The hash is signed by Telegram with the bot token — the backend verifies
+ * this signature before trusting the phone number.
+ */
+export async function verifyPhoneTma(params: {
+  phoneNumber: string;
+  userId: number;
+  authDate: number;
+  hash: string;
+}): Promise<{ linked: boolean; message: string }> {
+  return request("/auth/verify-phone-tma", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 // ─── Markets ─────────────────────────────────────────────────────────────────
 
 export interface Outcome {
@@ -291,6 +308,13 @@ export interface ResolvedMarket {
   resolvedAt: string | null;
   participantCount: number;
   winner: { id: string; label: string } | null;
+  objectionCount: number;
+  outcomeChanged: boolean;
+  evidence: {
+    url: string | null;
+    note: string | null;
+    submittedAt: string | null;
+  };
 }
 
 export function getResolvedMarkets(): Promise<ResolvedMarket[]> {

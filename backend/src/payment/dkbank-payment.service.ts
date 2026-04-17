@@ -108,6 +108,9 @@ export class DKBankPaymentService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException("Amount must be a positive number");
     }
+    if (amount > 15000) {
+      throw new BadRequestException("Deposit amount cannot exceed Nu 15,000 per transaction");
+    }
     const cid =
       typeof dto.cid === "string"
         ? dto.cid.trim().replace(/\s+/g, "").replace(/[^\d]/g, "")
