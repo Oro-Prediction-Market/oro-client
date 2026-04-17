@@ -482,6 +482,7 @@ function PwaSearch({ compact = false, fullWidth = false }: { compact?: boolean, 
 function PwaLayout() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(true);
   const { selectedCategory, setSelectedCategory, availableCategories, hasTrendingMarkets } =
     useFilter();
 
@@ -490,6 +491,28 @@ function PwaLayout() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Auto-hide header on scroll down (mobile only)
+  useEffect(() => {
+    if (!isMobile) {
+      setHeaderVisible(true);
+      return;
+    }
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (y < 10) {
+        setHeaderVisible(true);
+      } else if (y > lastY + 4) {
+        setHeaderVisible(false);
+      } else if (y < lastY - 4) {
+        setHeaderVisible(true);
+      }
+      lastY = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isMobile]);
 
   return (
     <div
@@ -510,6 +533,8 @@ function PwaLayout() {
           position: "sticky",
           top: 0,
           zIndex: 3000,
+          transform: isMobile && !headerVisible ? "translateY(-100%)" : "translateY(0)",
+          transition: "transform 0.25s ease",
         }}
       >
         {/* ROW 1: Logo, Search, Actions */}
