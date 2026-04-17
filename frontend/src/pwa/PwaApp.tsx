@@ -539,14 +539,16 @@ function PwaLayout() {
             <OroLogo size={62} />
             <span
               style={{
-                fontWeight: 600,
-                fontSize: "1.8rem",
+                fontSize: "1.35rem",
+                fontWeight: 900,
+                letterSpacing: "-0.04em",
                 color: "var(--text-main)",
-                letterSpacing: "-0.03em",
-                fontFamily: "uppercase",
+                lineHeight: 1,
+                position: "relative",
+                zIndex: 1,
               }}
             >
-              Oro
+              ORO
             </span>
           </NavLink>
 
@@ -599,7 +601,7 @@ function PwaLayout() {
         <div style={{ borderTop: "1px solid var(--glass-border)" }}>
           {isMobile ? (
             /* ── Mobile: search bar + category pills ── */
-            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ padding: "10px 14px 10px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
               {/* Search bar */}
               <PwaSearch fullWidth />
 
