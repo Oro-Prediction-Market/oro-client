@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
-import { 
-  getMarkets, 
-  placeBet, 
-  type Market 
+import {
+  getMarkets,
+  placeBet,
+  type Market
 } from "@/api/client";
 import { PwaPaymentModal } from "../components/PwaPaymentModal";
 import type { PaymentResponse } from "@/types/payment";
 import { PwaMarketCard } from "../components/PwaMarketCard";
 import { PwaMarketGrid } from "../components/PwaMarketGrid";
+import { useFilter } from "@/contexts/FilterContext";
 
 export function PwaMarketsPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -16,10 +17,10 @@ export function PwaMarketsPage() {
     marketId: string;
     outcomeId: string;
   } | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const { searchQuery } = useFilter();
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // Debounce the raw search input → 400 ms before hitting the server
+  // Debounce the global search query → 400 ms before hitting the server
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchQuery), 400);
     return () => clearTimeout(t);
@@ -118,82 +119,9 @@ export function PwaMarketsPage() {
 
       {/* ── Page Hero/Header ── */}
       <div style={{ padding: "var(--space-xl) var(--space-md) var(--space-lg)" }}>
-        {/* Search bar */}
-        <div style={{ position: "relative", marginBottom: "var(--space-xl)", maxWidth: 600 }}>
-          <svg
-            style={{
-              position: "absolute",
-              left: 14,
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--text-subtle)",
-              pointerEvents: "none",
-            }}
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search markets..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "14px 40px 14px 44px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--glass-border)",
-              background: "var(--bg-card)",
-              boxShadow: "var(--shadow-sm)",
-              fontSize: "1rem",
-              color: "var(--text-main)",
-              outline: "none",
-              fontFamily: "var(--font-primary)",
-              fontWeight: 600,
-              transition: "all 0.2s",
-            }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = "var(--color-primary)")}
-            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--glass-border)")}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              style={{
-                position: "absolute",
-                right: 12,
-                top: "50%",
-                transform: "translateY(-50%)",
-                background: "var(--bg-secondary)",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--text-muted)",
-                fontSize: 10,
-                borderRadius: "50%",
-                width: 22,
-                height: 22,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-                fontWeight: 900,
-              }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
 
         {/* No results */}
-        {!hasResults && searchQuery.trim() && (
+        {!hasResults && debouncedSearch.trim() && (
           <div style={{ textAlign: "center", padding: "80px 0", color: "var(--text-subtle)" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
             <div style={{ fontSize: 20, fontWeight: 900, color: "var(--text-main)", fontFamily: "var(--font-display)", letterSpacing: "-0.02em" }}>No markets found</div>

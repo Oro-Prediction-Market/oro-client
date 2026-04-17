@@ -10,6 +10,7 @@ import {
   BarChart2,
   Trophy,
   Sword,
+  Lock,
 } from "lucide-react";
 
 interface Step {
@@ -28,6 +29,11 @@ const STEPS: Step[] = [
     icon: <Building2 size={32} />,
     title: "Link your DK Bank account",
     desc: "Connect your DK Bank account using your 11-digit CID. This allows you to instantly deposit and withdraw money with zero friction.",
+  },
+  {
+    icon: <Lock size={32} />,
+    title: "Set your website password",
+    desc: "To access Oro on the web, open Telegram → Oro app → Settings → Website Access → Set Password. Then visit the site and sign in with your CID and that password.",
   },
   {
     icon: <Coins size={32} />,

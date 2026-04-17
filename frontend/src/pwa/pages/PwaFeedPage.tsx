@@ -172,19 +172,28 @@ export function PwaFeedPage() {
     searchQuery,
     selectedCategory,
     setAvailableCategories,
+    setHasTrendingMarkets,
   } = useFilter();
 
   useEffect(() => {
     getMarkets()
       .then((d) => {
-        // Only show live/upcoming for feed
-        const active = d.filter(
-          (m) =>
-            m.status === "open" ||
-            m.status === "upcoming" ||
-            m.status === "resolving",
-        );
+        const now = Date.now();
+        const cutoff48h = 48 * 60 * 60 * 1000;
+
+        // Only show live/upcoming + resolving within last 48h
+        const active = d.filter((m) => {
+          if (m.status === "open" || m.status === "upcoming") return true;
+          if (m.status === "resolving") {
+            // Use closesAt to determine age; hide if closed more than 48h ago
+            const closedAt = m.closesAt ? new Date(m.closesAt).getTime() : null;
+            return closedAt ? now - closedAt < cutoff48h : true;
+          }
+          return false;
+        });
+
         setMarkets(active);
+        setHasTrendingMarkets(active.filter((m) => m.status === "open").length > 0);
 
         // Update global categories
         const cats = ["All", ...Array.from(new Set(active.map((m) => m.category).filter(Boolean))) as string[]];
@@ -344,13 +353,10 @@ export function PwaFeedPage() {
       }}
     >
       <style>{`
-        @keyframes heartbeat {
-          0%   { transform: scale(1);    opacity: 1; }
-          14%  { transform: scale(1.3);  opacity: 1; }
-          28%  { transform: scale(1);    opacity: 0.9; }
-          42%  { transform: scale(1.2);  opacity: 1; }
-          70%  { transform: scale(1);    opacity: 0.8; }
-          100% { transform: scale(1);    opacity: 1; }
+        @keyframes livePing {
+          0%   { transform: scale(1);   opacity: 0.8; }
+          70%  { transform: scale(2.2); opacity: 0; }
+          100% { transform: scale(2.2); opacity: 0; }
         }
       `}</style>
       <div className="mesh-bg" />
@@ -381,15 +387,23 @@ export function PwaFeedPage() {
                 boxShadow: "0 4px 12px rgba(34, 197, 94, 0.1)",
               }}
             >
-              <div
-                style={{
-                  width: 6,
-                  height: 6,
+              <div style={{ position: "relative", width: 8, height: 8, flexShrink: 0 }}>
+                {/* Ping ring */}
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
                   borderRadius: "50%",
                   background: "var(--color-success)",
-                  animation: "heartbeat 2.4s ease-in-out infinite",
-                }}
-              />
+                  animation: "livePing 1.5s ease-out infinite",
+                }} />
+                {/* Solid dot */}
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "50%",
+                  background: "var(--color-success)",
+                }} />
+              </div>
               Live
             </div>
             <h2

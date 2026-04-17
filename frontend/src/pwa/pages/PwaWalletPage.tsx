@@ -20,7 +20,10 @@ import {
   AlertCircle,
   UserPlus,
   Swords,
+  ChevronDown,
 } from "lucide-react";
+
+const INITIAL_LIMIT = 5;
 
 const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
   deposit: <ArrowDownLeft size={18} />,
@@ -136,6 +139,7 @@ export function PwaWalletPage() {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_LIMIT);
 
   useEffect(() => {
     Promise.all([getMe(), getMyTransactions()])
@@ -420,7 +424,45 @@ export function PwaWalletPage() {
                   <p style={{ fontWeight: 600 }}>No transactions yet</p>
                 </div>
               ) : (
-                txs.map((tx) => <TxRow key={tx.id} tx={tx} />)
+                <>
+                  {txs.slice(0, visibleCount).map((tx) => (
+                    <TxRow key={tx.id} tx={tx} />
+                  ))}
+                  {visibleCount < txs.length && (
+                    <button
+                      onClick={() => setVisibleCount((c) => c + INITIAL_LIMIT)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                        width: "100%",
+                        padding: "14px",
+                        marginTop: 4,
+                        borderRadius: 16,
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--glass-border)",
+                        color: "var(--text-muted)",
+                        fontSize: "0.875rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        transition: "all 0.2s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background =
+                          "var(--bg-secondary)";
+                        e.currentTarget.style.color = "var(--text-main)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "var(--bg-card)";
+                        e.currentTarget.style.color = "var(--text-muted)";
+                      }}
+                    >
+                      <ChevronDown size={16} />
+                      View more ({txs.length - visibleCount} remaining)
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>

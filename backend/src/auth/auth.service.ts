@@ -14,11 +14,12 @@ import { AuditAction } from "../entities/audit-log.entity";
 
 function stripSensitiveFields(
   user: User,
-): Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber"> {
+): Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber" | "pwaPasswordHash"> {
   const {
     dkPhoneHash: _a,
     telegramPhoneHash: _b,
     phoneNumber: _c,
+    pwaPasswordHash: _d,
     ...safe
   } = user as any;
   return safe;
@@ -431,6 +432,23 @@ export class AuthService {
         });
         await this.authMethodRepo.save(authMethod);
         const freshUser = await this.userRepo.findOneBy({ id: user.id });
+
+        // ── PWA password check (same guard as the main path below) ────────────
+        if (!callerUserId) {
+          if (!freshUser!.pwaPasswordHash) {
+            throw new UnauthorizedException(
+              "Set a PWA password in Telegram → Settings → Website Access before logging in here.",
+            );
+          }
+          if (!password) {
+            throw new UnauthorizedException("This account requires a PWA password.");
+          }
+          const valid = await bcrypt.compare(password, freshUser!.pwaPasswordHash);
+          if (!valid) {
+            throw new UnauthorizedException("Incorrect password.");
+          }
+        }
+
         const token = this.jwtService.sign({
           sub: freshUser!.id,
           isAdmin: freshUser!.isAdmin,
@@ -507,8 +525,13 @@ export class AuthService {
 
     // ── PWA password check ─────────────────────────────────────────────────
     // Only applies when NOT called from TMA (callerUserId absent).
-    // If the user has a PWA password set, the caller must supply it.
-    if (!callerUserId && freshUser!.pwaPasswordHash) {
+    // A PWA password must be set in Telegram before PWA login is allowed.
+    if (!callerUserId) {
+      if (!freshUser!.pwaPasswordHash) {
+        throw new UnauthorizedException(
+          "Set a PWA password in Telegram → Settings → Website Access before logging in here.",
+        );
+      }
       if (!password) {
         throw new UnauthorizedException("This account requires a PWA password.");
       }

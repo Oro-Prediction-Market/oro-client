@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { loginWithDKBank, getPwaStatus, setToken } from "@/api/client";
 import { Eye, EyeOff } from "lucide-react";
+import { OroLogo } from "@/components/OroLogo";
 
 interface Props {
   onLogin: () => void;
@@ -59,8 +60,8 @@ export function ProtectedRoute({ onLogin }: Props) {
   const canSubmit =
     cid.trim().length === 11 &&
     !checking &&
-    hasPassword !== null &&
-    (hasPassword ? password.length >= 1 : true);
+    hasPassword === true &&
+    password.length >= 1;
 
   return (
     <div
@@ -75,7 +76,9 @@ export function ProtectedRoute({ onLogin }: Props) {
       }}
     >
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>🔮</div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 0 }}>
+          <OroLogo size={90} />
+        </div>
         <h2
           style={{
             fontSize: "1.3rem",
@@ -209,25 +212,26 @@ export function ProtectedRoute({ onLogin }: Props) {
                 gap: 5,
               }}
             >
-              Password set via Telegram → Settings → PWA Access
+              Password set via Telegram → Settings → Website Access
             </div>
           </div>
         )}
 
-        {/* No-password hint for CID-only accounts */}
+        {/* Block login when no password has been set yet */}
         {hasPassword === false && cid.trim().length === 11 && (
           <div
             style={{
-              fontSize: "0.72rem",
+              fontSize: "0.8rem",
               color: "var(--color-warning)",
               background: "rgba(245,158,11,0.08)",
-              border: "1px solid rgba(245,158,11,0.2)",
-              borderRadius: 8,
-              padding: "8px 10px",
-              lineHeight: 1.5,
+              border: "1px solid rgba(245,158,11,0.25)",
+              borderRadius: 10,
+              padding: "12px 14px",
+              lineHeight: 1.6,
             }}
           >
-            No password set. Set one in Telegram → Settings → PWA Access for better security.
+            <strong style={{ display: "block", marginBottom: 4 }}>Password required</strong>
+            Open Telegram → Oro app → <strong>Settings → PWA Access</strong> and set a password before logging in here.
           </div>
         )}
 
@@ -242,7 +246,7 @@ export function ProtectedRoute({ onLogin }: Props) {
             padding: "11px",
             borderRadius: 10,
             border: "none",
-            background: "var(--accent)",
+            background: "blue",
             color: "#fff",
             fontWeight: 700,
             fontSize: "0.9rem",

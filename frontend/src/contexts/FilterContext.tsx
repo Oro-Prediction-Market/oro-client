@@ -7,6 +7,8 @@ interface FilterContextType {
   setSelectedCategory: (category: string) => void;
   availableCategories: string[];
   setAvailableCategories: (categories: string[]) => void;
+  hasTrendingMarkets: boolean;
+  setHasTrendingMarkets: (v: boolean) => void;
 }
 
 const FilterContext = createContext<FilterContextType | undefined>(undefined);
@@ -15,6 +17,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [availableCategories, setAvailableCategories] = useState<string[]>(["All"]);
+  const [hasTrendingMarkets, setHasTrendingMarkets] = useState(false);
 
   return (
     <FilterContext.Provider
@@ -25,6 +28,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         setSelectedCategory,
         availableCategories,
         setAvailableCategories,
+        hasTrendingMarkets,
+        setHasTrendingMarkets,
       }}
     >
       {children}

@@ -832,7 +832,7 @@ export const TmaSettingsPage: FC = () => {
         {/* ══════════════════════════════════════════════════════
             PWA ACCESS
         ══════════════════════════════════════════════════════ */}
-        <SectionLabel label="PWA Access" />
+        <SectionLabel label="Website Access" />
         <div
           style={{
             background: "var(--bg-card)",
@@ -861,7 +861,7 @@ export const TmaSettingsPage: FC = () => {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-main)" }}>
-                  PWA Password
+                  Website Password
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-subtle)", marginTop: 1 }}>
                   Set a password to log in at oro.app without Telegram
