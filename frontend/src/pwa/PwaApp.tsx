@@ -53,7 +53,6 @@ import { OroLogo } from "@/components/OroLogo";
 import { FilterProvider, useFilter } from "@/contexts/FilterContext";
 import {
   Search,
-  ChevronDown,
   CircleHelp,
   LayoutGrid,
   Medal,

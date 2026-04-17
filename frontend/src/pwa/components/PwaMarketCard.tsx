@@ -1,5 +1,4 @@
 import { useState, useEffect, type FC } from "react";
-import { useNavigate } from "react-router-dom";
 import type { Market } from "@/api/client";
 import { getCategoryVisual } from "@/helpers/visuals";
 
@@ -44,7 +43,6 @@ interface PwaMarketCardProps {
 export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
   const [showAll, setShowAll] = useState(false);
   const [imgError, setImgError] = useState(false);
-  const navigate = useNavigate();
   const isUpcoming = market.status === "upcoming";
   const isResolving = market.status === "resolving";
   const countdown = useCountdown(
@@ -83,18 +81,8 @@ export const PwaMarketCard: FC<PwaMarketCardProps> = ({ market, onBet }) => {
         boxSizing: "border-box",
         position: "relative",
         boxShadow: "6px 6px 16px rgba(0,0,0,0.3), -3px -3px 10px rgba(255,255,255,0.04)",
-        transition: "box-shadow 0.2s ease, transform 0.2s ease",
-        cursor: "pointer",
+        transition: "box-shadow 0.2s ease",
         overflow: "hidden",
-      }}
-      onClick={() => navigate(`/market/${market.id}`)}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "8px 8px 20px rgba(0,0,0,0.35), -4px -4px 12px rgba(255,255,255,0.05)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-        e.currentTarget.style.boxShadow = "6px 6px 16px rgba(0,0,0,0.3), -3px -3px 10px rgba(255,255,255,0.04)";
       }}
     >
       <style>{`@keyframes shimmer-slide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}`}</style>

@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import {
   getMarkets,
-  placeBet,
   getRecentActivity,
   type Market,
   type ActivityEvent,
 } from "@/api/client";
-import { PwaPaymentModal } from "../components/PwaPaymentModal";
-import type { PaymentResponse } from "@/types/payment";
+import { TmaBetModal } from "@/tma/components/TmaBetModal";
 import { PwaMarketCard } from "../components/PwaMarketCard";
 import { PwaMarketGrid } from "../components/PwaMarketGrid";
 import { Flame } from "lucide-react";
@@ -203,52 +201,20 @@ export function PwaFeedPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handlePaymentSuccess = async (_payment: PaymentResponse) => {
-    if (!activeBet) return;
-    const betAmt = _payment?.amount ?? 0;
-
-    setMarkets((prev) =>
-      prev.map((m) => {
-        if (m.id !== activeBet.marketId) return m;
-        return {
-          ...m,
-          totalPool: String(Number(m.totalPool) + betAmt),
-          outcomes: m.outcomes.map((o) =>
-            o.id === activeBet.outcomeId
-              ? {
-                  ...o,
-                  totalBetAmount: String(Number(o.totalBetAmount) + betAmt),
-                }
-              : o,
-          ),
-        };
-      }),
-    );
-
+  const handleBetSuccess = () => {
     setActiveBet(null);
-
-    const market = markets.find((m) => m.id === activeBet.marketId);
-    if (market) {
-      try {
-        await placeBet(market.id, {
-          outcomeId: activeBet.outcomeId,
-          amount: betAmt,
-        });
-      } catch (e: any) {
-        console.warn(e.message);
-      }
-    }
-
     getMarkets()
       .then((d) => {
-        setMarkets(
-          d.filter(
-            (m) =>
-              m.status === "open" ||
-              m.status === "upcoming" ||
-              m.status === "resolving",
-          ),
-        );
+        const now = Date.now();
+        const cutoff48h = 48 * 60 * 60 * 1000;
+        setMarkets(d.filter((m) => {
+          if (m.status === "open" || m.status === "upcoming") return true;
+          if (m.status === "resolving") {
+            const closedAt = m.closesAt ? new Date(m.closesAt).getTime() : null;
+            return closedAt ? now - closedAt < cutoff48h : true;
+          }
+          return false;
+        }));
       })
       .catch(console.error);
   };
@@ -513,12 +479,12 @@ export function PwaFeedPage() {
       )}
 
       {activeMarket && activeBet && (
-        <PwaPaymentModal
+        <TmaBetModal
           isOpen={true}
           onClose={() => setActiveBet(null)}
           market={activeMarket}
           outcomeId={activeBet.outcomeId}
-          onSuccess={handlePaymentSuccess}
+          onSuccess={handleBetSuccess}
           onFailure={(e) => console.error(e)}
         />
       )}
