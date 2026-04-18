@@ -918,6 +918,23 @@ export class DKBankPaymentService {
         );
       }
 
+      // Bonus credits are play money — they cannot be sent to DK Bank directly.
+      // Only the real (non-bonus) portion of the balance is withdrawable.
+      const lockedUser = await em.findOne(User, {
+        where: { id: userId },
+        select: ["id", "bonusBalance"],
+      });
+      const bonusBalance = Number(lockedUser?.bonusBalance ?? 0);
+      const realWithdrawable = balanceBefore - bonusBalance;
+
+      if (realWithdrawable < withdrawalAmount) {
+        throw new BadRequestException(
+          `Insufficient withdrawable balance. ` +
+            `Nu ${bonusBalance.toFixed(2)} of your balance is bonus credit and cannot be withdrawn. ` +
+            `Withdrawable: Nu ${Math.max(0, realWithdrawable).toFixed(2)}.`,
+        );
+      }
+
       // ── Call DK Gateway: push funds from merchant vault to user account ───
       // Uses /v1/initiate/transaction which works in both staging and production.
       // No bypass needed — this endpoint is confirmed working in DK staging.

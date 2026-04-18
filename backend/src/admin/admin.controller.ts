@@ -186,10 +186,34 @@ export class AdminController {
   }
 
   @Get("markets")
-  @ApiOperation({ summary: "List all markets (admin view)" })
-  async listMarkets() {
-    const data = await this.marketsService.findAll();
-    return { data, total: data.length };
+  @ApiOperation({ summary: "List all markets (admin view) with pagination" })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @ApiQuery({ name: "status", required: false, type: String })
+  async listMarkets(
+    @Query("page") page = "1",
+    @Query("limit") limit = "20",
+    @Query("status") status?: string,
+  ) {
+    const take = Math.min(Number(limit) || 20, 100);
+    const skip = (Math.max(Number(page), 1) - 1) * take;
+    const qb = this.dataSource
+      .getRepository(Market)
+      .createQueryBuilder("market")
+      .leftJoinAndSelect("market.outcomes", "outcome")
+      .orderBy("market.createdAt", "DESC")
+      .skip(skip)
+      .take(take);
+    if (status && status.toLowerCase() !== "all") {
+      qb.where("market.status = :status", { status: status.toLowerCase() });
+    }
+    const [data, total] = await qb.getManyAndCount();
+    return {
+      data,
+      total,
+      page: Math.max(Number(page), 1),
+      pages: Math.ceil(total / take) || 1,
+    };
   }
 
   @Get("markets/:id")
@@ -525,9 +549,16 @@ export class AdminController {
 
   // ── Settlements ───────────────────────────────────────────────────────────
   @Get("settlements")
-  @ApiOperation({ summary: "List all settlements" })
-  async listSettlements() {
-    const data = await this.settlementRepo
+  @ApiOperation({ summary: "List settlements with pagination" })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  async listSettlements(
+    @Query("page") page = "1",
+    @Query("limit") limit = "20",
+  ) {
+    const take = Math.min(Number(limit) || 20, 100);
+    const skip = (Math.max(Number(page), 1) - 1) * take;
+    const [data, total] = await this.settlementRepo
       .createQueryBuilder("settlement")
       .leftJoinAndMapOne(
         "settlement.market",
@@ -542,8 +573,15 @@ export class AdminController {
         "outcome.id = settlement.winningOutcomeId",
       )
       .orderBy("settlement.settledAt", "DESC")
-      .getMany();
-    return { data, total: data.length };
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+    return {
+      data,
+      total,
+      page: Math.max(Number(page), 1),
+      pages: Math.ceil(total / take) || 1,
+    };
   }
 
   // ── Users ─────────────────────────────────────────────────────────────────

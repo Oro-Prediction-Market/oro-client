@@ -66,10 +66,12 @@ Separate admin dashboard for creating markets, setting outcome images, managing 
 
 ```
 /
-├── frontend/          # Telegram Mini App (React + Vite)
-├── backend/           # NestJS API server
-├── tara-admin/        # Admin portal (separate React app)
-└── docs/              # Architecture docs, DB schema, product design
+├── oro-client
+    ├── frontend/          # Telegram Mini App (React + Vite)
+    ├── backend/           # NestJS API server
+    └── docs/  
+├── oro-admin/        # Admin portal (separate React app)
+            # Architecture docs, DB schema, product design
 ```
 
 ---
@@ -95,7 +97,7 @@ npx vite --port 5173 --strictPort --host
 ### Admin Portal
 
 ```bash
-cd ../tara-admin
+cd ../oro-admin
 npm install
 npm run dev
 ```
@@ -108,4 +110,4 @@ npm run dev
 
 - [Telegram Mini Apps docs](https://docs.telegram-mini-apps.com/)
 - [TON Connect](https://docs.ton.org/develop/dapps/ton-connect/overview)
-- [DK Bank (Bhutan)](https://www.dkbank.bt/)
+- [DK Bank (Bhutan)](https://www.digitalkidu.bt/individual)
