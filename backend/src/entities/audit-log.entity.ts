@@ -32,7 +32,14 @@ export enum AuditAction {
   // User management
   USER_ADMIN_TOGGLE = "user.admin_toggle",
   USER_VIEW = "user.view",
-  USER_LOGIN = "user.login", // User login
+  USER_LOGIN = "user.login",
+  USER_LOGOUT = "user.logout",
+
+  // Security events
+  AUTH_FAIL_DKBANK = "auth.fail.dkbank",  // wrong CID/password
+  AUTH_FAIL_PWA = "auth.fail.pwa",        // wrong PWA password
+  AUTH_FAIL_TELEGRAM = "auth.fail.telegram", // tampered initData
+  AUTH_TOKEN_REVOKED = "auth.token_revoked",
 }
 
 @Entity("audit_logs")

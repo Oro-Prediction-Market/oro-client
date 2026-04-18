@@ -138,6 +138,24 @@ function makeTelegramSimple() {
   };
 }
 
+function makeAuditLogRepo() {
+  return {
+    create: jest.fn().mockImplementation((data: any) => data),
+    save: jest.fn().mockResolvedValue({}),
+  };
+}
+
+function makeRedis() {
+  return {
+    get: jest.fn().mockResolvedValue(null),
+    setEx: jest.fn().mockResolvedValue(undefined),
+    redis: {
+      incr: jest.fn().mockResolvedValue(1),
+      expire: jest.fn().mockResolvedValue(undefined),
+    },
+  };
+}
+
 // ─── validateTelegramInitData ─────────────────────────────────────────────────
 
 describe("AuthService.validateTelegramInitData", () => {
@@ -156,6 +174,8 @@ describe("AuthService.validateTelegramInitData", () => {
       makeTelegramVerification() as any,
       makeTelegramSimple() as any,
       makeAuditService() as any,
+      makeAuditLogRepo() as any,
+      makeRedis() as any,
     );
   });
 
@@ -229,6 +249,8 @@ describe("AuthService.loginWithTelegram", () => {
       makeTelegramVerification() as any,
       makeTelegramSimple() as any,
       makeAuditService() as any,
+      makeAuditLogRepo() as any,
+      makeRedis() as any,
     );
   });
 
@@ -322,6 +344,8 @@ describe("AuthService.loginWithTelegram", () => {
       makeTelegramVerification() as any,
       makeTelegramSimple() as any,
       makeAuditService() as any,
+      makeAuditLogRepo() as any,
+      makeRedis() as any,
     );
 
     authMethodRepo.findOne.mockResolvedValue(null);
@@ -357,6 +381,8 @@ describe("AuthService.loginWithTelegram", () => {
       makeTelegramVerification() as any,
       makeTelegramSimple() as any,
       makeAuditService() as any,
+      makeAuditLogRepo() as any,
+      makeRedis() as any,
     );
 
     authMethodRepo.findOne.mockResolvedValue(null);
@@ -387,6 +413,8 @@ describe("AuthService.loginWithTelegram", () => {
       makeTelegramVerification() as any,
       makeTelegramSimple() as any,
       makeAuditService() as any,
+      makeAuditLogRepo() as any,
+      makeRedis() as any,
     );
 
     authMethodRepo.findOne.mockResolvedValue(null);
@@ -461,6 +489,8 @@ describe("AuthService.loginWithDKBank", () => {
       telegramVerification as any,
       makeTelegramSimple() as any,
       makeAuditService() as any,
+      makeAuditLogRepo() as any,
+      makeRedis() as any,
     );
   });
 

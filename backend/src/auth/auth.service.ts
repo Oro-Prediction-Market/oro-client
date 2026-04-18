@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual, randomUUID } from "crypto";
 import * as bcrypt from "bcryptjs";
 import { Injectable, Logger, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
@@ -13,7 +13,8 @@ import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.serv
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { AuditService } from "../admin/audit.service";
-import { AuditAction } from "../entities/audit-log.entity";
+import { AuditAction, AuditLog, RoleType } from "../entities/audit-log.entity";
+import { RedisService } from "../redis/redis.service";
 
 function stripSensitiveFields(
   user: User,
@@ -55,6 +56,8 @@ export class AuthService {
     private telegramVerification: TelegramVerificationService,
     private telegramSimple: TelegramSimpleService,
     private auditService: AuditService,
+    @InjectRepository(AuditLog) private auditLogRepo: Repository<AuditLog>,
+    private redis: RedisService,
   ) {}
 
   // ── HMAC-SHA-256 Telegram initData validation ──────────────────────────────
@@ -222,6 +225,7 @@ export class AuthService {
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
+      jti: randomUUID(),
     });
 
     // Log user login in audit log
@@ -321,6 +325,7 @@ export class AuthService {
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
+      jti: randomUUID(),
     });
     return { token, user: stripSensitiveFields(freshUser!) };
   }
@@ -430,6 +435,7 @@ export class AuthService {
         const token = this.jwtService.sign({
           sub: existingUser.id,
           isAdmin: existingUser.isAdmin,
+          jti: randomUUID(),
         });
         const updatedUser = await this.userRepo.findOneBy({ id: callerUserId });
         const { phoneNumber: _p1, ...safeDkAccount1 } = account;
@@ -619,6 +625,7 @@ export class AuthService {
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
+      jti: randomUUID(),
     });
 
     const { phoneNumber: _p3, ...safeDkAccount3 } = account;
@@ -627,5 +634,60 @@ export class AuthService {
       user: stripSensitiveFields(freshUser!),
       dkAccount: safeDkAccount3,
     };
+  }
+
+  // ── JWT revocation ────────────────────────────────────────────────────────
+  async revokeToken(jti: string, exp: number, userId: string): Promise<void> {
+    const ttl = exp - Math.floor(Date.now() / 1000);
+    if (ttl > 0) {
+      await this.redis.setEx(`jwt:blacklist:${jti}`, ttl, "1");
+    }
+    await this.auditLogRepo.save(
+      this.auditLogRepo.create({
+        adminId: userId,
+        username: "system",
+        roleType: RoleType.USER,
+        action: AuditAction.AUTH_TOKEN_REVOKED,
+        entityType: "user",
+        entityId: userId,
+        payload: { meta: { jti } },
+      }),
+    );
+  }
+
+  // ── Auth failure tracking ─────────────────────────────────────────────────
+  async recordAuthFailure(
+    action: AuditAction,
+    cid: string,
+    ip: string,
+  ): Promise<void> {
+    const key = `auth:fail:${cid}`;
+    try {
+      const count = await this.redis.redis.incr(key);
+      // Set 15-minute expiry on first increment
+      if (count === 1) await this.redis.redis.expire(key, 900);
+      if (count >= 5) {
+        this.logger.warn(
+          `[Security] ${count} failed auth attempts for CID ${cid} from IP ${ip}`,
+        );
+      }
+    } catch {
+      // Redis unavailable — still log to DB
+    }
+    try {
+      await this.auditLogRepo.save(
+        this.auditLogRepo.create({
+          adminId: "anonymous",
+          username: cid,
+          roleType: RoleType.USER,
+          action,
+          entityType: "user",
+          entityId: cid,
+          payload: { meta: { ip, cid } },
+        }),
+      );
+    } catch {
+      // Non-fatal — don't break auth flow
+    }
   }
 }

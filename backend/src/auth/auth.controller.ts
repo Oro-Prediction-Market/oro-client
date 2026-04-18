@@ -21,11 +21,13 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { IsNumber, IsString, IsOptional, MinLength as MinLengthValidator } from "class-validator";
 import { ApiProperty } from "@nestjs/swagger";
 import { Throttle, SkipThrottle } from "@nestjs/throttler";
+import { verify as totpVerify, generateSecret as totpGenerateSecret, generateURI as totpGenerateURI } from "otplib";
 import { AuthService } from "./auth.service";
 import { Public, JwtAuthGuard } from "./guards";
 import { TelegramAuthDto } from "./dto/telegram-auth.dto";
 import { DKBankAuthDto } from "./dto/dkbank-auth.dto";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+import { AuditAction } from "../entities/audit-log.entity";
 
 class SetPwaPasswordDto {
   @ApiProperty({ example: "MySecret123", description: "New PWA password (min 6 chars)" })
@@ -96,10 +98,36 @@ export class AuthController {
   })
   @ApiBody({ type: DKBankAuthWithPasswordDto })
   async dkBankLogin(@Body() dto: DKBankAuthWithPasswordDto, @Request() req: any) {
-    // If the caller already carries a valid JWT, treat this as an authenticated
-    // link request so we merge into the existing row rather than create a duplicate.
     const callerUserId: string | undefined = req.user?.userId;
-    return this.authService.loginWithDKBank(dto.cid, callerUserId, dto.password);
+    try {
+      return await this.authService.loginWithDKBank(dto.cid, callerUserId, dto.password);
+    } catch (e) {
+      if (e instanceof UnauthorizedException) {
+        await this.authService.recordAuthFailure(
+          AuditAction.AUTH_FAIL_DKBANK,
+          dto.cid,
+          req.ip ?? "unknown",
+        ).catch(() => {});
+      }
+      throw e;
+    }
+  }
+
+  @Post("logout")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Revoke the current JWT (logout)" })
+  async logout(@Request() req: any) {
+    const { jti, exp, userId } = req.user as {
+      jti?: string;
+      exp?: number;
+      userId: string;
+    };
+    if (jti && exp) {
+      await this.authService.revokeToken(jti, exp, userId);
+    }
+    return { ok: true };
   }
 
   /**
@@ -278,20 +306,49 @@ export class AuthController {
   }
 
   /**
+   * DEV ONLY — generates a TOTP secret and QR URI for admin 2FA setup.
+   * Run once, scan QR with Google Authenticator, then set ADMIN_TOTP_SECRET in .env.
+   */
+  @Get("dev/admin-totp-setup")
+  @Public()
+  @SkipThrottle()
+  @ApiOperation({ summary: "[DEV] Generate TOTP secret for admin 2FA setup" })
+  @ApiQuery({ name: "secret", required: true })
+  devAdminTotpSetup(@Query("secret") secret: string) {
+    if (process.env.NODE_ENV === "production") {
+      throw new UnauthorizedException("Not available in production");
+    }
+    const expected = process.env.ADMIN_DEV_SECRET;
+    if (!expected || secret !== expected) {
+      throw new UnauthorizedException("Wrong secret");
+    }
+    if (process.env.ADMIN_TOTP_SECRET) {
+      return { message: "TOTP already configured. Remove ADMIN_TOTP_SECRET from .env to regenerate." };
+    }
+    const newSecret = totpGenerateSecret();
+    const otpAuthUri = totpGenerateURI({ issuer: "Oro Admin", label: "admin", secret: newSecret });
+    return {
+      secret: newSecret,
+      otpAuthUri,
+      instructions: "1. Copy ADMIN_TOTP_SECRET value into your .env  2. Scan the otpAuthUri with Google Authenticator or Authy  3. Never share this secret",
+    };
+  }
+
+  /**
    * DEV ONLY — one-shot admin token endpoint.
    * Generates signed initData for your real Telegram ID and returns a JWT directly.
-   * Protected by a secret from .env (ADMIN_DEV_SECRET).
+   * Protected by a secret from .env (ADMIN_DEV_SECRET) + optional TOTP.
    */
   @Get("dev/admin-token")
   @Public()
   @SkipThrottle()
-  @ApiOperation({ summary: "[DEV] Get admin JWT in one request" })
-  @ApiQuery({
-    name: "secret",
-    required: true,
-    description: "Value of ADMIN_DEV_SECRET in .env",
-  })
-  async devAdminToken(@Query("secret") secret: string) {
+  @ApiOperation({ summary: "[DEV] Get admin JWT in one request (requires secret + TOTP if configured)" })
+  @ApiQuery({ name: "secret", required: true, description: "Value of ADMIN_DEV_SECRET in .env" })
+  @ApiQuery({ name: "totp", required: false, description: "6-digit TOTP code (required when ADMIN_TOTP_SECRET is set)" })
+  async devAdminToken(
+    @Query("secret") secret: string,
+    @Query("totp") totp?: string,
+  ) {
     if (process.env.NODE_ENV === "production") {
       throw new UnauthorizedException("Not available in production");
     }
@@ -306,6 +363,14 @@ export class AuthController {
       timingSafeEqual(expectedBuf, receivedBuf);
     if (!match) {
       throw new UnauthorizedException("Wrong secret");
+    }
+
+    // TOTP 2FA — required if ADMIN_TOTP_SECRET is configured
+    const totpSecret = process.env.ADMIN_TOTP_SECRET;
+    if (totpSecret) {
+      if (!totp) throw new UnauthorizedException("TOTP code required");
+      const valid = await totpVerify({ token: totp, secret: totpSecret });
+      if (!valid) throw new UnauthorizedException("Invalid or expired TOTP code");
     }
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
