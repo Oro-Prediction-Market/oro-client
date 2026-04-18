@@ -21,21 +21,25 @@ export class TelegramSimpleService {
    * 64-byte callback_data limit (13 digits + "p:" prefix = 15 bytes).
    * Persisted in Redis so server restarts don't invalidate pending buttons.
    */
-  async registerProposeKey(marketId: string, outcomeId: string): Promise<number> {
+  async registerProposeKey(
+    marketId: string,
+    outcomeId: string,
+    windowMinutes: number = 60,
+  ): Promise<number> {
     const key = Date.now();
     await this.redis.setJsonEx(
       `oro:propose:${key}`,
       this.PROPOSE_KEY_TTL_SEC,
-      { marketId, outcomeId },
+      { marketId, outcomeId, windowMinutes },
     );
     return key;
   }
 
-  /** Resolve a short key back to {marketId, outcomeId}, or undefined if expired/missing. */
+  /** Resolve a short key back to {marketId, outcomeId, windowMinutes}, or undefined if expired/missing. */
   async resolveProposeKey(
     key: number,
-  ): Promise<{ marketId: string; outcomeId: string } | undefined> {
-    const val = await this.redis.getJson<{ marketId: string; outcomeId: string }>(
+  ): Promise<{ marketId: string; outcomeId: string; windowMinutes: number } | undefined> {
+    const val = await this.redis.getJson<{ marketId: string; outcomeId: string; windowMinutes: number }>(
       `oro:propose:${key}`,
     );
     return val ?? undefined;

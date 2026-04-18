@@ -635,8 +635,8 @@ export class BotPollingService
         return;
       }
 
-      const { marketId, outcomeId } = resolved;
-      this.logger.log(`[Bot] resolved key ${key} → marketId=${marketId} outcomeId=${outcomeId}`);
+      const { marketId, outcomeId, windowMinutes: resolvedWindowMins } = resolved;
+      this.logger.log(`[Bot] resolved key ${key} → marketId=${marketId} outcomeId=${outcomeId} windowMinutes=${resolvedWindowMins}`);
 
       try {
         // Load market — use update() later to avoid cascade-save on eager outcomes
@@ -658,14 +658,13 @@ export class BotPollingService
         const outcome = (market.outcomes ?? []).find((o) => o.id === outcomeId);
         if (!outcome) throw new Error(`Outcome ${outcomeId} not found in market`);
 
-        // Use update() instead of save() to avoid TypeORM cascading to outcomes
-        const BOT_PROPOSE_WINDOW_MINS = 24 * 60; // 24 h in minutes
-        const disputeDeadlineAt = new Date(Date.now() + BOT_PROPOSE_WINDOW_MINS * 60 * 1000);
+        // Use the window duration stored in the Redis key (set by keeper when sending the button)
+        const disputeDeadlineAt = new Date(Date.now() + resolvedWindowMins * 60 * 1000);
         await this.marketRepo.update(
           { id: marketId },
           {
             proposedOutcomeId: outcomeId,
-            windowMinutes: BOT_PROPOSE_WINDOW_MINS,
+            windowMinutes: resolvedWindowMins,
             disputeDeadlineAt,
             status: MarketStatus.RESOLVING,
           },
@@ -674,12 +673,31 @@ export class BotPollingService
 
         this.logger.log(`[Bot] market "${market.title}" transitioned to RESOLVING via bot propose`);
 
+        // Post objection window announcement to the channel so users see it
+        const miniAppUrl =
+          this.config.get<string>("TELEGRAM_MINI_APP_URL") ||
+          process.env.TELEGRAM_MINI_APP_URL ||
+          "";
+        const windowLabel =
+          resolvedWindowMins >= 60
+            ? `${resolvedWindowMins / 60} hour${resolvedWindowMins > 60 ? "s" : ""}`
+            : `${resolvedWindowMins} minutes`;
+        await this.telegramSimple.postToChannel(
+          `⚖️ <b>OBJECTION WINDOW OPEN</b>\n\n` +
+            `📊 <b>${market.title}</b>\n\n` +
+            `🔖 <b>Proposed Winner:</b> ${outcome.label}\n` +
+            `⏳ Window: ${windowLabel} — object if you disagree\n` +
+            `💡 Evidence will be published when the market is settled.\n\n` +
+            `👉 <a href="${miniAppUrl}">View Market</a>`,
+        );
+
         await this.telegramSimple.sendMessage(
           chatId,
           `⚖️ <b>Dispute Window Opened</b>\n\n` +
             `📊 <b>${market.title}</b>\n` +
             `🏆 Proposed winner: <b>${outcome.label}</b>\n` +
-            `⏳ Dispute deadline: ${disputeDeadlineAt.toLocaleString()}\n\n` +
+            `⏳ Window: ${windowLabel}\n` +
+            `📅 Deadline: ${disputeDeadlineAt.toLocaleString()}\n\n` +
             `The keeper will auto-settle when the window expires with no valid disputes.`,
         );
       } catch (err: any) {
@@ -717,13 +735,13 @@ export class BotPollingService
         const outcome = (market.outcomes ?? []).find((o) => o.id === outcomeId);
         if (!outcome) throw new Error("Outcome not found in market");
 
-        const BOT_PROPOSE_WINDOW_MINS = 24 * 60;
-        const disputeDeadlineAt = new Date(Date.now() + BOT_PROPOSE_WINDOW_MINS * 60 * 1000);
+        const LEGACY_WINDOW_MINS = 60; // 1-hour default for legacy callbacks
+        const disputeDeadlineAt = new Date(Date.now() + LEGACY_WINDOW_MINS * 60 * 1000);
         await this.marketRepo.update(
           { id: marketId },
           {
             proposedOutcomeId: outcomeId,
-            windowMinutes: BOT_PROPOSE_WINDOW_MINS,
+            windowMinutes: LEGACY_WINDOW_MINS,
             disputeDeadlineAt,
             status: MarketStatus.RESOLVING,
           },
@@ -731,12 +749,28 @@ export class BotPollingService
         await this.redis.del("oro:cache:markets:all", `oro:cache:market:${marketId}`);
         this.logger.log(`[Bot][legacy] Admin proposed "${outcome.label}" for "${market.title}"`);
 
+        // Post objection window announcement to the channel
+        const miniAppUrlLegacy =
+          this.config.get<string>("TELEGRAM_MINI_APP_URL") ||
+          process.env.TELEGRAM_MINI_APP_URL ||
+          "";
+        const legacyWindowLabel = `1 hour`;
+        await this.telegramSimple.postToChannel(
+          `⚖️ <b>OBJECTION WINDOW OPEN</b>\n\n` +
+            `📊 <b>${market.title}</b>\n\n` +
+            `🔖 <b>Proposed Winner:</b> ${outcome.label}\n` +
+            `⏳ Window: ${legacyWindowLabel} — object if you disagree\n` +
+            `💡 Evidence will be published when the market is settled.\n\n` +
+            `👉 <a href="${miniAppUrlLegacy}">View Market</a>`,
+        );
+
         await this.telegramSimple.sendMessage(
           chatId,
           `⚖️ <b>Dispute Window Opened</b>\n\n` +
             `📊 <b>${market.title}</b>\n` +
             `🏆 Proposed winner: <b>${outcome.label}</b>\n` +
-            `⏳ Dispute deadline: ${disputeDeadlineAt.toLocaleString()}\n\n` +
+            `⏳ Window: ${legacyWindowLabel}\n` +
+            `📅 Deadline: ${disputeDeadlineAt.toLocaleString()}\n\n` +
             `The keeper will auto-settle when the window expires with no valid disputes.`,
         );
       } catch (err: any) {

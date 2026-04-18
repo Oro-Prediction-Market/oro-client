@@ -506,6 +506,8 @@ export class KeeperService {
       this.logger.warn("ADMIN_TELEGRAM_ID not set — skipping admin propose DM");
       return;
     }
+    // Default window used when proposing via bot button (matches admin panel default)
+    const DEFAULT_WINDOW_MINS = 60;
     const closedAt = market.closesAt
       ? new Date(market.closesAt).toLocaleString()
       : "now";
@@ -513,12 +515,12 @@ export class KeeperService {
       `🔔 <b>Keeper: Market Closed</b>\n\n` +
       `📊 <b>${market.title}</b>\n` +
       `⏱ Closed at: ${closedAt}\n\n` +
-      `👇 <b>Tap the winning outcome</b> to open the 24h dispute window:`;
+      `👇 <b>Tap the winning outcome</b> to open the 1-hour dispute window:`;
 
     // Register each outcome as a short key — well under 64 bytes
     const buttons = await Promise.all(
       (market.outcomes ?? []).map(async (o) => {
-        const key = await this.telegram.registerProposeKey(market.id, o.id);
+        const key = await this.telegram.registerProposeKey(market.id, o.id, DEFAULT_WINDOW_MINS);
         return [{ text: o.label, callbackData: `p:${key}` }];
       }),
     );

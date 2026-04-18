@@ -369,7 +369,7 @@ export class AuthController {
     const totpSecret = process.env.ADMIN_TOTP_SECRET;
     if (totpSecret) {
       if (!totp) throw new UnauthorizedException("TOTP code required");
-      const valid = await totpVerify({ token: totp, secret: totpSecret });
+      const { valid } = await totpVerify({ token: totp, secret: totpSecret });
       if (!valid) throw new UnauthorizedException("Invalid or expired TOTP code");
     }
 
