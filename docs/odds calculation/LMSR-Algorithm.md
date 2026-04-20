@@ -1,28 +1,28 @@
-# LMSR in Tara: Bhutanese Archery Betting Platform
+# LMSR in Oro: Bhutanese Archery Betting Platform
 
-> **Project-Specific Guide**: This document explains how Logarithmic Market Scoring Rule (LMSR) relates to Tara's current parimutuel implementation and how it could be integrated for improved odds display.
+> **Project-Specific Guide**: This document explains how Logarithmic Market Scoring Rule (LMSR) relates to Oro's current parimutuel implementation and how it could be integrated for improved odds display.
 
 ## Table of Contents
 
-1. [Tara's Current Implementation](#taras-current-implementation)
+1. [Oro's Current Implementation](#Oros-current-implementation)
 2. [LMSR Conceptual Overview](#lmsr-conceptual-overview)
 3. [Core Formula](#core-formula)
 4. [Price Calculation](#price-calculation)
 5. [Worked Example: Archery Match](#worked-example-archery-match)
-6. [Integrating LMSR with Tara's Parimutuel System](#integrating-lmsr-with-taras-parimutuel-system)
-7. [Implementation Guide for Tara](#implementation-guide-for-tara)
+6. [Integrating LMSR with Oro's Parimutuel System](#integrating-lmsr-with-Oros-parimutuel-system)
+7. [Implementation Guide for Oro](#implementation-guide-for-Oro)
 8. [Liquidity Parameter b](#liquidity-parameter-b)
 9. [Edge Cases & Considerations](#edge-cases--considerations)
 
 ---
 
-## Tara's Current Implementation
+## Oro's Current Implementation
 
 ### Existing Parimutuel Engine
 
 **File**: `/backend/src/markets/parimutuel.engine.ts`
 
-Tara currently uses a **traditional parimutuel** system:
+Oro currently uses a **traditional parimutuel** system:
 
 ```typescript
 // Current odds calculation in ParimutuelEngine
@@ -215,7 +215,7 @@ Cost = C(60, 30) - C(50, 30)
 
 ### Scenario: Thimphu Tigers vs Paro Panthers
 
-This example uses Tara's actual configuration and entity structure.
+This example uses Oro's actual configuration and entity structure.
 
 **Setup:**
 
@@ -228,9 +228,9 @@ This example uses Tara's actual configuration and entity structure.
 - **Liquidity Parameter**: b = 1000 BTN
 - **Initial State**: No bets placed yet
 
-### Tara's Current Parimutuel vs LMSR
+### Oro's Current Parimutuel vs LMSR
 
-| Aspect              | Tara's Parimutuel | LMSR Alternative       |
+| Aspect              | Oro's Parimutuel | LMSR Alternative       |
 | ------------------- | ----------------- | ---------------------- |
 | **Initial odds**    | Undefined (0/0)   | 50/50 (balanced start) |
 | **After first bet** | Extreme odds      | Smooth adjustment      |
@@ -382,9 +382,9 @@ p₂ = e^0.4 / (e^0.5 + e^0.4) = 1.4918 / 3.1405 = 0.475 (47.5%)
 - Paro Panthers bet brought probabilities closer together
 - Contrarian betting is more expensive (higher average price per share)
 
-### Comparison with Tara's Current System
+### Comparison with Oro's Current System
 
-**Same scenario in Tara's parimutuel**:
+**Same scenario in Oro's parimutuel**:
 
 ```typescript
 // State after all bets
@@ -392,7 +392,7 @@ market.totalPool = 50 + 50 + 100 = 200 BTN
 outcomes[0].totalBetAmount = 100 BTN (Thimphu Tigers)
 outcomes[1].totalBetAmount = 100 BTN (Paro Panthers)
 
-// Calculate odds using Tara's formula
+// Calculate odds using Oro's formula
 payoutPool = 200 * (1 - 0.05) = 190 BTN
 
 odds[Tigers] = 190 / 100 = 1.90x
@@ -408,14 +408,14 @@ Trader3 = 0 BTN (lost 100 BTN)
 **Key Difference:**
 
 - **LMSR**: Shows probabilities and expected values during betting
-- **Tara's Parimutuel**: Final odds only known at market close
+- **Oro's Parimutuel**: Final odds only known at market close
 - **Both**: Same total payout (pool redistribution)
 
 ---
 
-## Integrating LMSR with Tara's Parimutuel System
+## Integrating LMSR with Oro's Parimutuel System
 
-### Why Consider LMSR for Tara?
+### Why Consider LMSR for Oro?
 
 **Current Pain Points:**
 
@@ -1003,7 +1003,7 @@ LMSR is a powerful mechanism for creating liquid prediction markets with bounded
 - Implementation requires careful attention to numerical stability
 - Hybrid models can combine LMSR pricing with parimutuel payouts
 
-For your Tara platform, we recommend using LMSR for **odds display** while maintaining **traditional parimutuel** mechanics for payouts, giving users familiar outcomes while improving the betting experience with live odds.
+For your Oro platform, we recommend using LMSR for **odds display** while maintaining **traditional parimutuel** mechanics for payouts, giving users familiar outcomes while improving the betting experience with live odds.
 
 ---
 

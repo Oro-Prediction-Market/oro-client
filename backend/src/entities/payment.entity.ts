@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from "typeorm";
 import { User } from "./user.entity";
 
@@ -30,6 +31,8 @@ export enum PaymentMethod {
   CREDITS = "credits",
 }
 
+@Index(["userId"])
+@Index(["status"])
 @Entity("payments")
 export class Payment {
   @PrimaryGeneratedColumn("uuid")

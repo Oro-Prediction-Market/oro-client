@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Collectible Badges Preview</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: #0f0f18;
+        color: #f1f5f9;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        min-height: 100vh;
+        padding: 40px 24px;
+      }
+      h1 {
+        font-size: 1rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #818cf8;
+        text-align: center;
+        margin-bottom: 40px;
+      }
+      .section {
+        margin-bottom: 40px;
+      }
+      .section-label {
+        font-size: 0.6rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #818cf8;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .section-label::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: rgba(99, 102, 241, 0.2);
+      }
+      /* Badge grid */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 14px;
+      }
+      .badge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .bubble {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #1e1e32;
+        border: 1.5px solid #f59e0b44;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
+        position: relative;
+      }
+      .bubble.locked {
+        opacity: 0.38;
+        filter: grayscale(0.8);
+        border-color: transparent;
+        box-shadow: none;
+      }
+      .bubble.legendary {
+        border: 2px solid #ffd700;
+        box-shadow: 0 0 16px rgba(255, 215, 0, 0.4);
+        animation: legendaryPulse 2.5s ease-in-out infinite;
+      }
+      .bubble img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      /* Placeholder for missing images */
+      .bubble .placeholder {
+        font-size: 22px;
+        opacity: 0.5;
+      }
+      .badge-name {
+        font-size: 8.5px;
+        font-weight: 600;
+        color: #94a3b8;
+        text-align: center;
+        line-height: 1.2;
+        max-width: 56px;
+      }
+      .badge.unlocked .badge-name {
+        color: #e2e8f0;
+      }
+      .badge.legendary .badge-name {
+        color: #f59e0b;
+        font-weight: 800;
+      }
+      /* States row */
+      .states {
+        display: flex;
+        gap: 32px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 40px;
+        padding: 20px 24px;
+        background: #13131f;
+        border-radius: 16px;
+        border: 1px solid rgba(99, 102, 241, 0.15);
+      }
+      .state-group {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .state-label {
+        font-size: 0.6rem;
+        color: #64748b;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      @keyframes legendaryPulse {
+        0%,
+        100% {
+          box-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+        }
+        50% {
+          box-shadow: 0 0 24px rgba(255, 215, 0, 0.8);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🏅 Collectible Badges Preview</h1>
+
+    <!-- States reference -->
+    <div class="states">
+      <div class="state-group">
+        <div class="bubble">
+          <img src="volumebadges/firstcall.png" alt="" />
+        </div>
+        <div class="state-label">Unlocked</div>
+      </div>
+      <div class="state-group">
+        <div class="bubble locked">
+          <img src="volumebadges/firstcall.png" alt="" />
+        </div>
+        <div class="state-label">Locked</div>
+      </div>
+      <div class="state-group">
+        <div class="bubble legendary">
+          <img src="referralbadges/kingmaker.png" alt="" />
+        </div>
+        <div class="state-label">Legendary</div>
+      </div>
+    </div>
+
+    <!-- Volume -->
+    <div class="section">
+      <div class="section-label">🎯 Volume</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="volumebadges/firstcall.png" alt="First Call" />
+          </div>
+          <div class="badge-name">First Call</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="volumebadges/triplethreat.png" alt="Triple Threat" />
+          </div>
+          <div class="badge-name">Triple Threat</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="volumebadges/sharpstart.png" alt="Sharp Start" />
+          </div>
+          <div class="badge-name">Sharp Start</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="volumebadges/tendeep.png" alt="Ten Deep" />
+          </div>
+          <div class="badge-name">Ten Deep</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="volumebadges/committed.png" alt="Committed" />
+          </div>
+          <div class="badge-name">Committed</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="volumebadges/centurian.png" alt="Centurion" />
+          </div>
+          <div class="badge-name">Centurion</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accuracy -->
+    <div class="section">
+      <div class="section-label">👁️ Accuracy</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="accuraybadges/aboveaverage.png" alt="Above Average" />
+          </div>
+          <div class="badge-name">Above Average</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="accuraybadges/eagleeye.png" alt="Eagle Eye" />
+          </div>
+          <div class="badge-name">Eagle Eye</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="accuraybadges/sharpened.png" alt="Sharpened" />
+          </div>
+          <div class="badge-name">Sharpened</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="accuraybadges/oracle.png" alt="Oracle" />
+          </div>
+          <div class="badge-name">Oracle</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="accuraybadges/electrified.png" alt="Electrified" />
+          </div>
+          <div class="badge-name">Electrified</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="accuraybadges/godlike.png" alt="Godlike" />
+          </div>
+          <div class="badge-name">Godlike</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Correct Calls -->
+    <div class="section">
+      <div class="section-label">✅ Correct Calls</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="correctcallsbadges/rightonce.png" alt="Right Once" />
+          </div>
+          <div class="badge-name">Right Once</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="correctcallsbadges/doubledigit.png" alt="Double Digit" />
+          </div>
+          <div class="badge-name">Double Digit</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="correctcallsbadges/thinktank.png" alt="Think Tank" />
+          </div>
+          <div class="badge-name">Think Tank</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="correctcallsbadges/halfcentury.png" alt="Half Century" />
+          </div>
+          <div class="badge-name">Half Century</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tiers -->
+    <div class="section">
+      <div class="section-label">🏅 Tiers</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="tierbadges/rookie.png" alt="Rookie" />
+          </div>
+          <div class="badge-name">Rookie</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="tierbadges/sharpshooter.png" alt="Sharpshooter" />
+          </div>
+          <div class="badge-name">Sharpshooter</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="tierbadges/hothand.png" alt="Hot Hand" />
+          </div>
+          <div class="badge-name">Hot Hand</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="tierbadges/legend.png" alt="Legend" />
+          </div>
+          <div class="badge-name">Legend</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Profile -->
+    <div class="section">
+      <div class="section-label">👤 Profile</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="profilebadges/verified.png" alt="Verified" />
+          </div>
+          <div class="badge-name">Verified</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="profilebadges/bankrolled.png" alt="Bankrolled" />
+          </div>
+          <div class="badge-name">Bankrolled</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="profilebadges/connected.png" alt="Connected" />
+          </div>
+          <div class="badge-name">Connected</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="profilebadges/highscore.png" alt="High Score" />
+          </div>
+          <div class="badge-name">High Score</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Referrals -->
+    <div class="section">
+      <div class="section-label">🤝 Referrals</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="referralbadges/connector.png" alt="Connector" />
+          </div>
+          <div class="badge-name">Connector</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="referralbadges/ambassador.png" alt="Ambassador" />
+          </div>
+          <div class="badge-name">Ambassador</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="referralbadges/influencer.png" alt="Influencer" />
+          </div>
+          <div class="badge-name">Influencer</div>
+        </div>
+        <div class="badge legendary">
+          <div class="bubble legendary">
+            <img src="referralbadges/kingmaker.png" alt="Kingmaker" />
+          </div>
+          <div class="badge-name">Kingmaker</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Duels -->
+    <div class="section">
+      <div class="section-label">⚔️ Duels</div>
+      <div class="grid">
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="duelbadges/challenger.png" alt="Challenger" />
+          </div>
+          <div class="badge-name">Challenger</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="duelbadges/onfire.png" alt="On Fire" />
+          </div>
+          <div class="badge-name">On Fire</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="duelbadges/duelmaster.png" alt="Duel Master" />
+          </div>
+          <div class="badge-name">Duel Master</div>
+        </div>
+        <!-- Missing images — placeholder -->
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="duelbadges/deadeye.png" alt="Dead-Eye" />
+          </div>
+          <div class="badge-name">Dead-Eye</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="duelbadges/packleader.png" alt="Pack Leader" />
+          </div>
+          <div class="badge-name">Pack Leader</div>
+        </div>
+        <div class="badge unlocked">
+          <div class="bubble">
+            <img src="duelbadges/dueloracle.png" alt="Duel Oracle" />
+          </div>
+          <div class="badge-name">Duel Oracle</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Locked state demo -->
+    <div class="section">
+      <div class="section-label">🔒 Locked State (all badges)</div>
+      <div class="grid">
+        <div class="badge">
+          <div class="bubble locked">
+            <img src="volumebadges/firstcall.png" alt="" />
+          </div>
+          <div class="badge-name">First Call</div>
+        </div>
+        <div class="badge">
+          <div class="bubble locked">
+            <img src="volumebadges/triplethreat.png" alt="" />
+          </div>
+          <div class="badge-name">Triple Threat</div>
+        </div>
+        <div class="badge">
+          <div class="bubble locked">
+            <img src="accuraybadges/eagleeye.png" alt="" />
+          </div>
+          <div class="badge-name">Eagle Eye</div>
+        </div>
+        <div class="badge">
+          <div class="bubble locked">
+            <img src="accuraybadges/godlike.png" alt="" />
+          </div>
+          <div class="badge-name">Godlike</div>
+        </div>
+        <div class="badge">
+          <div class="bubble locked">
+            <img src="tierbadges/legend.png" alt="" />
+          </div>
+          <div class="badge-name">Legend</div>
+        </div>
+        <div class="badge">
+          <div class="bubble locked">
+            <img src="referralbadges/kingmaker.png" alt="" />
+          </div>
+          <div class="badge-name">Kingmaker</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

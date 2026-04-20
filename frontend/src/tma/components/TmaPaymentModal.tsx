@@ -12,7 +12,7 @@ import type { DKBankPaymentRequest, PaymentResponse } from "@/types/payment";
 import { PayoutBreakdown } from "@/components/PayoutBreakdown";
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
-const MIN_BET = 50;
+const MIN_BET = 100;
 
 interface TmaPaymentModalProps {
   isOpen: boolean;
@@ -35,7 +35,9 @@ export function TmaPaymentModal({
   onSuccess,
   onFailure,
 }: TmaPaymentModalProps) {
-  const [selectedMethod, setSelectedMethod] = useState<"dkbank" | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<
+    "dkbank" | "credits" | null
+  >(null);
   const [amountStr, setAmountStr] = useState(() =>
     initialAmount ? String(initialAmount) : "100",
   );
@@ -47,6 +49,7 @@ export function TmaPaymentModal({
   const [error, setError] = useState("");
   const [pendingPaymentId, setPendingPaymentId] = useState("");
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [creditsBalance, setCreditsBalance] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch user's linked CID when modal opens — auto-fill and lock
@@ -59,6 +62,7 @@ export function TmaPaymentModal({
           setCidNumber(u.dkCid);
           if (u.dkAccountName) setCustomerName(u.dkAccountName);
         }
+        setCreditsBalance(u.creditsBalance ?? 0);
       })
       .catch(() => {});
   }, [isOpen]);
@@ -95,12 +99,21 @@ export function TmaPaymentModal({
     status === "idle" &&
     selectedMethod === "dkbank";
 
+  // Credits bet is allowed when user has sufficient balance
+  const hasEnoughCredits =
+    creditsBalance !== null && creditsBalance >= betAmount;
+  const canPayWithCredits =
+    isValidAmount &&
+    selectedMethod === "credits" &&
+    hasEnoughCredits &&
+    status === "idle";
+
   const estPayout = (() => {
     if (!isValidAmount || !outcome) return 0;
-    const houseEdge = parseFloat(market.houseEdgePct) || 0;
-    const outcomePool = Number(outcome.totalBetAmount) + betAmount;
-    const totalPool = Number(market.totalPool) + betAmount;
-    if (outcomePool <= 0) return 0;
+    const houseEdge = Number(market.houseEdgePct) || 0;
+    const outcomePool = (Number(outcome.totalBetAmount) || 0) + betAmount;
+    const totalPool = (Number(market.totalPool) || 0) + betAmount;
+    if (outcomePool <= 0 || isNaN(outcomePool) || isNaN(totalPool)) return 0;
     return betAmount * ((totalPool * (1 - houseEdge / 100)) / outcomePool);
   })();
   const estProfit = estPayout - betAmount;
@@ -122,6 +135,7 @@ export function TmaPaymentModal({
     setStatus("idle");
     setError("");
     setPendingPaymentId("");
+    setCreditsBalance(null);
   };
 
   const handleClose = () => {
@@ -140,7 +154,7 @@ export function TmaPaymentModal({
         cid: cidNumber,
         customerName: customerName || undefined,
         description: `Predict: ${market.title} — ${outcome?.label}`,
-        merchantTxnId: `TARA_TMA_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        merchantTxnId: `ORO_TMA_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       };
       const payment = await initiateDKBankPayment(req);
       if (payment.otpRequired) {
@@ -217,6 +231,47 @@ export function TmaPaymentModal({
     poll();
   };
 
+  /** Pay directly from Oro credits balance (no DK Bank debit needed). */
+  const handlePayWithCredits = async () => {
+    if (!canPayWithCredits || !outcomeId) return;
+    setStatus("processing");
+    setError("");
+    try {
+      // Verify balance is still sufficient (re-fetch to prevent stale reads)
+      const fresh = await getMe();
+      const freshBal = fresh.creditsBalance ?? 0;
+      setCreditsBalance(freshBal);
+      if (freshBal < betAmount) {
+        setError(
+          `Insufficient balance. You have Nu ${freshBal.toLocaleString()}, need Nu ${betAmount.toLocaleString()}.`,
+        );
+        setStatus("idle");
+        return;
+      }
+      setStatus("success");
+      setTimeout(() => {
+        // onSuccess MUST fire before onClose so the parent's activeBet is
+        // still set when handlePaymentSuccess reads it to call placeBet.
+        onSuccess?.({
+          success: true,
+          paymentId: `credits-${Date.now()}`,
+          status: "success",
+          amount: betAmount,
+          currency: "BTN",
+          method: "credits",
+          message: "Bet placed from Oro Credits",
+          timestamp: new Date().toISOString(),
+        } as PaymentResponse);
+        onClose();
+        resetForm();
+      }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Failed to verify balance");
+      setStatus("failed");
+      onFailure?.(err.message || "Failed to verify balance");
+    }
+  };
+
   return (
     <div
       style={{
@@ -262,6 +317,20 @@ export function TmaPaymentModal({
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
+        @keyframes tmaCoinFall {
+          0%   { transform: translateY(-50px) rotate(0deg);   opacity: 1; }
+          80%  { opacity: 1; }
+          100% { transform: translateY(300px) rotate(540deg); opacity: 0; }
+        }
+        @keyframes tmaOtpPop {
+          0%   { transform: scale(0.7); opacity: 0.4; }
+          60%  { transform: scale(1.12); }
+          100% { transform: scale(1);   opacity: 1; }
+        }
+        @keyframes tmaBalanceCountUp {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
         .pay-method-btn { transition: transform 0.12s ease, box-shadow 0.12s ease; }
         .pay-method-btn:active { transform: scale(0.97); }
       `}</style>
@@ -285,7 +354,39 @@ export function TmaPaymentModal({
       >
         {/* ── Success ── */}
         {status === "success" && (
-          <div style={{ textAlign: "center", padding: "32px 0 24px" }}>
+          <div
+            style={{
+              textAlign: "center",
+              padding: "28px 0 20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            {/* Coins-falling overlay */}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                overflow: "hidden",
+              }}
+            >
+              {Array.from({ length: 14 }).map((_, i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: "absolute",
+                    left: `${Math.random() * 100}%`,
+                    top: 0,
+                    fontSize: [12, 16, 20, 12][i % 4],
+                    animation: `tmaCoinFall ${1.0 + Math.random() * 1.5}s ease-in ${Math.random() * 0.6}s both`,
+                  }}
+                >
+                  {["🪙", "💰", "✨", "🎊"][i % 4]}
+                </div>
+              ))}
+            </div>
+
             <div
               style={{
                 display: "inline-flex",
@@ -295,23 +396,12 @@ export function TmaPaymentModal({
                 height: 72,
                 borderRadius: "50%",
                 background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
-                marginBottom: 16,
+                marginBottom: 14,
                 animation:
                   "tmaSuccessPop 0.55s cubic-bezier(0.34,1.56,0.64,1) forwards, tmaSuccessGlow 1.2s ease 0.55s 2",
               }}
             >
-              <svg
-                width="38"
-                height="38"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#16a34a"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <span style={{ fontSize: 36 }}>🎉</span>
             </div>
             <div
               style={{
@@ -328,10 +418,26 @@ export function TmaPaymentModal({
               style={{
                 fontSize: 13,
                 color: "var(--text-muted)",
+                marginBottom: 12,
                 animation: "tmaFadeIn 0.35s ease 0.45s both",
               }}
             >
               Your payment was confirmed
+            </div>
+            {/* Balance count-up after bet */}
+            <div
+              style={{
+                display: "inline-block",
+                padding: "8px 18px",
+                borderRadius: 10,
+                background: "rgba(22,163,74,0.1)",
+                border: "1px solid rgba(22,163,74,0.25)",
+                animation: "tmaBalanceCountUp 0.4s ease 0.6s both",
+              }}
+            >
+              <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 700 }}>
+                Bet placed · Nu {betAmount.toLocaleString()} 🎯
+              </span>
             </div>
           </div>
         )}
@@ -481,23 +587,111 @@ export function TmaPaymentModal({
               }}
             />
 
+            {/* OTP Visual header */}
             <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>📲</div>
               <div
                 style={{
-                  fontSize: 14,
-                  fontWeight: 700,
+                  width: 60,
+                  height: 60,
+                  borderRadius: "50%",
+                  background:
+                    "linear-gradient(135deg, rgba(37,117,208,0.18), rgba(37,117,208,0.06))",
+                  border: "2px solid rgba(37,117,208,0.3)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 26,
+                  marginBottom: 10,
+                }}
+              >
+                📲
+              </div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 800,
                   color: "var(--text-main)",
                   marginBottom: 4,
                 }}
               >
-                OTP Sent
+                Confirm Your Bet
               </div>
-              <div style={{ fontSize: 13, color: "var(--text-subtle)" }}>
-                Enter the code sent to you via Telegram bot
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-subtle)",
+                  lineHeight: 1.5,
+                }}
+              >
+                Enter the code sent to your{" "}
+                <strong style={{ color: "var(--text-muted)" }}>
+                  Telegram bot
+                </strong>
               </div>
             </div>
 
+            {/* Animated digit boxes */}
+            <div
+              style={{
+                display: "flex",
+                gap: 7,
+                justifyContent: "center",
+                marginBottom: 14,
+              }}
+            >
+              {Array.from({ length: 6 }).map((_, i) => {
+                const digit = otpValue[i];
+                const isFilled = !!digit;
+                const isActive = otpValue.length === i;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      width: 42,
+                      height: 52,
+                      borderRadius: 11,
+                      border: isFilled
+                        ? "2px solid #2563eb"
+                        : isActive
+                          ? "2px solid rgba(37,99,235,0.45)"
+                          : "2px solid var(--glass-border)",
+                      background: isFilled
+                        ? "rgba(37,99,235,0.1)"
+                        : "var(--bg-main)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "#3b82f6",
+                      transition: "all 0.12s",
+                      animation: isFilled ? "tmaOtpPop 0.2s ease" : "none",
+                      boxShadow: isActive
+                        ? "0 0 0 3px rgba(37,99,235,0.12)"
+                        : "none",
+                    }}
+                  >
+                    {digit ??
+                      (isActive ? (
+                        <span
+                          style={{
+                            width: 2,
+                            height: 20,
+                            background: "#3b82f6",
+                            borderRadius: 2,
+                            animation:
+                              "tmaSuccessGlow 0.9s ease-in-out infinite",
+                          }}
+                        />
+                      ) : (
+                        ""
+                      ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Hidden real input */}
             <input
               type="text"
               inputMode="numeric"
@@ -506,25 +700,39 @@ export function TmaPaymentModal({
                 setOtpValue(e.target.value.replace(/\D/g, "").slice(0, 8));
                 setError("");
               }}
-              placeholder="- - - - - -"
               autoFocus
+              id="tma-otp-input"
               style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "16px",
-                borderRadius: 10,
-                border: error
-                  ? "2px solid #ef4444"
-                  : "2px solid var(--glass-border)",
-                background: "var(--bg-main)",
-                color: "var(--text-main)",
-                fontSize: 24,
-                fontWeight: 700,
-                letterSpacing: "0.3em",
-                textAlign: "center",
-                outline: "none",
+                position: "absolute",
+                opacity: 0,
+                pointerEvents: "none",
+                width: 1,
+                height: 1,
               }}
             />
+
+            {/* Tap to open keyboard */}
+            <button
+              onClick={() => document.getElementById("tma-otp-input")?.focus()}
+              style={{
+                width: "100%",
+                padding: "9px",
+                marginBottom: 6,
+                borderRadius: 9,
+                border: "1.5px dashed var(--glass-border)",
+                background: "transparent",
+                color: "var(--text-subtle)",
+                fontSize: 12,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              📱 Tap to enter OTP
+            </button>
+
             {error && (
               <div
                 style={{
@@ -820,6 +1028,76 @@ export function TmaPaymentModal({
                     </div>
                   </div>
                 </div>
+
+                {/* Oro Credits button */}
+                <button
+                  onClick={() => setSelectedMethod("credits")}
+                  className="pay-method-btn"
+                  style={{
+                    flex: 1,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    border:
+                      selectedMethod === "credits"
+                        ? "2px solid #10b981"
+                        : "1.5px solid rgba(255,255,255,0.18)",
+                    background:
+                      selectedMethod === "credits"
+                        ? "rgba(16,185,129,0.15)"
+                        : "rgba(255,255,255,0.09)",
+                    boxShadow:
+                      selectedMethod === "credits"
+                        ? "0 0 0 3px rgba(16,185,129,0.2), 0 4px 14px rgba(16,185,129,0.25)"
+                        : "0 3px 8px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.12)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 28,
+                      height: 22,
+                      borderRadius: 5,
+                      background: "linear-gradient(135deg, #10b981, #059669)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      fontSize: 13,
+                    }}
+                  >
+                    💰
+                  </div>
+                  <div style={{ textAlign: "left" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color:
+                          selectedMethod === "credits"
+                            ? "#6ee7b7"
+                            : "var(--text-muted)",
+                      }}
+                    >
+                      Oro Credits
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color:
+                          selectedMethod === "credits"
+                            ? "#6ee7b7"
+                            : "var(--text-subtle)",
+                      }}
+                    >
+                      {creditsBalance !== null
+                        ? `Nu ${Number(creditsBalance).toLocaleString()}`
+                        : "Loading…"}
+                    </div>
+                  </div>
+                </button>
               </div>
 
               {/* Amount + CID */}
@@ -1124,6 +1402,271 @@ export function TmaPaymentModal({
                   </div>
                 </>
               )}
+
+              {/* ── Oro Credits form ── */}
+              {selectedMethod === "credits" && (
+                <>
+                  <div
+                    style={{
+                      height: 1,
+                      background: "var(--glass-border)",
+                      marginBottom: 16,
+                    }}
+                  />
+
+                  {/* Balance display */}
+                  <div
+                    style={{
+                      padding: "14px 16px",
+                      borderRadius: 12,
+                      background: "rgba(16,185,129,0.08)",
+                      border: "1px solid rgba(16,185,129,0.3)",
+                      marginBottom: 16,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "var(--text-subtle)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        Available Balance
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 20,
+                          fontWeight: 800,
+                          color: "#10b981",
+                        }}
+                      >
+                        Nu{" "}
+                        {creditsBalance !== null
+                          ? Number(creditsBalance).toLocaleString()
+                          : "…"}
+                      </div>
+                    </div>
+                    {betAmount > 0 && creditsBalance !== null && (
+                      <div style={{ textAlign: "right" }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: "var(--text-subtle)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          After bet
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 16,
+                            fontWeight: 800,
+                            color: hasEnoughCredits
+                              ? "var(--text-main)"
+                              : "#ef4444",
+                          }}
+                        >
+                          Nu {(creditsBalance - betAmount).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!hasEnoughCredits && betAmount > 0 && (
+                    <div
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: 10,
+                        background: "rgba(239,68,68,0.1)",
+                        border: "1px solid rgba(239,68,68,0.3)",
+                        color: "#ef4444",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        marginBottom: 12,
+                      }}
+                    >
+                      ⚠️ Insufficient balance. Deposit via DK Bank first.
+                    </div>
+                  )}
+
+                  {/* Amount */}
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "var(--text-subtle)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Amount (Nu)
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    {QUICK_AMOUNTS.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setAmountStr(q.toString())}
+                        className="tma-outcome-btn"
+                        style={{
+                          flex: 1,
+                          padding: "10px 0",
+                          borderRadius: 12,
+                          border:
+                            amountStr === q.toString()
+                              ? "2px solid #10b981"
+                              : "1px solid var(--border)",
+                          borderBottomWidth: 2,
+                          background:
+                            amountStr === q.toString()
+                              ? "rgba(16,185,129,0.1)"
+                              : "var(--bg-secondary)",
+                          color:
+                            amountStr === q.toString()
+                              ? "#10b981"
+                              : "var(--text-main)",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ position: "relative", marginBottom: 16 }}>
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 13,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "var(--text-subtle)",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      Nu
+                    </span>
+                    <input
+                      type="number"
+                      min={MIN_BET}
+                      value={amountStr}
+                      onChange={(e) => setAmountStr(e.target.value)}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        padding: "12px 14px 12px 34px",
+                        borderRadius: 10,
+                        border:
+                          isValidAmount || !betAmount
+                            ? "2px solid var(--glass-border)"
+                            : "2px solid #fca5a5",
+                        fontSize: 15,
+                        fontWeight: 600,
+                        color: "var(--text-main)",
+                        background: "var(--bg-main)",
+                        outline: "none",
+                      }}
+                    />
+                  </div>
+
+                  {/* Estimated payout */}
+                  {isValidAmount && (
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        background:
+                          estProfit >= 0
+                            ? "rgba(22,163,74,0.1)"
+                            : "var(--bg-main)",
+                        border: `1px solid ${estProfit >= 0 ? "#86efac" : "var(--glass-border)"}`,
+                        borderRadius: 10,
+                        padding: "10px 14px",
+                        marginBottom: 16,
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: "var(--text-subtle)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          Est. payout if win
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 18,
+                            fontWeight: 800,
+                            color:
+                              estProfit >= 0 ? "#16a34a" : "var(--text-muted)",
+                          }}
+                        >
+                          {estProfit >= 0 ? `Nu ${estPayout.toFixed(2)}` : "—"}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: "var(--text-subtle)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          Est. profit
+                        </div>
+                        {estProfit >= 0 ? (
+                          <div
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 700,
+                              color: "#16a34a",
+                            }}
+                          >
+                            +Nu {estProfit.toFixed(2)}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "var(--text-subtle)",
+                              maxWidth: 120,
+                              textAlign: "right",
+                            }}
+                          >
+                            Grows as more bets join
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isValidAmount && (
+                    <PayoutBreakdown
+                      market={market}
+                      outcomeId={outcomeId}
+                      betAmount={betAmount}
+                    />
+                  )}
+                </>
+              )}
             </div>
 
             {/* FIXED FOOTER */}
@@ -1145,83 +1688,142 @@ export function TmaPaymentModal({
                 </div>
               )}
 
-              <button
-                onClick={handlePay}
-                disabled={!canPay}
-                style={{
-                  width: "100%",
-                  padding: "16px",
-                  background: canPay
-                    ? "linear-gradient(135deg, #2563eb, #1d4ed8)"
-                    : "var(--glass-border)",
-                  color: canPay ? "#fff" : "var(--text-subtle)",
-                  border: "none",
-                  borderRadius: 12,
-                  fontSize: 15,
-                  fontWeight: 800,
-                  cursor: canPay ? "pointer" : "not-allowed",
-                  boxShadow: canPay ? "0 4px 14px rgba(37,99,235,0.4)" : "none",
-                  transition: "all 0.15s ease",
-                  letterSpacing: "0.01em",
-                }}
-              >
-                {status === "processing" ? (
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ animation: "spin 0.8s linear infinite" }}
-                    >
-                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                    </svg>
-                    Processing…
-                  </span>
-                ) : canPay ? (
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                    }}
-                  >
-                    Pay {formatBTN(betAmount)} with
+              {selectedMethod === "credits" ? (
+                <button
+                  onClick={handlePayWithCredits}
+                  disabled={!canPayWithCredits}
+                  style={{
+                    width: "100%",
+                    padding: "16px",
+                    background: canPayWithCredits
+                      ? "linear-gradient(135deg, #059669, #047857)"
+                      : "var(--glass-border)",
+                    color: canPayWithCredits ? "#fff" : "var(--text-subtle)",
+                    border: "none",
+                    borderRadius: 12,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: canPayWithCredits ? "pointer" : "not-allowed",
+                    boxShadow: canPayWithCredits
+                      ? "0 4px 14px rgba(5,150,105,0.4)"
+                      : "none",
+                    transition: "all 0.15s ease",
+                    letterSpacing: "0.01em",
+                  }}
+                >
+                  {status === "processing" ? (
                     <span
                       style={{
-                        background: "#fff",
-                        borderRadius: 5,
-                        padding: "2px 8px",
-                        display: "inline-flex",
+                        display: "flex",
                         alignItems: "center",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                        justifyContent: "center",
+                        gap: 8,
                       }}
                     >
-                      <img
-                        src={dkBankLogo}
-                        alt="DK Bank"
-                        style={{ height: 15, width: "auto" }}
-                      />
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ animation: "spin 0.8s linear infinite" }}
+                      >
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                      Placing Bet…
                     </span>
-                  </span>
-                ) : !isValidAmount ? (
-                  `Min Nu ${MIN_BET}`
-                ) : !selectedMethod ? (
-                  "Select payment method above"
-                ) : null}
-              </button>
+                  ) : !isValidAmount ? (
+                    `Min Nu ${MIN_BET}`
+                  ) : !hasEnoughCredits ? (
+                    "Insufficient Balance"
+                  ) : (
+                    `Place Bet — Nu ${betAmount.toLocaleString()}`
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={handlePay}
+                  disabled={!canPay}
+                  style={{
+                    width: "100%",
+                    padding: "16px",
+                    background: canPay
+                      ? "linear-gradient(135deg, #2563eb, #1d4ed8)"
+                      : "var(--glass-border)",
+                    color: canPay ? "#fff" : "var(--text-subtle)",
+                    border: "none",
+                    borderRadius: 12,
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: canPay ? "pointer" : "not-allowed",
+                    boxShadow: canPay
+                      ? "0 4px 14px rgba(37,99,235,0.4)"
+                      : "none",
+                    transition: "all 0.15s ease",
+                    letterSpacing: "0.01em",
+                  }}
+                >
+                  {status === "processing" ? (
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ animation: "spin 0.8s linear infinite" }}
+                      >
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                      </svg>
+                      Processing…
+                    </span>
+                  ) : canPay ? (
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 8,
+                      }}
+                    >
+                      Pay {formatBTN(betAmount)} with
+                      <span
+                        style={{
+                          background: "#fff",
+                          borderRadius: 5,
+                          padding: "2px 8px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                        }}
+                      >
+                        <img
+                          src={dkBankLogo}
+                          alt="DK Bank"
+                          style={{ height: 15, width: "auto" }}
+                        />
+                      </span>
+                    </span>
+                  ) : !isValidAmount ? (
+                    `Min Nu ${MIN_BET}`
+                  ) : !selectedMethod ? (
+                    "Select payment method above"
+                  ) : null}
+                </button>
+              )}
             </div>
           </div>
         )}

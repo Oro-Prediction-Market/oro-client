@@ -9,7 +9,7 @@ interface PwaBetFormProps {
 }
 
 const DEFAULT_AMOUNT = 100;
-const MIN_BET = 50;
+const MIN_BET = 100;
 const QUICK_AMOUNTS = [50, 100, 200, 500];
 
 function calcWin(market: Market, outcomeId: string, bet: number): number {
@@ -25,13 +25,17 @@ function calcWin(market: Market, outcomeId: string, bet: number): number {
 }
 
 export const PwaBetForm: FC<PwaBetFormProps> = ({ market, onBetPlaced }) => {
-  const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(null);
+  const [selectedOutcomeId, setSelectedOutcomeId] = useState<string | null>(
+    null,
+  );
   const [amount, setAmount] = useState(DEFAULT_AMOUNT.toString());
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [betSuccess, setBetSuccess] = useState(false);
 
   const betAmount = parseFloat(amount) || 0;
-  const winAmount = selectedOutcomeId ? calcWin(market, selectedOutcomeId, betAmount) : 0;
+  const winAmount = selectedOutcomeId
+    ? calcWin(market, selectedOutcomeId, betAmount)
+    : 0;
   const isReady = !!selectedOutcomeId && betAmount >= MIN_BET;
   const show2Outcomes = market.outcomes.length === 2;
 
@@ -39,7 +43,10 @@ export const PwaBetForm: FC<PwaBetFormProps> = ({ market, onBetPlaced }) => {
     if (!selectedOutcomeId) return;
     try {
       const freshMarket = await getMarket(market.id);
-      await placeBet(market.id, { outcomeId: selectedOutcomeId, amount: payment.amount });
+      await placeBet(market.id, {
+        outcomeId: selectedOutcomeId,
+        amount: payment.amount,
+      });
       setBetSuccess(true);
       if (onBetPlaced) onBetPlaced(freshMarket);
     } catch (e: any) {
@@ -58,46 +65,104 @@ export const PwaBetForm: FC<PwaBetFormProps> = ({ market, onBetPlaced }) => {
 
   if (betSuccess) {
     return (
-      <div style={{ background: "var(--bg-card)", border: "1.5px solid var(--glass-border)", borderRadius: "var(--radius-lg)", padding: "40px 20px", textAlign: "center", boxShadow: "var(--shadow-premium)" }}>
-        <div style={{ fontSize: 60, marginBottom: 16 }}>✨</div>
-        <div style={{ fontWeight: 900, fontSize: "1.4rem", color: "#22c55e", marginBottom: 8, fontFamily: "var(--font-display)" }}>Position Opened!</div>
-        <div style={{ fontSize: "0.95rem", color: "var(--text-muted)", fontWeight: 500 }}>Your contract is now live in the pool.</div>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "2px solid var(--color-success)",
+          borderRadius: "var(--radius-lg)",
+          padding: "48px 24px",
+          textAlign: "center",
+          boxShadow: "var(--shadow-lg)",
+          animation: "tickerSlideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
+        }}
+      >
+        <div style={{ fontSize: 64, marginBottom: 20 }}>🌌</div>
+        <div
+          style={{
+            fontWeight: 900,
+            fontSize: "1.6rem",
+            color: "var(--color-success)",
+            marginBottom: 12,
+            fontFamily: "var(--font-display)",
+            letterSpacing: "-0.04em",
+          }}
+        >
+          Prophecy Cast!
+        </div>
+        <div
+          style={{
+            fontSize: "1rem",
+            color: "var(--text-muted)",
+            fontWeight: 600,
+            lineHeight: 1.5,
+          }}
+        >
+          Your position is now active in the pool.<br />
+          The oracles are tracking your fate.
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
       {/* Outcome buttons */}
       <div>
-        <div style={{ fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.08em", color: "var(--text-subtle)", marginBottom: 12, textTransform: "uppercase" }}>
-          PICK AN OUTCOME
+        <div
+          style={{
+            fontSize: "0.75rem",
+            fontWeight: 900,
+            letterSpacing: "0.1em",
+            color: "var(--text-subtle)",
+            marginBottom: "var(--space-md)",
+            textTransform: "uppercase",
+          }}
+        >
+          Cast Your Vote
         </div>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: show2Outcomes ? "1fr 1fr" : "1fr",
-          gap: 12,
-        }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: show2Outcomes ? "1fr 1fr" : "1fr",
+            gap: "var(--space-sm)",
+          }}
+        >
           {market.outcomes.map((outcome, idx) => {
             const isSelected = selectedOutcomeId === outcome.id;
-            const colors = ["#22c55e", "#ef4444", "#f59e0b", "#3b82f6", "#8b5cf6"];
+            const colors = [
+              "#22c55e",
+              "#ef4444",
+              "#f59e0b",
+              "#3b82f6",
+              "#8b5cf6",
+            ];
             const baseColor = colors[idx % colors.length];
-            
+
             return (
               <button
                 key={outcome.id}
-                onClick={() => setSelectedOutcomeId(isSelected ? null : outcome.id)}
+                onClick={() =>
+                  setSelectedOutcomeId(isSelected ? null : outcome.id)
+                }
                 style={{
-                  padding: "20px 12px", borderRadius: "14px",
-                  border: isSelected ? `2.5px solid ${baseColor}` : "2.5px solid var(--glass-border)",
-                  background: isSelected ? `${baseColor}10` : "var(--bg-main)",
+                  padding: "var(--space-md)",
+                  borderRadius: "var(--radius-md)",
+                  border: isSelected
+                    ? `2.5px solid ${baseColor}`
+                    : "1.5px solid var(--border)",
+                  background: isSelected ? `${baseColor}10` : "var(--bg-secondary)",
                   color: isSelected ? baseColor : "var(--text-main)",
-                  fontWeight: 800, fontSize: "1rem",
+                  fontWeight: 900,
+                  fontSize: "1.05rem",
                   cursor: "pointer",
-                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                  lineHeight: 1.2,
-                  boxShadow: isSelected ? `0 4px 12px ${baseColor}20` : "none",
+                  transition: "all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                  lineHeight: 1.1,
+                  boxShadow: isSelected ? `0 8px 16px -4px ${baseColor}40` : "none",
                   transform: isSelected ? "translateY(-2px)" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textAlign: "center",
                 }}
               >
                 {outcome.label}
@@ -109,46 +174,107 @@ export const PwaBetForm: FC<PwaBetFormProps> = ({ market, onBetPlaced }) => {
 
       {/* Win display + amount */}
       {selectedOutcomeId && (
-        <div style={{
-          background: "var(--bg-card)",
-          border: "1.5px solid var(--glass-border)",
-          borderRadius: "var(--radius-md)", padding: "20px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 16,
-          boxShadow: "var(--shadow-sm)",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div
+          style={{
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-md)",
+            padding: "var(--space-md)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-md)",
+            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.05)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+            }}
+          >
             <div>
-              <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "var(--text-subtle)", marginBottom: 4, textTransform: "uppercase" }}>
-                Potential Win
+              <div
+                style={{
+                  fontSize: "0.68rem",
+                  fontWeight: 900,
+                  color: "var(--text-muted)",
+                  marginBottom: 6,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                Potential Return
               </div>
-              <div style={{ fontSize: "2rem", fontWeight: 900, color: winAmount > 0 ? "#22c55e" : "var(--text-muted)", lineHeight: 1, fontFamily: "var(--font-display)" }}>
+              <div
+                style={{
+                  fontSize: "2.2rem",
+                  fontWeight: 900,
+                  color: winAmount > 0 ? "var(--color-success)" : "var(--text-muted)",
+                  lineHeight: 0.9,
+                  fontFamily: "var(--font-display)",
+                  letterSpacing: "-0.04em",
+                }}
+              >
                 {winAmount > 0 ? `Nu ${Math.floor(winAmount)}` : "—"}
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "var(--text-subtle)", marginBottom: 4, textTransform: "uppercase" }}>
-                Amount
+              <div
+                style={{
+                  fontSize: "0.68rem",
+                  fontWeight: 900,
+                  color: "var(--text-muted)",
+                  marginBottom: 6,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                Input
               </div>
-              <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--text-main)" }}>
+              <div
+                style={{
+                  fontSize: "1.2rem",
+                  fontWeight: 900,
+                  color: "var(--text-main)",
+                  letterSpacing: "-0.02em",
+                }}
+              >
                 Nu {amount}
               </div>
             </div>
           </div>
-          
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             {QUICK_AMOUNTS.map((q) => (
               <button
                 key={q}
                 onClick={() => setAmount(q.toString())}
                 style={{
                   flex: 1,
-                  padding: "8px", borderRadius: "10px", border: "1.5px solid var(--glass-border)",
-                  background: amount === q.toString() ? "#3b82f6" : "var(--bg-main)",
+                  padding: "10px",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--border)",
+                  background:
+                    amount === q.toString() ? "var(--color-primary)" : "var(--bg-card)",
                   color: amount === q.toString() ? "#fff" : "var(--text-muted)",
-                  fontSize: "0.8rem", fontWeight: 800, cursor: "pointer",
-                  transition: "all 0.15s",
+                  fontSize: "0.85rem",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                  boxShadow: amount === q.toString() ? "0 4px 10px rgba(39, 117, 208, 0.2)" : "none",
+                }}
+                onMouseEnter={(e) => {
+                  if (amount !== q.toString()) {
+                    e.currentTarget.style.borderColor = "var(--text-subtle)";
+                    e.currentTarget.style.color = "var(--text-main)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (amount !== q.toString()) {
+                    e.currentTarget.style.borderColor = "var(--border)";
+                    e.currentTarget.style.color = "var(--text-muted)";
+                  }
                 }}
               >
                 {q}
@@ -163,35 +289,54 @@ export const PwaBetForm: FC<PwaBetFormProps> = ({ market, onBetPlaced }) => {
         disabled={!isReady}
         onClick={() => setShowPaymentModal(true)}
         style={{
-          width: "100%", padding: "18px", borderRadius: "14px", border: "none",
-          background: isReady ? "linear-gradient(135deg, #3b82f6, #1d4ed8)" : "var(--bg-card)",
+          width: "100%",
+          padding: "20px",
+          borderRadius: "var(--radius-md)",
+          border: "none",
+          background: isReady
+            ? "var(--grad-primary)"
+            : "var(--bg-secondary)",
           color: isReady ? "#fff" : "var(--text-subtle)",
-          fontSize: "1rem", fontWeight: 900,
+          fontSize: "1.05rem",
+          fontWeight: 900,
           cursor: isReady ? "pointer" : "not-allowed",
-          transition: "all 0.2s",
-          boxShadow: isReady ? "0 8px 20px rgba(59,130,246,0.3)" : "none",
+          transition: "all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          boxShadow: isReady ? "0 12px 28px -8px rgba(39, 117, 208, 0.5)" : "none",
           letterSpacing: "0.02em",
         }}
-        onMouseEnter={(e) => isReady && (e.currentTarget.style.transform = "translateY(-2px)")}
-        onMouseLeave={(e) => isReady && (e.currentTarget.style.transform = "translateY(0)")}
+        onMouseEnter={(e) =>
+          isReady && (e.currentTarget.style.transform = "translateY(-3px)")
+        }
+        onMouseLeave={(e) =>
+          isReady && (e.currentTarget.style.transform = "translateY(0)")
+        }
       >
         {isReady
-          ? `CONFIRM Nu ${amount} POSITION`
+          ? `Cast Nu ${amount} Prophecy`
           : selectedOutcomeId
-            ? `MINIMUM Nu ${MIN_BET} REQUIRED`
-            : "SELECT AN OPTION"}
+            ? `Minimum Nu ${MIN_BET} Required`
+            : "Select an Outcome"}
       </button>
 
-      <div style={{ fontSize: "0.7rem", color: "var(--text-subtle)", textAlign: "center", fontWeight: 600, lineHeight: 1.4 }}>
-        By placing a bet, you agree to the parimutuel rules.<br />
-        Final payouts depend on total pool size at close.
+      <div
+        style={{
+          fontSize: "0.7rem",
+          color: "var(--text-subtle)",
+          textAlign: "center",
+          fontWeight: 700,
+          lineHeight: 1.6,
+          opacity: 0.8,
+        }}
+      >
+        By casting this prophecy, you agree to the parimutuel pool rules.<br />
+        Final rewards are determined by the oracle at market close.
       </div>
 
       <PwaPaymentModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         market={market}
-        outcomeId={selectedOutcomeId ?? ''}
+        outcomeId={selectedOutcomeId ?? ""}
         onSuccess={handlePaymentSuccess}
         onFailure={(err) => console.error("Payment failed:", err)}
       />

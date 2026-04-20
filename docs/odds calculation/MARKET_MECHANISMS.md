@@ -1,10 +1,10 @@
-# Tara Market Mechanisms Guide
+# Oro Market Mechanisms Guide
 
-This guide explains how the prediction algorithms work on the Tara platform, how they handle real-time probabilities, and how to switch between them.
+This guide explains how the prediction algorithms work on the Oro platform, how they handle real-time probabilities, and how to switch between them.
 
 ## 1. What is House Edge (%)?
 
-The **House Edge** is the percentage of the betting volume that the platform (Tara) retains as a fee for hosting the market. 
+The **House Edge** is the percentage of the betting volume that the platform (Oro) retains as a fee for hosting the market. 
 
 - **How it works:** If the House Edge is set to `5%`, and Nu. 10,000 is wagered into the market, Nu. 500 is kept by the platform, and Nu. 9,500 is added to the actual betting pool to be paid out to the winners.
 - **Why it matters:** It serves as the revenue model for the platform. A lower house edge attracts more bettors, while a higher house edge generates more revenue per bet but may discourage whales.
@@ -22,7 +22,7 @@ Yes, **both mechanisms** track and update the "implied probability" (the odds of
 
 ## 3. Switching Between Betting Mechanisms
 
-Tara supports two distinct algorithms for handling bets: **Parimutuel** and **SCPM** (Sequential Convex Programming Mechanism). You can choose which one to use **when creating a new market in the Admin Dashboard**.
+Oro supports two distinct algorithms for handling bets: **Parimutuel** and **SCPM** (Sequential Convex Programming Mechanism). You can choose which one to use **when creating a new market in the Admin Dashboard**.
 
 ### Mechanism A: Parimutuel Betting
 **Best for:** Standard, simple events where users just want to pick a side without worrying about locking in specific odds.
@@ -49,7 +49,7 @@ Tara supports two distinct algorithms for handling bets: **Parimutuel** and **SC
 
 ### How to Switch in the Admin UI
 
-1. Open your **Tara Admin Dashboard**.
+1. Open your **Oro Admin Dashboard**.
 2. Click **"Create Market"**.
 3. Fill out the market details (Title, Outcomes, etc.).
 4. Find the **Mechanism** dropdown.

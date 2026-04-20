@@ -10,12 +10,16 @@ import {
 } from "@nestjs/swagger";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
+import { ConfigService } from "@nestjs/config";
 import { JwtAuthGuard } from "../auth/guards";
 import { User } from "../entities/user.entity";
 import { Payment } from "../entities/payment.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { Position, PositionStatus } from "../entities/position.entity";
 import { RedisService } from "../redis/redis.service";
+import { StreakService } from "./streak.service";
+import { SeasonService } from "./season.service";
+import { ParimutuelEngine } from "../markets/parimutuel.engine";
 
 // ─── Response schemas for Swagger ────────────────────────────────────────────
 
@@ -91,6 +95,9 @@ export class UsersController {
     private transactionRepo: Repository<Transaction>,
     @InjectRepository(Position) private betRepo: Repository<Position>,
     private readonly redis: RedisService,
+    private readonly streakService: StreakService,
+    private readonly config: ConfigService,
+    private readonly seasonService: SeasonService,
   ) {}
 
   @Get("me")
@@ -131,7 +138,7 @@ export class UsersController {
       ],
     });
 
-    const balanceCacheKey = `tara:cache:balance:${userId}`;
+    const balanceCacheKey = `oro:cache:balance:${userId}`;
     let creditsBalance: number | null =
       await this.redis.getJson<number>(balanceCacheKey);
 
@@ -147,6 +154,15 @@ export class UsersController {
 
     // Derive boolean flags — never send raw hashes to the client
     const { dkPhoneHash, telegramPhoneHash, ...safeUser } = user as any;
+
+    // Streak info (cached key reused from balance; separate small query)
+    const streakInfo = await this.streakService.getStreakInfo(userId);
+
+    // Count referred users who have triggered their first-bet bonus
+    const referralCount = await this.userRepo.count({
+      where: { referredByUserId: userId, referralBonusTriggered: true },
+    });
+
     return {
       ...safeUser,
       creditsBalance,
@@ -156,6 +172,8 @@ export class UsersController {
         dkPhoneHash &&
         telegramPhoneHash === dkPhoneHash
       ),
+      referralCount,
+      ...streakInfo,
     };
   }
 
@@ -247,5 +265,144 @@ export class UsersController {
       })
       .orderBy("bet.placedAt", "DESC")
       .getMany();
+  }
+
+  // ── Referral ──────────────────────────────────────────────────────────────
+
+  @Get("me/referral")
+  @ApiOperation({ summary: "Get referral link and earnings stats" })
+  async getReferral(@Request() req: any) {
+    const userId: string = req.user.userId;
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ["id", "telegramId"],
+    });
+
+    const botUsername =
+      this.config.get<string>("TELEGRAM_BOT_USERNAME") ?? "OroPredictBot";
+    const referralLink = `https://t.me/${botUsername}?start=ref_${user?.telegramId ?? userId}`;
+
+    // Total bonus credited across all referrals
+    const { total } = await this.transactionRepo
+      .createQueryBuilder("t")
+      .select("COALESCE(SUM(t.amount), 0)", "total")
+      .where("t.userId = :userId", { userId })
+      .andWhere("t.type = :type", { type: TransactionType.REFERRAL_BONUS })
+      .getRawOne();
+
+    const referredCount = await this.userRepo.count({
+      where: { referredByUserId: userId },
+    });
+    const convertedCount = await this.userRepo.count({
+      where: { referredByUserId: userId, referralBonusTriggered: true },
+    });
+
+    const referrer = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ["id", "referralPrizeClaimed"],
+    });
+
+    return {
+      referralLink,
+      referredCount,
+      convertedCount,
+      totalEarned: Number(total),
+      flatBonus: ParimutuelEngine.REFERRAL_FLAT_BONUS,
+      betPct: ParimutuelEngine.REFERRAL_BET_PCT * 100,
+      cap: ParimutuelEngine.REFERRAL_CAP,
+      prizeThreshold: ParimutuelEngine.REFERRAL_PRIZE_THRESHOLD,
+      prizeAmount: ParimutuelEngine.REFERRAL_PRIZE_AMOUNT,
+      prizeClaimed: referrer?.referralPrizeClaimed ?? false,
+    };
+  }
+
+  // ── Leaderboard ───────────────────────────────────────────────────────────
+
+  @Get("leaderboard")
+  @ApiOperation({ summary: "Global leaderboard — top 50 predictors" })
+  async getLeaderboard(@Request() req: any) {
+    const myId: string = req.user.userId;
+
+    const rows = await this.userRepo
+      .createQueryBuilder("u")
+      .select([
+        "u.id",
+        "u.firstName",
+        "u.lastName",
+        "u.username",
+        "u.photoUrl",
+        "u.reputationScore",
+        "u.reputationTier",
+        "u.totalPredictions",
+        "u.correctPredictions",
+      ])
+      .addSelect(
+        `(SELECT COALESCE(SUM(p.amount), 0) FROM positions p WHERE p."userId" = u.id)`,
+        "totalBetAmount",
+      )
+      .where("u.totalPredictions > 0")
+      .orderBy("u.reputationScore", "DESC", "NULLS LAST")
+      .addOrderBy("u.correctPredictions", "DESC")
+      .limit(50)
+      .getRawAndEntities();
+
+    const board = rows.entities.map((u, i) => ({
+      rank: i + 1,
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      username: u.username,
+      photoUrl: u.photoUrl,
+      reputationScore: u.reputationScore,
+      reputationTier: u.reputationTier,
+      totalPredictions: u.totalPredictions,
+      correctPredictions: u.correctPredictions,
+      winRate:
+        u.totalPredictions > 0
+          ? Math.round((u.correctPredictions / u.totalPredictions) * 100)
+          : 0,
+      totalBetAmount: Math.round(Number(rows.raw[i]?.totalBetAmount ?? 0)),
+      isMe: u.id === myId,
+    }));
+
+    // Compute caller's rank even if outside top 50
+    let myRank: number | null = null;
+    const meInBoard = board.find((r) => r.isMe);
+    if (meInBoard) {
+      myRank = meInBoard.rank;
+    } else {
+      const above = await this.userRepo
+        .createQueryBuilder("u")
+        .where("u.totalPredictions > 0")
+        .andWhere(
+          '(u.reputationScore > (SELECT "reputationScore" FROM users WHERE id = :myId) OR (u.reputationScore = (SELECT "reputationScore" FROM users WHERE id = :myId) AND u.correctPredictions > (SELECT "correctPredictions" FROM users WHERE id = :myId)))',
+          { myId },
+        )
+        .getCount();
+      myRank = above + 1;
+    }
+
+    const totalRanked = await this.userRepo
+      .createQueryBuilder("u")
+      .where("u.totalPredictions > 0")
+      .getCount();
+
+    return { board, myRank, totalRanked };
+  }
+
+  // ── Seasons ───────────────────────────────────────────────────────────────
+
+  @Get("seasons/current")
+  @ApiOperation({ summary: "Current active season metadata" })
+  async getCurrentSeason() {
+    return this.seasonService.getCurrentSeason();
+  }
+
+  @Get("seasons/history")
+  @ApiOperation({ summary: "Past seasons with winners snapshot" })
+  async getSeasonHistory(@Query("limit") limit?: string) {
+    return this.seasonService.getSeasonHistory(
+      Math.min(Number(limit) || 10, 52),
+    );
   }
 }

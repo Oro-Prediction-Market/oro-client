@@ -5,6 +5,7 @@ import { Dispute } from "../entities/dispute.entity";
 import { Position } from "../entities/position.entity";
 import { User } from "../entities/user.entity";
 import { Payment } from "../entities/payment.entity";
+import { Transaction } from "../entities/transaction.entity";
 import { AuditLog } from "../entities/audit-log.entity";
 import { AdminController } from "./admin.controller";
 import { MarketsModule } from "../markets/markets.module";
@@ -20,6 +21,7 @@ import { TelegramModule } from "../telegram/telegram.module";
       Position,
       User,
       Payment,
+      Transaction,
       AuditLog,
     ]),
     MarketsModule,

@@ -587,35 +587,48 @@ export class DKGatewayService {
   /**
    * Merchant vault → user DK Bank account (withdrawal / payout transfer).
    *
-   * Calls DK Bank's fund-transfer endpoint to push Ngultrum from the Tara
-   * merchant account to a user's DK account. This is the real-money leg of
-   * the withdrawal flow — it only runs after OTP verification and after the
-   * in-app ledger debit has been validated inside an atomic DB transaction.
+   * Uses /v1/initiate/transaction — the push/credit endpoint that works in both
+   * staging and production (unlike /v1/fund_transfer which returns 404 in staging).
+   *
+   * Required fields discovered from DK staging 422 validation:
+   *   source_account_number, source_account_name, bene_account_number,
+   *   bene_cust_name, bene_bank_code, inquiry_id
    *
    * Returns a normalised result so callers can branch on `status === "SUCCESS"`.
    */
   async transferToAccount(params: {
     accountNumber: string;
+    accountName?: string;
     amount: number;
     currency?: string;
     reference: string;
     description?: string;
   }): Promise<{
     txnId: string | null;
+    txnStatusId: string | null;
+    inquiryId: string | null;
     status: string;
     statusDesc: string;
     raw?: unknown;
   }> {
+    const stanNumber = this.generateStanNumber();
+    const txDatetime = this.generateDkTimestamp();
+
     const body = {
-      beneficiary_account: params.accountNumber,
-      beneficiary_name: params.description ?? "Tara withdrawal",
-      amount: params.amount.toFixed(2),
+      source_account_number: this.beneficiaryAccount, // merchant (source of funds)
+      source_account_name: this.beneficiaryName, // merchant name
+      bene_account_number: params.accountNumber, // destination (user)
+      bene_cust_name: params.accountName ?? "Oro User",
+      bene_bank_code: this.bankCode,
+      transaction_amount: params.amount.toFixed(2),
+      transaction_datetime: txDatetime,
+      stan_number: stanNumber,
+      inquiry_id: `Oro-PAYOUT-${params.reference}-${stanNumber}`,
       currency: params.currency ?? "BTN",
+      payment_type: "INTRA",
+      payment_desc: params.description ?? "Oro payout",
       source_app: this.sourceApp,
-      bank_code: this.bankCode,
-      reference_number: params.reference,
-      remarks: params.description ?? "Tara platform withdrawal",
-      transaction_id: randomUUID(),
+      narration: params.description ?? "Oro platform payout",
     };
 
     let raw: any;
@@ -624,8 +637,13 @@ export class DKGatewayService {
         response_code: string;
         response_message?: string;
         response_description?: string;
-        response_data?: { transaction_id?: string; txn_id?: string };
-      }>("/v1/fund_transfer", body, true);
+        response_data?: {
+          inquiry_id?: string;
+          txn_status_id?: string;
+          transaction_id?: string;
+          txn_id?: string;
+        };
+      }>("/v1/initiate/transaction", body, true);
     } catch (err: any) {
       throw new Error(
         `DK Bank transfer failed: ${err?.message ?? "unknown error"}`,
@@ -641,11 +659,13 @@ export class DKGatewayService {
         raw?.response_data?.transaction_id ??
         raw?.response_data?.txn_id ??
         null,
+      txnStatusId: raw?.response_data?.txn_status_id ?? null,
+      inquiryId: raw?.response_data?.inquiry_id ?? null,
       status: success ? "SUCCESS" : "FAILED",
       statusDesc:
         raw?.response_description ??
         raw?.response_message ??
-        (success ? "Transfer completed" : "Transfer failed"),
+        (success ? "Transfer queued" : "Transfer failed"),
       raw,
     };
   }

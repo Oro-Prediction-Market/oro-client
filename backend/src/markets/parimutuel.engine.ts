@@ -4,7 +4,8 @@ import {
   Logger,
   OnModuleInit,
 } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
+import { InjectRepository, InjectDataSource } from "@nestjs/typeorm";
+import { ConfigService } from "@nestjs/config";
 import { Repository, DataSource, In } from "typeorm";
 import { RedisService } from "../redis/redis.service";
 import { Market, MarketStatus } from "../entities/market.entity";
@@ -13,11 +14,16 @@ import { Position, PositionStatus } from "../entities/position.entity";
 import { Payment } from "../entities/payment.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { Settlement } from "../entities/settlement.entity";
-import { Dispute } from "../entities/dispute.entity";
+import { Dispute, DisputeBondStatus } from "../entities/dispute.entity";
+import { Challenge, ChallengeStatus } from "../entities/challenge.entity";
 import { User } from "../entities/user.entity";
 import { LMSRService } from "./lmsr.service";
 import { ReputationService } from "./reputation.service";
+import { MarketsGateway } from "./markets.gateway";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
+import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
+import { StreakService, STREAK_BONUS_MULT } from "../users/streak.service";
+import { ChallengesService } from "../challenges/challenges.service";
 
 // ─── Valid state machine transitions ────────────────────────────────────────
 const VALID_TRANSITIONS: Record<MarketStatus, MarketStatus[]> = {
@@ -50,11 +56,16 @@ export class ParimutuelEngine implements OnModuleInit {
     @InjectRepository(Settlement)
     private settlementRepo: Repository<Settlement>,
     @InjectRepository(Dispute) private disputeRepo: Repository<Dispute>,
-    private dataSource: DataSource,
+    @InjectDataSource() private dataSource: DataSource,
     private lmsrService: LMSRService,
     private redis: RedisService,
     private reputationService: ReputationService,
     private telegramSimple: TelegramSimpleService,
+    private dkGateway: DKGatewayService,
+    private configService: ConfigService,
+    private streakService: StreakService,
+    private challengesService: ChallengesService,
+    private marketsGateway: MarketsGateway,
   ) {}
 
   private async getCreditsBalance(
@@ -87,19 +98,33 @@ export class ParimutuelEngine implements OnModuleInit {
     marketId: string,
     outcomeId: string,
     amount: number,
-  ): Promise<Position> {
+  ): Promise<
+    Position & {
+      streak?: { count: number; dayInCycle: number; boostActive: boolean };
+    }
+  > {
     if (amount <= 0)
       throw new BadRequestException("Position amount must be positive");
+    if (amount < 100) throw new BadRequestException("Minimum bet is Nu 100");
 
     // Acquire a distributed Redis lock so concurrent bets on the same market
     // are serialised at the application layer before touching the DB.
     let lockToken: string | null = null;
+    let completedPosition: Position | null = null;
+    let betMarket: Market | null = null;
+    let betOutcome: Outcome | null = null;
+    let betUser: User | null = null;
+    let betUserTelegramId: string | null = null;
+    let balanceAfterBet = 0;
+    let capturedHouseEdgePct = 8; // default; overwritten inside transaction
+
     try {
       lockToken = await this.redis.acquireLockWithRetry(
         `market:${marketId}`,
-        10,
-        3,
-        150,
+        15, // ttl: 15s (covers slow bets)
+        8, // retries: 8 attempts (was 3)
+        200, // delay: 200ms between retries (was 150ms)
+        // total wait: 8 × 200ms = 1.6s before giving up
       );
     } catch (e: any) {
       if (e?.message === "LOCK_CONTENDED") {
@@ -111,7 +136,7 @@ export class ParimutuelEngine implements OnModuleInit {
     }
 
     try {
-      return await this.dataSource.transaction(async (em) => {
+      completedPosition = await this.dataSource.transaction(async (em) => {
         // Pessimistic write lock ensures only one DB transaction modifies this
         // market's pool at a time, even if the Redis lock is unavailable.
         // 1. Lock the market record (using QueryBuilder to avoid eager joins)
@@ -138,6 +163,49 @@ export class ParimutuelEngine implements OnModuleInit {
 
         const user = await em.findOne(User, { where: { id: userId } });
         if (!user) throw new BadRequestException("User not found");
+
+        // Require a linked DK Bank account before placing any bet.
+        // Starter-credit balance alone is not sufficient — the user must have
+        // gone through the DK Bank onboarding (CID lookup) so winnings can be
+        // paid out to a real account.
+        if (!user.dkAccountNumber) {
+          throw new BadRequestException(
+            "You must link your DK Bank account before placing a bet. Go to Profile → Link DK Bank.",
+          );
+        }
+
+        // Require a verified phone number (stored during DK Bank onboarding).
+        // This doubles as identity verification and ensures withdrawal delivery.
+        if (!user.phoneNumber) {
+          throw new BadRequestException(
+            "A verified phone number is required to place a bet. Go to Profile → Link DK Bank.",
+          );
+        }
+
+        // Block betting when the user already has an ACTIVE duel on this market.
+        // An ACTIVE duel means both sides have locked a wager on a specific outcome —
+        // placing an additional parimutuel bet on the *opposite* outcome would be a
+        // self-contradicting position, and placing on the *same* outcome would give
+        // the user an unfair double stake advantage.
+        const activeDuel = await em.findOne(Challenge, {
+          where: [
+            { marketId, creatorId: userId, status: ChallengeStatus.ACTIVE },
+            { marketId, joinerId: userId, status: ChallengeStatus.ACTIVE },
+          ],
+        });
+        if (activeDuel) {
+          throw new BadRequestException(
+            "You have an active duel on this market. Settle or wait for the duel to complete before placing a new bet.",
+          );
+        }
+
+        // Store user reference for notification
+        betUser = user;
+        betUserTelegramId = user.telegramId;
+        betMarket = market;
+        betOutcome = outcome;
+        capturedHouseEdgePct = Number(market.houseEdgePct) || 8;
+
         const balanceBefore = await this.getCreditsBalance(em, userId);
         this.logger.log(
           `[placePosition] user=${userId} credits=${balanceBefore} betAmount=${amount}`,
@@ -157,6 +225,13 @@ export class ParimutuelEngine implements OnModuleInit {
         );
         const predictedProbability =
           outcomeIndex >= 0 ? preBetProbs[outcomeIndex] : null;
+
+        // Snapshot pool % for this outcome BEFORE the new bet is added.
+        // Used for tournament confidence scoring: 0.5 = maximally uncertain.
+        const preBetTotalPool = Number(market.totalPool);
+        const preBetOutcomePool = Number(outcome.totalBetAmount);
+        const poolPctAtBet =
+          preBetTotalPool > 0 ? preBetOutcomePool / preBetTotalPool : 0.5;
 
         // Update outcome pool
         outcome.totalBetAmount = Number(outcome.totalBetAmount) + amount;
@@ -201,6 +276,7 @@ export class ParimutuelEngine implements OnModuleInit {
           status: PositionStatus.PENDING,
           oddsAtPlacement: outcome.currentOdds,
           predictedProbability,
+          poolPctAtBet,
         });
         const savedPosition = await em.save(Position, bet);
 
@@ -217,19 +293,265 @@ export class ParimutuelEngine implements OnModuleInit {
           }),
         );
 
+        // Store balance after bet for notification
+        balanceAfterBet = balanceBefore - amount;
+
         return savedPosition;
       });
+
+      // Send Telegram notification after successful bet placement
+      if (completedPosition && betUser && betMarket && betOutcome) {
+        this.sendBetPlacementNotification(
+          betUser,
+          betMarket,
+          betOutcome,
+          amount,
+          balanceAfterBet,
+        ).catch((err: any) => {
+          this.logger.error(
+            `Failed to send bet placement notification: ${err.message}`,
+          );
+        });
+
+        // ── Broadcast live market update via WebSocket ──────────────────
+        try {
+          const updatedMarket = await this.marketRepo.findOne({
+            where: { id: marketId },
+            relations: ["outcomes"],
+          });
+          if (updatedMarket) {
+            this.marketsGateway.emitMarketUpdated({
+              marketId: updatedMarket.id,
+              totalPool: Number(updatedMarket.totalPool),
+              outcomes: updatedMarket.outcomes.map((o) => ({
+                id: o.id,
+                totalBetAmount: Number(o.totalBetAmount),
+                lmsrProbability: o.lmsrProbability ?? null,
+                currentOdds: Number(o.currentOdds),
+              })),
+            });
+          }
+        } catch (err: any) {
+          this.logger.warn(`WS broadcast failed: ${err.message}`);
+        }
+      }
+
+      // ── Update daily bet streak (non-blocking) ───────────────────────────
+      const streakResult = await this.streakService
+        .updateStreak(userId)
+        .catch(() => null);
+
+      // If day-7 boost is active, credit the bonus payout immediately
+      if (streakResult?.boostActive && completedPosition) {
+        const bonusAmount =
+          Math.round(amount * (STREAK_BONUS_MULT - 1) * 100) / 100;
+        this.streakService
+          .creditStreakBonus(userId, completedPosition.id, bonusAmount)
+          .catch((err: any) =>
+            this.logger.error(`Streak bonus credit failed: ${err.message}`),
+          );
+      }
+
+      // ── Streak milestone push notification (non-blocking) ─────────────────
+      const streakChatId = betUserTelegramId ? Number(betUserTelegramId) : null;
+      if (streakResult && streakChatId) {
+        const { dayInCycle, boostActive } = streakResult;
+        const shouldNotify =
+          boostActive || dayInCycle === 3 || dayInCycle === 1;
+        if (shouldNotify) {
+          let msg: string;
+          if (boostActive) {
+            msg = `Day 7 streak! Your next winning payout gets a <b>1.2x boost</b>. Keep predicting!`;
+          } else if (dayInCycle === 3) {
+            msg = `3-day streak! ${7 - dayInCycle} more days until your bonus boost.`;
+          } else {
+            msg = `Streak started! Predict daily to earn a Day-7 bonus boost.`;
+          }
+          this.telegramSimple
+            .sendMessage(streakChatId, msg)
+            .catch((err: any) =>
+              this.logger.error(`Streak push failed: ${err.message}`),
+            );
+        }
+      }
+
+      // ── Referral bonus (non-blocking) ────────────────────────────────────
+      // Fires exactly once: on the referred user's first ever bet.
+      // Referrer earns 20% of the house rake on that bet.
+      this.creditReferralBonusIfEligible(
+        userId,
+        amount,
+        capturedHouseEdgePct,
+      ).catch((err: any) =>
+        this.logger.error(`Referral bonus credit failed: ${err.message}`),
+      );
+
+      const result = completedPosition! as Position & {
+        streak?: { count: number; dayInCycle: number; boostActive: boolean };
+      };
+      if (streakResult) {
+        result.streak = {
+          count: streakResult.newStreak,
+          dayInCycle: streakResult.dayInCycle,
+          boostActive: streakResult.boostActive,
+        };
+      }
+      return result;
+    } catch (err) {
+      throw err;
     } finally {
       if (lockToken)
         await this.redis.releaseLock(`market:${marketId}`, lockToken);
       // Invalidate market cache so subsequent reads reflect updated pool/odds
       await this.redis.del(
-        "tara:cache:markets:all",
-        `tara:cache:market:${marketId}`,
+        "oro:cache:markets:all",
+        `oro:cache:market:${marketId}`,
       );
       // Invalidate balance cache for the bettor
-      await this.redis.del(`tara:cache:balance:${userId}`);
+      await this.redis.del(`oro:cache:balance:${userId}`);
     }
+  }
+
+  // ── Referral bonus ─────────────────────────────────────────────────────────
+  /**
+   * Credits the referrer a flat Nu 50 bonus + 5% of the referred user's first bet.
+   * Capped at Nu 50 total. Idempotent: `referralBonusTriggered` ensures exactly once.
+   */
+  static readonly REFERRAL_FLAT_BONUS = 50; // Nu 50 flat
+  static readonly REFERRAL_BET_PCT = 0.05; // 5% of first bet
+  static readonly REFERRAL_CAP = 50; // total cap Nu 50
+
+  // ── Referral prize pool (funded from house edge) ──────────────────────────
+  /** % of each market's houseAmount contributed to the referral prize fund */
+  static readonly PRIZE_FUND_PCT = 0.2; // 20% of house cut per market
+  /** How many converted referrals unlock the prize */
+  static readonly REFERRAL_PRIZE_THRESHOLD = 10;
+  /** Fixed prize credited to the referrer on reaching the threshold */
+  static readonly REFERRAL_PRIZE_AMOUNT = 500; // Nu 500
+
+  private async creditReferralBonusIfEligible(
+    bettorUserId: string,
+    betAmount: number,
+    _houseEdgePct: number,
+  ): Promise<void> {
+    const bettor = await this.dataSource.getRepository(User).findOne({
+      where: { id: bettorUserId },
+      select: ["id", "referredByUserId", "referralBonusTriggered"],
+    });
+
+    if (!bettor?.referredByUserId || bettor.referralBonusTriggered) return;
+
+    const referrer = await this.dataSource
+      .getRepository(User)
+      .findOne({ where: { id: bettor.referredByUserId }, select: ["id"] });
+
+    if (!referrer) return;
+
+    // Nu 50 flat + 5% of the first bet, capped at Nu 50
+    const pct =
+      Math.round(betAmount * ParimutuelEngine.REFERRAL_BET_PCT * 100) / 100;
+    const bonus = Math.min(
+      ParimutuelEngine.REFERRAL_FLAT_BONUS + pct,
+      ParimutuelEngine.REFERRAL_CAP,
+    );
+    if (bonus <= 0) return;
+
+    await this.dataSource.transaction(async (em) => {
+      const txRepo = em.getRepository(Transaction);
+      const userRepo = em.getRepository(User);
+
+      const { balance: referrerBalance } = await txRepo
+        .createQueryBuilder("t")
+        .select("COALESCE(SUM(t.amount), 0)", "balance")
+        .where("t.userId = :id", { id: referrer.id })
+        .getRawOne();
+
+      const balBefore = Number(referrerBalance);
+
+      await txRepo.save(
+        txRepo.create({
+          type: TransactionType.REFERRAL_BONUS,
+          amount: bonus,
+          balanceBefore: balBefore,
+          balanceAfter: balBefore + bonus,
+          userId: referrer.id,
+          note: `Referral bonus — friend placed their first bet`,
+        }),
+      );
+
+      // Mark so this never fires again for this referred user
+      await userRepo.update(bettor.id, { referralBonusTriggered: true });
+    });
+
+    // Invalidate referrer's cached balance
+    await this.redis.del(`oro:cache:balance:${referrer.id}`);
+
+    this.logger.log(
+      `[Referral] Credited ${bonus} BTN to referrer ${referrer.id} for referred user ${bettor.id}`,
+    );
+
+    // Check if referrer has now hit the prize threshold
+    await this.creditReferralPrizeIfEligible(referrer.id);
+  }
+
+  /**
+   * Auto-credits Nu 500 to the referrer once they hit REFERRAL_PRIZE_THRESHOLD
+   * converted referrals. Idempotent: `referralPrizeClaimed` ensures exactly once.
+   *
+   * Funded by 20% of each market's house cut (PRIZE_FUND_PCT). The platform
+   * earns the house edge on all those referred users' bets — at 8% house edge
+   * on even modest activity the fund self-replenishes well before the prize fires.
+   */
+  private async creditReferralPrizeIfEligible(
+    referrerId: string,
+  ): Promise<void> {
+    const referrer = await this.dataSource.getRepository(User).findOne({
+      where: { id: referrerId },
+      select: ["id", "referralPrizeClaimed"],
+    });
+
+    if (!referrer || referrer.referralPrizeClaimed) return;
+
+    const convertedCount = await this.dataSource.getRepository(User).count({
+      where: { referredByUserId: referrerId, referralBonusTriggered: true },
+    });
+
+    if (convertedCount < ParimutuelEngine.REFERRAL_PRIZE_THRESHOLD) return;
+
+    const prize = ParimutuelEngine.REFERRAL_PRIZE_AMOUNT;
+
+    await this.dataSource.transaction(async (em) => {
+      const txRepo = em.getRepository(Transaction);
+      const userRepo = em.getRepository(User);
+
+      const { balance } = await txRepo
+        .createQueryBuilder("t")
+        .select("COALESCE(SUM(t.amount), 0)", "balance")
+        .where("t.userId = :id", { id: referrerId })
+        .getRawOne();
+
+      const balBefore = Number(balance);
+
+      await txRepo.save(
+        txRepo.create({
+          type: TransactionType.REFERRAL_PRIZE,
+          amount: prize,
+          balanceBefore: balBefore,
+          balanceAfter: balBefore + prize,
+          userId: referrerId,
+          note: `Referral prize — reached ${ParimutuelEngine.REFERRAL_PRIZE_THRESHOLD} converted friends`,
+        }),
+      );
+
+      // Mark claimed so this never fires again
+      await userRepo.update(referrerId, { referralPrizeClaimed: true });
+    });
+
+    await this.redis.del(`oro:cache:balance:${referrerId}`);
+
+    this.logger.log(
+      `[ReferralPrize] Credited Nu ${prize} prize to user ${referrerId} (${convertedCount} converted referrals)`,
+    );
   }
 
   // Transition market state
@@ -247,10 +569,11 @@ export class ParimutuelEngine implements OnModuleInit {
     return this.marketRepo.save(market);
   }
 
-  // Propose resolution: open 24h dispute window
+  // Propose resolution: open short objection window (default 1h, max 2h)
   async proposeResolution(
     marketId: string,
     proposedOutcomeId: string,
+    windowMinutes: number = 60,
   ): Promise<Market> {
     const market = await this.marketRepo.findOne({
       where: { id: marketId },
@@ -266,16 +589,22 @@ export class ParimutuelEngine implements OnModuleInit {
     if (!proposed)
       throw new BadRequestException("Proposed outcome not in this market");
 
+    const ALLOWED = [10, 20, 30, 60, 120];
+    const mins = ALLOWED.includes(windowMinutes) ? windowMinutes : 60;
     market.proposedOutcomeId = proposedOutcomeId;
-    market.disputeDeadlineAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    market.windowMinutes = mins;
+    market.disputeDeadlineAt = new Date(Date.now() + mins * 60 * 1000);
     market.status = MarketStatus.RESOLVING;
     return this.marketRepo.save(market);
   }
 
-  // Resolve market: mark winner & trigger settlement
+  // Resolve market: mark winner, store public evidence, trigger settlement
   async resolveMarket(
     marketId: string,
     winningOutcomeId: string,
+    adminId?: string,
+    evidenceUrl?: string,
+    evidenceNote?: string,
   ): Promise<Settlement> {
     const market = await this.marketRepo.findOne({
       where: { id: marketId },
@@ -291,19 +620,229 @@ export class ParimutuelEngine implements OnModuleInit {
     if (!winner)
       throw new BadRequestException("Winning outcome not in this market");
 
-    // Mark winner
+    // ── Enforce the objection window ──────────────────────────────────────────
+    // If the window is still open, admin may only resolve early when objections
+    // already exist (meaning they have reviewed them). Zero-objection markets
+    // must wait for the cron to auto-settle — this prevents rushed resolutions.
+    const now = new Date();
+    const windowStillOpen =
+      market.disputeDeadlineAt && now < market.disputeDeadlineAt;
+
+    if (windowStillOpen) {
+      const objectionCount = await this.disputeRepo.count({
+        where: { marketId },
+      });
+      if (objectionCount === 0) {
+        const mins = market.windowMinutes ?? 60;
+        const windowLabel = mins >= 60 ? `${mins / 60}h` : `${mins}min`;
+        throw new BadRequestException(
+          `The ${windowLabel} objection window is still open and closes at ` +
+            `${market.disputeDeadlineAt!.toISOString()}. ` +
+            `The market will auto-settle once the window closes with no objections. ` +
+            `You may force-resolve early only when objections exist and have been reviewed.`,
+        );
+      }
+    }
+
+    // ── Mark the winner ───────────────────────────────────────────────────────
     winner.isWinner = true;
     await this.outcomeRepo.save(winner);
     market.resolvedOutcomeId = winningOutcomeId;
     market.resolvedAt = new Date();
     market.status = MarketStatus.RESOLVED;
+
+    // ── Store public evidence (mandatory when called by admin) ────────────────
+    if (evidenceUrl) {
+      market.evidenceUrl = evidenceUrl;
+      market.evidenceNote = evidenceNote ?? null;
+      market.evidenceSubmittedAt = new Date();
+    }
+    if (adminId && adminId !== "system:auto-resolve") {
+      market.resolvedByAdminId = adminId;
+    }
+
     await this.marketRepo.save(market);
 
-    // Refund dispute bonds
-    await this.refundDisputeBonds(marketId);
+    // ── Mark each objection and settle bonds ──────────────────────────────────
+    const disputes = await this.disputeRepo.find({ where: { marketId } });
+    if (disputes.length > 0) {
+      const proposalChanged =
+        !!market.proposedOutcomeId &&
+        winningOutcomeId !== market.proposedOutcomeId;
 
-    // Settle
-    const settlement = await this.settleMarket(market, winner);
+      // Split into correct (upheld) and wrong (overruled) objectors
+      const upheldDisputes = disputes.filter(() => proposalChanged); // all upheld when outcome changed
+      const overruledDisputes = disputes.filter(() => !proposalChanged); // all overruled when outcome kept
+
+      // Total forfeited pool = sum of bonds from wrong objectors
+      const forfeitPool = overruledDisputes.reduce(
+        (sum, d) => sum + Number(d.bondAmount),
+        0,
+      );
+
+      // Total bond staked by correct objectors (for pro-rata reward split)
+      const upheldTotalBond = upheldDisputes.reduce(
+        (sum, d) => sum + Number(d.bondAmount),
+        0,
+      );
+
+      // Persist the forfeit pool onto the market record for audit trail
+      market.disputeBondPool = forfeitPool;
+      await this.marketRepo.save(market);
+
+      // Process each dispute — settle their bond
+      for (const d of disputes) {
+        d.upheld = !!proposalChanged;
+
+        if (proposalChanged) {
+          // ✓ Correct objector: return bond + pro-rata share of forfeit pool
+          const rewardShare =
+            upheldTotalBond > 0
+              ? Math.floor(
+                  (Number(d.bondAmount) / upheldTotalBond) * forfeitPool,
+                )
+              : 0;
+          const totalReturn = Number(d.bondAmount) + rewardShare;
+
+          const { balance: rawBal } = await this.transactionRepo
+            .createQueryBuilder("t")
+            .select("COALESCE(SUM(t.amount), 0)", "balance")
+            .where("t.userId = :userId", { userId: d.userId })
+            .getRawOne();
+          const balBefore = Number(rawBal);
+
+          await this.transactionRepo.save(
+            this.transactionRepo.create({
+              userId: d.userId,
+              type: TransactionType.DISPUTE_BOND_REWARD,
+              amount: totalReturn,
+              balanceBefore: balBefore,
+              balanceAfter: balBefore + totalReturn,
+              note:
+                `Objection UPHELD on "${market.title}" — bond returned + ` +
+                `Nu ${rewardShare} reward from forfeit pool`,
+            }),
+          );
+          d.bondStatus = DisputeBondStatus.REWARDED;
+
+          this.logger.log(
+            `[Bond] User ${d.userId} objection UPHELD — returned Nu ${d.bondAmount} + reward Nu ${rewardShare}`,
+          );
+        } else {
+          // ✗ Wrong objector: bond already deducted at lock time — just mark forfeited
+          d.bondStatus = DisputeBondStatus.FORFEITED;
+          this.logger.log(
+            `[Bond] User ${d.userId} objection OVERRULED — bond Nu ${d.bondAmount} forfeited`,
+          );
+        }
+      }
+      await this.disputeRepo.save(disputes);
+
+      this.logger.log(
+        `[Dispute] Market ${marketId} resolved with ${disputes.length} objection(s). ` +
+          `Admin ${adminId ?? "unknown"} chose outcome ${winningOutcomeId}. ` +
+          `Proposal was ${market.proposedOutcomeId}. Changed: ${!!proposalChanged}. ` +
+          `Forfeit pool: Nu ${forfeitPool}. Rewarded: ${upheldDisputes.length} objector(s).`,
+      );
+
+      // ── Admin accountability: track & publicise wrong resolutions ───────────
+      if (proposalChanged && adminId && adminId !== "system:auto-resolve") {
+        try {
+          const adminUser = await this.dataSource
+            .getRepository(User)
+            .findOne({ where: { id: adminId } });
+
+          if (adminUser) {
+            adminUser.adminTotalResolutions =
+              (adminUser.adminTotalResolutions ?? 0) + 1;
+            adminUser.adminWrongResolutions =
+              (adminUser.adminWrongResolutions ?? 0) + 1;
+            await this.dataSource.getRepository(User).save(adminUser);
+
+            const total = adminUser.adminTotalResolutions;
+            const wrong = adminUser.adminWrongResolutions;
+            const pct = Math.round((wrong / total) * 100);
+            const adminHandle = adminUser.username
+              ? `@${adminUser.username}`
+              : `Admin ${adminId.slice(0, 8)}`;
+
+            // Public Telegram alert — visible to all users, no hiding this
+            this.telegramSimple
+              .postToChannel(
+                `⚠️ <b>Resolution Overturned</b>\n\n` +
+                  `📊 Market: <i>${market.title}</i>\n` +
+                  `👤 Resolved by: <b>${adminHandle}</b>\n\n` +
+                  `The original proposed outcome was changed after objectors raised concerns.\n\n` +
+                  `📈 Admin accuracy record: <b>${total - wrong}/${total}</b> correct (<b>${100 - pct}%</b>)\n` +
+                  `🏅 Wrong resolutions: <b>${wrong}</b>\n\n` +
+                  `✅ Objectors who were right had their bonds returned + rewarded.\n` +
+                  `All affected users have been correctly paid out.`,
+              )
+              .catch(() => undefined);
+
+            this.logger.warn(
+              `[AdminAccountability] Admin ${adminId} overturned resolution on market ${marketId}. ` +
+                `Total: ${total}, Wrong: ${wrong} (${pct}% overturn rate).`,
+            );
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `[AdminAccountability] Failed to update admin stats for ${adminId}: ${err.message}`,
+          );
+        }
+      } else if (
+        !proposalChanged &&
+        adminId &&
+        adminId !== "system:auto-resolve"
+      ) {
+        // Admin kept the proposal — still count as a resolved market
+        try {
+          await this.dataSource
+            .getRepository(User)
+            .increment({ id: adminId }, "adminTotalResolutions", 1);
+        } catch (_) {
+          // non-critical
+        }
+      }
+
+      // Bust balance caches for all objectors
+      await Promise.all(
+        disputes.map((d) => this.redis.del(`oro:cache:balance:${d.userId}`)),
+      );
+    }
+
+    // ── Settle payouts ────────────────────────────────────────────────────────
+    // If no disputes existed but a real admin resolved (not system), count the clean resolution
+    if (disputes.length === 0 && adminId && adminId !== "system:auto-resolve") {
+      try {
+        await this.dataSource
+          .getRepository(User)
+          .increment({ id: adminId }, "adminTotalResolutions", 1);
+      } catch (_) {
+        // non-critical
+      }
+    }
+
+    const settlement = await this.settleMarket(market, winner, 0);
+
+    // Bust balance cache for every bettor so the TMA reflects payouts immediately
+    const allBets = await this.betRepo.find({ where: { marketId } });
+    const uniqueUserIds = [...new Set(allBets.map((b) => b.userId))];
+    await Promise.all(
+      uniqueUserIds.map((uid) => this.redis.del(`oro:cache:balance:${uid}`)),
+    );
+
+    // Push real BTN from merchant → winners' DK accounts — fire and forget
+    this.dispatchDkPayouts(
+      market.id,
+      winner.id,
+      winner.label,
+      settlement,
+    ).catch((err: Error) =>
+      this.logger.warn(
+        `[DK Payout] Dispatch failed for market ${marketId}: ${err.message}`,
+      ),
+    );
 
     // Recalculate reputation + send individual result DMs — fire and forget
     this.sendSettlementNotifications(market, winner, settlement).catch((err) =>
@@ -312,31 +851,90 @@ export class ParimutuelEngine implements OnModuleInit {
       ),
     );
 
+    // Settle any active duels on this market — fire and forget
+    this.challengesService
+      .settleByMarket(marketId, winningOutcomeId)
+      .catch((err) =>
+        this.logger.warn(
+          `[Duels] settleByMarket failed for market ${marketId}: ${err.message}`,
+        ),
+      );
+
     return settlement;
   }
 
-  // Refund dispute bonds
-  private async refundDisputeBonds(marketId: string): Promise<void> {
-    const disputes = await this.disputeRepo.find({
-      where: { marketId, bondRefunded: false },
+  /**
+   * After settlement, push real BTN from the Oro merchant DK account to
+   * each winner's DK Bank account (if they have one linked).
+   *
+   * This runs fire-and-forget after the ledger has already been updated,
+   * so a DK API failure does NOT roll back the in-app credit.  Errors are
+   * logged so they can be investigated and retried manually if needed.
+   *
+   * Bypass: set DK_STAGING_PAYOUT_BYPASS=true in .env to skip real DK calls
+   * (required in staging because /v1/fund_transfer returns 404 there).
+   */
+  private async dispatchDkPayouts(
+    marketId: string,
+    winningOutcomeId: string,
+    outcomeLabel: string,
+    settlement: Settlement,
+  ): Promise<void> {
+    const bypass =
+      this.configService.get<string>("DK_STAGING_PAYOUT_BYPASS") === "true";
+
+    if (bypass) {
+      this.logger.log(
+        `[DK Payout] STAGING BYPASS — skipping real DK transfers for market ${marketId} (${settlement.winningPositions} winner(s), pool BTN ${settlement.payoutPool})`,
+      );
+      return;
+    }
+
+    // Fetch all winning positions with their users
+    const winningBets = await this.betRepo.find({
+      where: {
+        marketId,
+        outcomeId: winningOutcomeId,
+        status: PositionStatus.WON,
+      },
+      relations: ["user"],
     });
-    for (const dispute of disputes) {
-      await this.dataSource.transaction(async (em) => {
-        const balanceBefore = await this.getCreditsBalance(em, dispute.userId);
-        await em.save(
-          Transaction,
-          em.create(Transaction, {
-            type: TransactionType.DISPUTE_REFUND,
-            amount: Number(dispute.bondAmount),
-            balanceBefore,
-            balanceAfter: balanceBefore + Number(dispute.bondAmount),
-            userId: dispute.userId,
-            note: "Dispute bond refund after market resolution",
-          }),
+
+    for (const bet of winningBets) {
+      const user: User = (bet as any).user;
+      if (!user?.dkAccountNumber) {
+        this.logger.warn(
+          `[DK Payout] User ${bet.userId} has no DK account linked — skipping DK transfer for position ${bet.id} (BTN ${bet.payout})`,
         );
-        dispute.bondRefunded = true;
-        await em.save(Dispute, dispute);
-      });
+        continue;
+      }
+
+      const payout = Number(bet.payout ?? 0);
+      if (payout <= 0) continue;
+
+      try {
+        const result = await this.dkGateway.transferToAccount({
+          accountNumber: user.dkAccountNumber,
+          accountName: user.dkAccountName ?? undefined,
+          amount: payout,
+          reference: bet.id,
+          description: `Oro payout: ${outcomeLabel}`,
+        });
+
+        if (result.status === "SUCCESS") {
+          this.logger.log(
+            `[DK Payout] ✅ BTN ${payout} → ${user.dkAccountNumber} (user ${bet.userId}) txnId=${result.txnId}`,
+          );
+        } else {
+          this.logger.error(
+            `[DK Payout] ❌ Transfer FAILED for user ${bet.userId} (BTN ${payout}): ${result.statusDesc}`,
+          );
+        }
+      } catch (err: any) {
+        this.logger.error(
+          `[DK Payout] ❌ Exception for user ${bet.userId} position ${bet.id}: ${err?.message}`,
+        );
+      }
     }
   }
 
@@ -344,11 +942,14 @@ export class ParimutuelEngine implements OnModuleInit {
   private async settleMarket(
     market: Market,
     winner: Outcome,
+    slashedBondPool = 0,
   ): Promise<Settlement> {
     return await this.dataSource.transaction(async (em) => {
       const totalPool = Number(market.totalPool);
       const houseAmount = totalPool * (Number(market.houseEdgePct) / 100);
-      const payoutPool = totalPool - houseAmount;
+      // 95% of any slashed dispute bonds flows to winning bettors; 5% is platform fee
+      const disputeBonus = slashedBondPool * 0.95;
+      const payoutPool = totalPool - houseAmount + disputeBonus;
 
       const winnerPool = Number(winner.totalBetAmount);
       const bets = await em.find(Position, { where: { marketId: market.id } });
@@ -360,25 +961,88 @@ export class ParimutuelEngine implements OnModuleInit {
         if (bet.outcomeId === winner.id) {
           // Payout proportional to their share of winner pool
           const share = winnerPool > 0 ? Number(bet.amount) / winnerPool : 0;
-          const payout = parseFloat((payoutPool * share).toFixed(2));
-          bet.payout = payout;
+          const rawPayout = parseFloat((payoutPool * share).toFixed(2));
+
+          // ── Bonus cap logic (Option 2) ─────────────────────────────────────
+          // If this bet was placed using bonus credits, cap the withdrawable
+          // portion at Nu 50. Anything above that is re-credited as play money
+          // (isBonus=true) so it can only be re-bet, not withdrawn to DK Bank.
+          const BONUS_WITHDRAWABLE_CAP = 50;
+          const user = await em.findOne(User, {
+            where: { id: bet.userId },
+            select: ["id", "bonusBalance"],
+          });
+          const userBonusBalance = Number(user?.bonusBalance ?? 0);
+          const betIsBonusFunded =
+            userBonusBalance > 0 && Number(bet.amount) <= userBonusBalance;
+
+          let withdrawablePayout = rawPayout;
+          let playPayout = 0;
+
+          if (betIsBonusFunded) {
+            withdrawablePayout = Math.min(rawPayout, BONUS_WITHDRAWABLE_CAP);
+            playPayout = parseFloat(
+              (rawPayout - withdrawablePayout).toFixed(2),
+            );
+            // Reduce the user's tracked bonus balance
+            const newBonusBalance = Math.max(
+              0,
+              userBonusBalance - Number(bet.amount),
+            );
+            await em.update(
+              User,
+              { id: bet.userId },
+              { bonusBalance: newBonusBalance },
+            );
+          }
+
+          bet.payout = rawPayout;
           bet.status = PositionStatus.WON;
-          totalPaidOut += payout;
+          totalPaidOut += rawPayout;
           winningPositions++;
 
           const balanceBefore = await this.getCreditsBalance(em, bet.userId);
+
+          // Credit the withdrawable portion
           await em.save(
             Transaction,
             em.create(Transaction, {
               type: TransactionType.POSITION_PAYOUT,
-              amount: payout,
+              amount: withdrawablePayout,
               balanceBefore,
-              balanceAfter: balanceBefore + payout,
+              balanceAfter: balanceBefore + withdrawablePayout,
               positionId: bet.id,
               userId: bet.userId,
+              isBonus: false,
               note: `Payout for winning bet on: ${winner.label}`,
             }),
           );
+
+          // Credit the play-money portion (above cap) as bonus credits
+          if (playPayout > 0) {
+            const balAfterWithdrawable = balanceBefore + withdrawablePayout;
+            await em.save(
+              Transaction,
+              em.create(Transaction, {
+                type: TransactionType.FREE_CREDIT,
+                amount: playPayout,
+                balanceBefore: balAfterWithdrawable,
+                balanceAfter: balAfterWithdrawable + playPayout,
+                positionId: bet.id,
+                userId: bet.userId,
+                isBonus: true,
+                note: `Bonus play credits — payout above Nu ${BONUS_WITHDRAWABLE_CAP} cap (re-bet only)`,
+              }),
+            );
+            // Track the new play-money balance
+            await em.update(
+              User,
+              { id: bet.userId },
+              {
+                bonusBalance: () => `"bonusBalance" + ${playPayout}`,
+              },
+            );
+          }
         } else if (market.status === MarketStatus.CANCELLED) {
           // Refund on cancellation via ledger entry
           bet.status = PositionStatus.REFUNDED;
@@ -418,6 +1082,54 @@ export class ParimutuelEngine implements OnModuleInit {
     });
   }
 
+  // ── Bet placement notification ─────────────────────────────────────────────
+
+  private async sendBetPlacementNotification(
+    user: User,
+    market: Market,
+    outcome: Outcome,
+    amount: number,
+    balanceAfter: number,
+  ): Promise<void> {
+    if (!user.telegramId) {
+      this.logger.debug(
+        `[BetNotification] User ${user.id} has no Telegram ID, skipping notification`,
+      );
+      return;
+    }
+
+    const chatId = parseInt(user.telegramId, 10);
+    if (isNaN(chatId)) {
+      this.logger.warn(
+        `[BetNotification] Invalid Telegram ID for user ${user.id}: ${user.telegramId}`,
+      );
+      return;
+    }
+
+    const message = `
+✅ <b>Bet Placed Successfully!</b>
+
+📊 <b>Market:</b> ${market.title}
+🎯 <b>Outcome:</b> ${outcome.label}
+💰 <b>Amount:</b> Nu ${amount.toLocaleString()}
+
+💳 <b>New Balance:</b> Nu ${balanceAfter.toLocaleString()}
+
+Good luck! 🍀
+    `.trim();
+
+    try {
+      await this.telegramSimple.sendMessage(chatId, message);
+      this.logger.log(
+        `[BetNotification] Sent to user ${user.id} for bet of Nu ${amount}`,
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `[BetNotification] Failed to send to user ${user.id}: ${error.message}`,
+      );
+    }
+  }
+
   // ── Post-settlement: reputation recalc + individual DM notifications ────────
 
   private async sendSettlementNotifications(
@@ -434,7 +1146,7 @@ export class ParimutuelEngine implements OnModuleInit {
     const tiersBefore: Record<string, string> = {};
     for (const bet of bets) {
       if (bet.user)
-        tiersBefore[bet.userId] = bet.user.reputationTier ?? "newcomer";
+        tiersBefore[bet.userId] = bet.user.reputationTier ?? "rookie";
     }
 
     // 2. Recalculate reputation for all bettors
@@ -487,15 +1199,15 @@ export class ParimutuelEngine implements OnModuleInit {
 
       const chatId = Number(user.telegramId);
       const firstName = user.firstName?.trim() || "there";
-      const tierNow = user.reputationTier ?? "newcomer";
-      const tierBefore = tiersBefore[userId] ?? "newcomer";
+      const tierNow = user.reputationTier ?? "rookie";
+      const tierBefore = tiersBefore[userId] ?? "rookie";
       const totalPredictions = user.totalPredictions ?? 0;
       const accuracy =
         totalPredictions > 0 && user.reputationScore != null
           ? `${Math.round(user.reputationScore * 100)}%`
           : null;
 
-      const tierOrder = ["newcomer", "regular", "reliable", "expert"];
+      const tierOrder = ["rookie", "sharpshooter", "hot_hand", "legend"];
       const tierUpgraded =
         tierOrder.indexOf(tierNow) > tierOrder.indexOf(tierBefore);
 
@@ -575,16 +1287,88 @@ export class ParimutuelEngine implements OnModuleInit {
         msg += `\n💡 Every prediction builds your reputation. Keep going.`;
 
         await this.telegramSimple.sendMessage(chatId, msg).catch(() => {});
-        await this.dataSource
-          .getRepository(User)
-          .update(user.id, { telegramStreak: 0 })
-          .catch(() => {});
+
+        // Shield card: if the user has an active duel on this market with Shield
+        // equipped, their streak is preserved — skip the reset entirely.
+        const shielded = await this.challengesService
+          .hasShieldActive(user.id, market.id)
+          .catch(() => false);
+
+        if (!shielded) {
+          await this.dataSource
+            .getRepository(User)
+            .update(user.id, { telegramStreak: 0 })
+            .catch(() => {});
+        } else {
+          this.logger.log(
+            `[Shield] Streak reset skipped for user ${user.id} on market ${market.id}`,
+          );
+        }
+
+        // Consecutive loss consolation — check after streak update so the
+        // user has the most up-to-date record before we query it.
+        await this.sendLosingStreakConsolation(userId, chatId, user.firstName).catch(() => {});
       }
     }
 
     this.logger.log(
       `[Notify] Settlement DMs sent for market ${market.id} to ${Object.keys(betsByUser).length} bettors (${bets.length} positions total)`,
     );
+  }
+
+  // ── Consecutive-loss consolation ──────────────────────────────────────────
+  private async sendLosingStreakConsolation(
+    userId: string,
+    chatId: number,
+    firstName: string | null | undefined,
+  ): Promise<void> {
+    // Aggregate positions by market: a market is a "win" if the user had at
+    // least one WON position, otherwise it's a "loss".
+    const recentMarkets = await this.dataSource
+      .getRepository(Position)
+      .createQueryBuilder("p")
+      .select("p.marketId", "marketId")
+      .addSelect("MAX(p.placedAt)", "lastPlaced")
+      .addSelect(
+        `CASE WHEN bool_or(p.status = 'won') THEN 'won' ELSE 'lost' END`,
+        "result",
+      )
+      .where("p.userId = :uid", { uid: userId })
+      .andWhere("p.status IN (:...statuses)", {
+        statuses: [PositionStatus.WON, PositionStatus.LOST],
+      })
+      .groupBy("p.marketId")
+      .orderBy('"lastPlaced"', "DESC")
+      .limit(3)
+      .getRawMany<{ marketId: string; lastPlaced: string; result: string }>();
+
+    if (recentMarkets.length < 2) return;
+
+    // Count how many consecutive losses from the most recent market
+    const firstWinIndex = recentMarkets.findIndex((r) => r.result !== "lost");
+    const lossCount =
+      firstWinIndex === -1 ? recentMarkets.length : firstWinIndex;
+
+    if (lossCount < 3) return;
+
+    const name = firstName?.trim() || "Predictor";
+
+    // Find the most active open market as a "hot tip"
+    const topMarket = await this.dataSource
+      .getRepository(Market)
+      .createQueryBuilder("m")
+      .where("m.status = :s", { s: MarketStatus.OPEN })
+      .andWhere("m.totalPool > 0")
+      .orderBy("m.totalPool", "DESC")
+      .limit(1)
+      .getOne();
+
+    const tipMsg = topMarket
+      ? `${name}, 3 losses in a row is just variance. ` +
+        `The crowd is active on <b>${topMarket.title}</b> right now — worth a look.`
+      : `${name}, 3 losses in a row happens to the best. Your next prediction turns it around.`;
+
+    await this.telegramSimple.sendMessage(chatId, tipMsg);
   }
 
   // Cancel market: refund all bets

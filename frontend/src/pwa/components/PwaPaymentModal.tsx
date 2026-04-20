@@ -11,7 +11,7 @@ import type { DKBankPaymentRequest, PaymentResponse } from "@/types/payment";
 import { PayoutBreakdown } from "@/components/PayoutBreakdown";
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
-const MIN_BET = 50;
+const MIN_BET = 100;
 
 interface PwaPaymentModalProps {
   isOpen: boolean;
@@ -51,10 +51,10 @@ export function PwaPaymentModal({
 
   const estPayout = (() => {
     if (!isValidAmount || !outcome) return 0;
-    const houseEdge = parseFloat(market.houseEdgePct) || 0;
-    const outcomePool = Number(outcome.totalBetAmount) + betAmount;
-    const totalPool = Number(market.totalPool) + betAmount;
-    if (outcomePool <= 0) return 0;
+    const houseEdge = Number(market.houseEdgePct) || 0;
+    const outcomePool = (Number(outcome.totalBetAmount) || 0) + betAmount;
+    const totalPool = (Number(market.totalPool) || 0) + betAmount;
+    if (outcomePool <= 0 || isNaN(outcomePool) || isNaN(totalPool)) return 0;
     return betAmount * ((totalPool * (1 - houseEdge / 100)) / outcomePool);
   })();
   const estProfit = estPayout - betAmount;
@@ -92,7 +92,7 @@ export function PwaPaymentModal({
         cid: cidNumber,
         customerName: customerName || undefined,
         description: `Predict: ${market.title} — ${outcome?.label}`,
-        merchantTxnId: `TARA_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        merchantTxnId: `ORO_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       };
       const payment = await initiateDKBankPayment(req);
       if (payment.status === "success") {

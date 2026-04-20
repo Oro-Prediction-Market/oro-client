@@ -285,7 +285,7 @@ async function step_accountAuth(
       transaction_datetime: txDatetime,
       stan_number: stanNumber,
       transaction_amount: amount.toFixed(2),
-      payment_desc: "Tara staging test",
+      payment_desc: "Oro staging test",
       account_name: BENE_NAME,
       phone_number: "17000000", // staging placeholder
       remitter_account_number: accountNumber,
@@ -338,7 +338,7 @@ async function step_debitRequest(
       bene_cust_name: BENE_NAME,
       bene_account_number: BENE_ACCOUNT,
       bene_bank_code: BANK_CODE,
-      narration: "Tara staging test payment",
+      narration: "Oro staging test payment",
     },
     token,
     privateKey,

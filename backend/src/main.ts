@@ -3,6 +3,7 @@ import * as dotenv from "dotenv";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
+import helmet from "helmet";
 import { AppModule } from "./app.module";
 
 // Load environment variables
@@ -10,6 +11,9 @@ dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Security headers
+  app.use(helmet());
 
   // CORS
   const isProduction = process.env.NODE_ENV === "production";
@@ -45,11 +49,11 @@ async function bootstrap() {
   app.setGlobalPrefix("api");
 
   // Global validation
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
 
   // Swagger docs
   const config = new DocumentBuilder()
-    .setTitle("Tara Parimutuel API")
+    .setTitle("Oro Parimutuel API")
     .setDescription("Parimutuel prediction engine for Telegram Mini App")
     .setVersion("1.0")
     .addBearerAuth()
@@ -59,7 +63,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`🚀 Tara backend running on http://localhost:${port}`);
+  console.log(`🚀 Oro backend running on http://localhost:${port}`);
   console.log(`📖 Swagger docs: http://localhost:${port}/docs`);
 }
 bootstrap();

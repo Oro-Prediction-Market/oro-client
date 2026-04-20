@@ -32,3 +32,9 @@ dist-ssr
 .vercel
 .env*.local
 .env.local
+
+# Database schema (sensitive)
+docs/databaseschema/
+
+# Graphify output
+graphify-out/

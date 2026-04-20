@@ -1,26 +1,14 @@
-import { ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsNumber, IsPositive, IsUUID, IsString } from "class-validator";
+import { ApiProperty } from "@nestjs/swagger";
+import { IsString, IsNotEmpty, MaxLength } from "class-validator";
 
 export class SubmitDisputeDto {
-  @ApiPropertyOptional({
-    description: "Bond amount in credits (used when paying from credit balance)",
+  @ApiProperty({
+    description:
+      "Your reason for objecting to the proposed outcome. Be specific — admins review every objection.",
+    example: "The live score I saw was 2-1 to Team A, not Team B as proposed.",
   })
-  @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  bondAmount?: number;
-
-  @ApiPropertyOptional({
-    description: "Completed DK Bank payment ID to use as bond",
-  })
-  @IsOptional()
-  @IsUUID()
-  paymentId?: string;
-
-  @ApiPropertyOptional({
-    description: "Reason for disputing the proposed outcome",
-  })
-  @IsOptional()
-  @IsString()
-  reason?: string;
+  @IsString({ message: "Reason must be in text format" })
+  @IsNotEmpty({ message: "A reason is required to raise an objection" })
+  @MaxLength(1000, { message: "Reason must be 1000 characters or fewer" })
+  reason: string;
 }

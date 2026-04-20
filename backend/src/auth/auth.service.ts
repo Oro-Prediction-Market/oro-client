@@ -1,25 +1,29 @@
-import { createHmac, timingSafeEqual } from "crypto";
-import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { createHmac, timingSafeEqual, randomUUID } from "crypto";
+import * as bcrypt from "bcryptjs";
+import { Injectable, Logger, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../entities/user.entity";
 import { AuthMethod, AuthProvider } from "../entities/auth-method.entity";
 import { Transaction, TransactionType } from "../entities/transaction.entity";
+import { Market, MarketStatus } from "../entities/market.entity";
+import { Position, PositionStatus } from "../entities/position.entity";
 import { DKGatewayService } from "../payment/services/dk-gateway/dk-gateway.service";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { AuditService } from "../admin/audit.service";
-import { AuditAction } from "../entities/audit-log.entity";
+import { AuditAction, AuditLog, RoleType } from "../entities/audit-log.entity";
 import { RedisService } from "../redis/redis.service";
 
 function stripSensitiveFields(
   user: User,
-): Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber"> {
+): Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber" | "pwaPasswordHash"> {
   const {
     dkPhoneHash: _a,
     telegramPhoneHash: _b,
     phoneNumber: _c,
+    pwaPasswordHash: _d,
     ...safe
   } = user as any;
   return safe;
@@ -45,12 +49,15 @@ export class AuthService {
     private authMethodRepo: Repository<AuthMethod>,
     @InjectRepository(Transaction)
     private transactionRepo: Repository<Transaction>,
+    @InjectRepository(Market) private marketRepo: Repository<Market>,
+    @InjectRepository(Position) private positionRepo: Repository<Position>,
     private jwtService: JwtService,
     private dkGateway: DKGatewayService,
     private telegramVerification: TelegramVerificationService,
-    private auditService: AuditService,
-    private redis: RedisService,
     private telegramSimple: TelegramSimpleService,
+    private auditService: AuditService,
+    @InjectRepository(AuditLog) private auditLogRepo: Repository<AuditLog>,
+    private redis: RedisService,
   ) {}
 
   // ── HMAC-SHA-256 Telegram initData validation ──────────────────────────────
@@ -107,9 +114,24 @@ export class AuthService {
   }
 
   // ── Login / Register via Telegram ─────────────────────────────────────────
-  async loginWithTelegram(rawInitData: string) {
+  async loginWithTelegram(rawInitData: string, referralCode?: string) {
     const tgUser = this.validateTelegramInitData(rawInitData);
     const providerId = String(tgUser.id);
+
+    // Resolve referrer from code like "ref_<telegramId>" — ignore self-referrals
+    let referredByUserId: string | null = null;
+    if (referralCode) {
+      const refTelegramId = referralCode.startsWith("ref_")
+        ? referralCode.slice(4)
+        : referralCode;
+      if (refTelegramId && refTelegramId !== providerId) {
+        const referrer = await this.userRepo.findOne({
+          where: { telegramId: refTelegramId },
+          select: ["id"],
+        });
+        if (referrer) referredByUserId = referrer.id;
+      }
+    }
 
     // Find or create auth method
     let authMethod = await this.authMethodRepo.findOne({
@@ -130,19 +152,43 @@ export class AuthService {
           lastName: tgUser.last_name,
           username: tgUser.username,
           photoUrl: tgUser.photo_url,
+          // Store referrer only on first registration — never overwrite
+          referredByUserId,
         });
         await this.userRepo.save(user);
 
-        // Dev-only seed credits — not available in staging or production
+        // ── Welcome free credit (all environments) ──────────────────────────
+        // Nu 20 bonus credit so new users can predict without depositing first.
+        // Marked isBonus=true — winnings from this are capped at Nu 50 withdrawable.
+        await this.transactionRepo.save(
+          this.transactionRepo.create({
+            type: TransactionType.FREE_CREDIT,
+            amount: 20,
+            balanceBefore: 0,
+            balanceAfter: 20,
+            userId: user.id,
+            isBonus: true,
+            note: "Welcome bonus — free Nu 20 to make your first prediction!",
+          }),
+        );
+        await this.userRepo.update(user.id, {
+          freeCreditGranted: true,
+          bonusBalance: 20,
+        });
+
+        // Send welcome DM — fire and forget, never block registration
+        this.sendWelcomeDM(user, referredByUserId, tgUser.first_name).catch(() => {});
+
+        // Dev-only extra seed credits on top of the welcome bonus
         if (process.env.NODE_ENV === "development") {
           await this.transactionRepo.save(
             this.transactionRepo.create({
               type: TransactionType.DEPOSIT,
               amount: 1000,
-              balanceBefore: 0,
-              balanceAfter: 1000,
+              balanceBefore: 20,
+              balanceAfter: 1020,
               userId: user.id,
-              note: "Starter credits",
+              note: "Starter credits (dev only)",
             }),
           );
         }
@@ -179,6 +225,7 @@ export class AuthService {
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
+      jti: randomUUID(),
     });
 
     // Log user login in audit log
@@ -199,6 +246,72 @@ export class AuthService {
     return { token, user: stripSensitiveFields(freshUser!) };
   }
 
+  // ── First-session welcome DM ──────────────────────────────────────────────
+  private async sendWelcomeDM(
+    user: User,
+    referredByUserId: string | null,
+    firstName?: string,
+  ): Promise<void> {
+    const chatId = Number(user.telegramChatId ?? user.telegramId);
+    if (!chatId) return;
+
+    const name = firstName?.trim() || "Predictor";
+
+    // Find the most active open market to show in the welcome message
+    const topMarket = await this.marketRepo
+      .createQueryBuilder("m")
+      .where("m.status = :status", { status: MarketStatus.OPEN })
+      .orderBy("m.totalPool", "DESC")
+      .limit(1)
+      .getOne();
+
+    let msg =
+      `🎉 <b>Welcome to Oro, ${name}!</b>\n\n` +
+      `You've received <b>Nu 20 free credit</b> — no deposit needed to make your first prediction.\n\n`;
+
+    // Fix 3: referral context — show what the referrer is predicting
+    if (referredByUserId) {
+      const referrer = await this.userRepo.findOne({
+        where: { id: referredByUserId },
+        select: ["firstName", "username"],
+      });
+
+      const referrerPosition = await this.positionRepo
+        .createQueryBuilder("p")
+        .innerJoinAndSelect("p.market", "m")
+        .innerJoinAndSelect("p.outcome", "o")
+        .where("p.userId = :uid", { uid: referredByUserId })
+        .andWhere("p.status = :ps", { ps: PositionStatus.PENDING })
+        .andWhere("m.status = :ms", { ms: MarketStatus.OPEN })
+        .orderBy("p.placedAt", "DESC")
+        .limit(1)
+        .getOne();
+
+      const refName =
+        referrer?.firstName || referrer?.username || "A friend";
+
+      if (referrerPosition) {
+        const refMarket = (referrerPosition as any).market;
+        const refOutcome = (referrerPosition as any).outcome;
+        msg +=
+          `👥 <b>${refName}</b> invited you and is predicting <b>${refOutcome?.label}</b> on <b>${refMarket?.title}</b>. ` +
+          `Think they're wrong? Take the other side!\n\n`;
+      } else {
+        msg +=
+          `👥 <b>${refName}</b> invited you to Oro. ` +
+          `Make your first prediction to earn them a bonus!\n\n`;
+      }
+    }
+
+    if (topMarket) {
+      msg += `🔥 <b>Hot right now:</b> ${topMarket.title}\n\n`;
+    }
+
+    msg += `👉 Open Oro to start predicting!`;
+
+    await this.telegramSimple.sendMessage(chatId, msg);
+  }
+
   // ── Dev-only: login and ensure isAdmin=true ───────────────────────────────
   async ensureAdminAndLogin(rawInitData: string) {
     const result = await this.loginWithTelegram(rawInitData);
@@ -212,20 +325,41 @@ export class AuthService {
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
+      jti: randomUUID(),
     });
     return { token, user: stripSensitiveFields(freshUser!) };
   }
 
+  // ── Check if a CID account has a PWA password set (no sensitive data) ──────
+  async getPwaStatus(cid: string): Promise<{ hasPassword: boolean }> {
+    if (!cid || cid.length !== 11) return { hasPassword: false };
+    const user = await this.userRepo.findOne({
+      where: { dkCid: cid },
+      select: ["pwaPasswordHash"],
+    });
+    return { hasPassword: !!(user?.pwaPasswordHash) };
+  }
+
+  // ── Set / Change PWA password (called from TMA, requires valid JWT) ────────
+  async setPwaPassword(userId: string, password: string): Promise<void> {
+    if (!password || password.length < 6) {
+      throw new BadRequestException("Password must be at least 6 characters.");
+    }
+    const hash = await bcrypt.hash(password, 12);
+    await this.userRepo.update(userId, { pwaPasswordHash: hash });
+  }
+
   // ── Login / Register via DK Bank CID ──────────────────────────────────────
   /**
-   * Links a DK Bank CID to a Tara account.
+   * Links a DK Bank CID to a Oro account.
    *
    * @param cid - The 11-digit national ID.
    * @param callerUserId - When called from the TMA (already JWT-authenticated),
    *   pass the authenticated user's UUID so the DK fields + dkPhoneHash are
    *   written to that existing Telegram user row instead of creating a new one.
+   * @param password - Required when the account has a PWA password set.
    */
-  async loginWithDKBank(cid: string, callerUserId?: string) {
+  async loginWithDKBank(cid: string, callerUserId?: string, password?: string) {
     const account = await this.dkGateway.lookupAccountByCID(cid);
 
     // ── If called by an already-authenticated Telegram user, merge into their row ──
@@ -301,6 +435,7 @@ export class AuthService {
         const token = this.jwtService.sign({
           sub: existingUser.id,
           isAdmin: existingUser.isAdmin,
+          jti: randomUUID(),
         });
         const updatedUser = await this.userRepo.findOneBy({ id: callerUserId });
         const { phoneNumber: _p1, ...safeDkAccount1 } = account;
@@ -378,6 +513,23 @@ export class AuthService {
         });
         await this.authMethodRepo.save(authMethod);
         const freshUser = await this.userRepo.findOneBy({ id: user.id });
+
+        // ── PWA password check (same guard as the main path below) ────────────
+        if (!callerUserId) {
+          if (!freshUser!.pwaPasswordHash) {
+            throw new UnauthorizedException(
+              "Set a PWA password in Telegram → Settings → Website Access before logging in here.",
+            );
+          }
+          if (!password) {
+            throw new UnauthorizedException("This account requires a PWA password.");
+          }
+          const valid = await bcrypt.compare(password, freshUser!.pwaPasswordHash);
+          if (!valid) {
+            throw new UnauthorizedException("Incorrect password.");
+          }
+        }
+
         const token = this.jwtService.sign({
           sub: freshUser!.id,
           isAdmin: freshUser!.isAdmin,
@@ -451,9 +603,29 @@ export class AuthService {
     const freshUser = await this.userRepo.findOneBy({
       id: authMethod.user?.id ?? authMethod.userId,
     });
+
+    // ── PWA password check ─────────────────────────────────────────────────
+    // Only applies when NOT called from TMA (callerUserId absent).
+    // A PWA password must be set in Telegram before PWA login is allowed.
+    if (!callerUserId) {
+      if (!freshUser!.pwaPasswordHash) {
+        throw new UnauthorizedException(
+          "Set a PWA password in Telegram → Settings → Website Access before logging in here.",
+        );
+      }
+      if (!password) {
+        throw new UnauthorizedException("This account requires a PWA password.");
+      }
+      const valid = await bcrypt.compare(password, freshUser!.pwaPasswordHash);
+      if (!valid) {
+        throw new UnauthorizedException("Incorrect password.");
+      }
+    }
+
     const token = this.jwtService.sign({
       sub: freshUser!.id,
       isAdmin: freshUser!.isAdmin,
+      jti: randomUUID(),
     });
 
     const { phoneNumber: _p3, ...safeDkAccount3 } = account;
@@ -505,7 +677,7 @@ export class AuthService {
     cid: string,
     otp: string,
     phoneNumber: string,
-  ): Promise<{ token: string; user: Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber"> }> {
+  ): Promise<{ token: string; user: Omit<User, "dkPhoneHash" | "telegramPhoneHash" | "phoneNumber" | "pwaPasswordHash"> }> {
     // Retrieve and validate OTP from Redis
     const redisKey = `manual_login_otp:${telegramId}`;
     const stored = await this.redis.getJson<{ otp: string; cid: string; dkPhoneHash: string; attempts: number }>(redisKey);
@@ -625,6 +797,7 @@ export class AuthService {
     const token = this.jwtService.sign({
       sub: freshUser.id,
       isAdmin: freshUser.isAdmin,
+      jti: randomUUID(),
     });
 
     // Log the login
@@ -645,5 +818,60 @@ export class AuthService {
     this.logger.log(`[ManualLogin] User ${freshUser.id} logged in successfully via manual flow`);
 
     return { token, user: stripSensitiveFields(freshUser) };
+  }
+
+  // ── JWT revocation ────────────────────────────────────────────────────────
+  async revokeToken(jti: string, exp: number, userId: string): Promise<void> {
+    const ttl = exp - Math.floor(Date.now() / 1000);
+    if (ttl > 0) {
+      await this.redis.setEx(`jwt:blacklist:${jti}`, ttl, "1");
+    }
+    await this.auditLogRepo.save(
+      this.auditLogRepo.create({
+        adminId: userId,
+        username: "system",
+        roleType: RoleType.USER,
+        action: AuditAction.AUTH_TOKEN_REVOKED,
+        entityType: "user",
+        entityId: userId,
+        payload: { meta: { jti } },
+      }),
+    );
+  }
+
+  // ── Auth failure tracking ─────────────────────────────────────────────────
+  async recordAuthFailure(
+    action: AuditAction,
+    cid: string,
+    ip: string,
+  ): Promise<void> {
+    const key = `auth:fail:${cid}`;
+    try {
+      const count = await this.redis.redis.incr(key);
+      // Set 15-minute expiry on first increment
+      if (count === 1) await this.redis.redis.expire(key, 900);
+      if (count >= 5) {
+        this.logger.warn(
+          `[Security] ${count} failed auth attempts for CID ${cid} from IP ${ip}`,
+        );
+      }
+    } catch {
+      // Redis unavailable — still log to DB
+    }
+    try {
+      await this.auditLogRepo.save(
+        this.auditLogRepo.create({
+          adminId: "anonymous",
+          username: cid,
+          roleType: RoleType.USER,
+          action,
+          entityType: "user",
+          entityId: cid,
+          payload: { meta: { ip, cid } },
+        }),
+      );
+    } catch {
+      // Non-fatal — don't break auth flow
+    }
   }
 }

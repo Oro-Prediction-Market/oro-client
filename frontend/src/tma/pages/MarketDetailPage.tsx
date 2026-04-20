@@ -1,5 +1,4 @@
-import { FC, useEffect, useState } from "react";
-import dkBankLogo from "../../../assets/dk blue.png";
+import { FC, useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Spinner, Placeholder } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
@@ -12,8 +11,11 @@ import {
   Market,
   Dispute,
   DisputeRequirements,
+  Bet,
 } from "@/api/client";
 import { Link } from "@/tma/components/Link/Link";
+import { ShareCTA } from "@/tma/components/ShareCTA";
+import { useMarketSocket } from "@/tma/hooks/useMarketSocket";
 
 export const MarketDetailPage: FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,12 +26,39 @@ export const MarketDetailPage: FC = () => {
   const [disputeReqs, setDisputeReqs] = useState<DisputeRequirements | null>(
     null,
   );
-  const [bondAmount, setBondAmount] = useState("10");
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeSubmitting, setDisputeSubmitting] = useState(false);
   const [disputeError, setDisputeError] = useState<string | null>(null);
   const [disputeSuccess, setDisputeSuccess] = useState(false);
   const [hasBet, setHasBet] = useState(false);
+  const [userBets, setUserBets] = useState<Bet[]>([]);
+
+  // ── Live WebSocket updates ─────────────────────────────────────────────────
+  const liveData = useMarketSocket(id);
+
+  /**
+   * Merge the latest WS snapshot on top of the REST-fetched market so that
+   * totalPool and per-outcome probabilities update in real time without
+   * a full page reload.
+   */
+  const liveMarket = useMemo<Market | null>(() => {
+    if (!market) return null;
+    if (!liveData) return market;
+    return {
+      ...market,
+      totalPool: String(liveData.totalPool),
+      outcomes: market.outcomes.map((o) => {
+        const live = liveData.outcomes.find((lo) => lo.id === o.id);
+        if (!live) return o;
+        return {
+          ...o,
+          totalBetAmount: String(live.totalBetAmount),
+          lmsrProbability: live.lmsrProbability ?? o.lmsrProbability,
+          currentOdds: String(live.currentOdds),
+        } as typeof o;
+      }),
+    };
+  }, [market, liveData]);
 
   useEffect(() => {
     async function load() {
@@ -47,7 +76,9 @@ export const MarketDetailPage: FC = () => {
     // Check if user has already bet on this market
     getMyBets()
       .then((bets) => {
-        setHasBet(bets.some((b) => b.marketId === id));
+        const marketBets = bets.filter((b) => b.marketId === id);
+        setUserBets(marketBets);
+        setHasBet(marketBets.length > 0);
       })
       .catch(() => {});
   }, [id]);
@@ -60,25 +91,21 @@ export const MarketDetailPage: FC = () => {
     getDisputeRequirements(id)
       .then((reqs) => {
         setDisputeReqs(reqs);
-        setBondAmount(String(reqs.minBond));
       })
       .catch(() => {});
   }, [id, market?.status]);
 
   const handleSubmitDispute = async () => {
     if (!id) return;
-    const amount = parseFloat(bondAmount);
-    const minBond = disputeReqs?.minBond ?? 10;
-    if (!amount || amount < minBond) {
-      setDisputeError(`Minimum bond is Nu ${minBond}.`);
+    if (!disputeReason.trim()) {
+      setDisputeError("Please explain why the proposed outcome is incorrect.");
       return;
     }
     setDisputeSubmitting(true);
     setDisputeError(null);
     try {
       await submitDispute(id, {
-        bondAmount: amount,
-        reason: disputeReason || undefined,
+        reason: disputeReason,
       });
       setDisputeSuccess(true);
       getDisputes(id)
@@ -111,29 +138,42 @@ export const MarketDetailPage: FC = () => {
     );
   }
 
-  const isResolving = market.status === "resolving";
+  const isResolving = (liveMarket ?? market).status === "resolving";
   const isResolved =
-    market.status === "resolved" || market.status === "settled";
+    (liveMarket ?? market).status === "resolved" ||
+    (liveMarket ?? market).status === "settled";
+  // Use liveMarket for all display — falls back to REST data until first WS event
+  const m = liveMarket ?? market;
   const resolvedOutcome =
-    isResolved && market.resolvedOutcomeId
-      ? market.outcomes.find((o) => o.id === market.resolvedOutcomeId)
+    isResolved && m.resolvedOutcomeId
+      ? m.outcomes.find((o) => o.id === m.resolvedOutcomeId)
       : null;
 
+  const wonTotalPayout = userBets
+    .filter(
+      (b) =>
+        b.status === "won" ||
+        (isResolved && b.outcomeId === m.resolvedOutcomeId),
+    )
+    .reduce((sum, b) => sum + (b.payout || 0), 0);
+
+  const hasWon = wonTotalPayout > 0;
+
   const proposedOutcome =
-    isResolving && market.proposedOutcomeId
-      ? market.outcomes.find((o) => o.id === market.proposedOutcomeId)
+    isResolving && m.proposedOutcomeId
+      ? m.outcomes.find((o) => o.id === m.proposedOutcomeId)
       : null;
 
   const disputeTimeLeft = (() => {
-    if (!market.disputeDeadlineAt) return null;
-    const diff = new Date(market.disputeDeadlineAt).getTime() - Date.now();
+    if (!m.disputeDeadlineAt) return null;
+    const diff = new Date(m.disputeDeadlineAt).getTime() - Date.now();
     if (diff <= 0) return "Dispute window closed";
     const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    return `${h}h ${m}m remaining`;
+    const min = Math.floor((diff % 3600000) / 60000);
+    return `${h}h ${min}m remaining`;
   })();
 
-  const isOpen = market.status === "open";
+  const isOpen = m.status === "open";
 
   return (
     <Page back={true}>
@@ -188,7 +228,7 @@ export const MarketDetailPage: FC = () => {
                 fontFamily: "var(--font-display)",
               }}
             >
-              {market.title}
+              {m.title}
             </h1>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <div
@@ -205,7 +245,7 @@ export const MarketDetailPage: FC = () => {
                       : "var(--text-muted)",
                 }}
               >
-                {market.status.toUpperCase()}
+                {m.status.toUpperCase()}
               </div>
               <div
                 style={{
@@ -215,12 +255,29 @@ export const MarketDetailPage: FC = () => {
                   fontSize: "0.75rem",
                   fontWeight: 800,
                   color: "var(--text-main)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
                 }}
               >
-                Nu {Number(market.totalPool).toLocaleString()}
+                {liveData && isOpen && (
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: "#22c55e",
+                      display: "inline-block",
+                      boxShadow: "0 0 0 2px rgba(34,197,94,0.3)",
+                      animation: "livePulse 1.5s ease-in-out infinite",
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+                Nu {Number(m.totalPool).toLocaleString()}
               </div>
             </div>
-            {market.description && (
+            {m.description && (
               <p
                 style={{
                   color: "var(--text-muted)",
@@ -230,7 +287,7 @@ export const MarketDetailPage: FC = () => {
                   fontWeight: 500,
                 }}
               >
-                {market.description}
+                {m.description}
               </p>
             )}
           </div>
@@ -259,11 +316,11 @@ export const MarketDetailPage: FC = () => {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                { label: "Created", date: market.createdAt },
-                { label: "Opens", date: market.opensAt },
-                { label: "Closes", date: market.closesAt },
-                ...(market.resolvedAt
-                  ? [{ label: "Resolved", date: market.resolvedAt }]
+                { label: "Created", date: m.createdAt },
+                { label: "Opens", date: m.opensAt },
+                { label: "Closes", date: m.closesAt },
+                ...(m.resolvedAt
+                  ? [{ label: "Resolved", date: m.resolvedAt }]
                   : []),
               ].map(({ label, date }) =>
                 date ? (
@@ -307,7 +364,7 @@ export const MarketDetailPage: FC = () => {
           </div>
 
           {/* Resolution Criteria */}
-          {market.resolutionCriteria && (
+          {m.resolutionCriteria && (
             <div
               style={{
                 background: "var(--bg-card)",
@@ -338,7 +395,7 @@ export const MarketDetailPage: FC = () => {
                   margin: 0,
                 }}
               >
-                {market.resolutionCriteria}
+                {m.resolutionCriteria}
               </p>
             </div>
           )}
@@ -391,6 +448,15 @@ export const MarketDetailPage: FC = () => {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Share CTA for Winner */}
+          {resolvedOutcome && hasWon && (
+            <ShareCTA
+              type="win"
+              amount={wonTotalPayout}
+              marketTitle={m.title}
+            />
           )}
 
           {/* Dispute Section */}
@@ -551,43 +617,17 @@ export const MarketDetailPage: FC = () => {
                       gap: 12,
                     }}
                   >
-                    <div>
-                      <input
-                        type="number"
-                        value={bondAmount}
-                        onChange={(e) => setBondAmount(e.target.value)}
-                        min={disputeReqs?.minBond ?? 10}
-                        placeholder={`Bond (min Nu ${disputeReqs?.minBond ?? 10})`}
-                        disabled={disputeReqs != null && !disputeReqs.eligible}
-                        style={{
-                          width: "100%",
-                          padding: "12px",
-                          borderRadius: 10,
-                          border: "1.5px solid #fde68a",
-                          fontSize: "0.9rem",
-                          fontWeight: 700,
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                      {disputeReqs && (
-                        <div
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "#b45309",
-                            fontWeight: 600,
-                            marginTop: 4,
-                          }}
-                        >
-                          Min bond: Nu {disputeReqs.minBond} · requires{" "}
-                          {disputeReqs.minParticipants} participants
-                        </div>
-                      )}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 10, background: "rgba(245,158,11,0.1)", border: "1.5px solid #fde68a" }}>
+                      <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>Dispute Bond</span>
+                      <span style={{ fontSize: "1rem", fontWeight: 900, color: "#b45309" }}>Nu 5,000</span>
+                    </div>
+                    <div style={{ fontSize: "0.7rem", color: "#b45309", fontWeight: 600, lineHeight: 1.5 }}>
+                      This bond is locked when you raise an objection. You get it back + a reward if the admin agrees the outcome was wrong. You lose it if the admin upholds their decision.
                     </div>
                     <textarea
                       value={disputeReason}
                       onChange={(e) => setDisputeReason(e.target.value)}
-                      placeholder="Reason (optional)"
+                      placeholder="Explain why the proposed outcome is incorrect..."
                       rows={2}
                       disabled={disputeReqs != null && !disputeReqs.eligible}
                       style={{
@@ -642,108 +682,7 @@ export const MarketDetailPage: FC = () => {
             </div>
           )}
 
-          {/* Betting Options */}
-          {isOpen && (
-            <div
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--glass-border)",
-                borderRadius: "var(--radius-lg)",
-                padding: "20px",
-                boxShadow: "var(--shadow-premium)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 800,
-                  color: "var(--text-subtle)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  marginBottom: 16,
-                }}
-              >
-                Payment Method
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: 10,
-                }}
-              >
-                <Link
-                  to={`/dkbank-bet/${market.id}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "12px 8px",
-                      background: "#fff",
-                      border: "2px solid #ff8c00",
-                      borderRadius: 12,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px rgba(255,140,0,0.25)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <img
-                      src={dkBankLogo}
-                      alt="DK Bank"
-                      style={{ height: 18, width: "auto" }}
-                    />
-                  </button>
-                </Link>
-                <Link
-                  to={`/ton-bet/${market.id}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "16px 8px",
-                      background: "linear-gradient(135deg, #00b4ed, #0072bc)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 12,
-                      fontSize: "0.75rem",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px rgba(0,180,237,0.3)",
-                    }}
-                  >
-                    TON
-                  </button>
-                </Link>
-                <Link
-                  to={`/market/${market.id}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <button
-                    style={{
-                      width: "100%",
-                      padding: "16px 8px",
-                      background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 12,
-                      fontSize: "0.75rem",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 4px 12px rgba(59,130,246,0.3)",
-                    }}
-                  >
-                    CREDITS
-                  </button>
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {/* Outcomes */}
+          {/* Outcomes — each row is the predict CTA */}
           <div
             style={{
               background: "var(--bg-card)",
@@ -753,6 +692,16 @@ export const MarketDetailPage: FC = () => {
               boxShadow: "var(--shadow-premium)",
             }}
           >
+            <style>{`
+              @keyframes shimmer-slide {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(250%); }
+              }
+              @keyframes livePulse {
+                0%, 100% { opacity: 1; box-shadow: 0 0 0 2px rgba(34,197,94,0.3); }
+                50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(34,197,94,0.1); }
+              }
+            `}</style>
             <div
               style={{
                 display: "flex",
@@ -770,10 +719,10 @@ export const MarketDetailPage: FC = () => {
                   textTransform: "uppercase",
                 }}
               >
-                Outcomes
+                Pick your outcome
               </div>
               {(() => {
-                const meta = (market as any).signalMeta;
+                const meta = (m as any).signalMeta;
                 if (!meta || meta.composite === 0) return null;
                 const c = meta.composite as number;
                 const pct = Math.round(c * 100);
@@ -826,28 +775,22 @@ export const MarketDetailPage: FC = () => {
               })()}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {market.outcomes.map((outcome, idx) => {
-                const totalBets = Number(market.totalPool);
-                // Mirror feed logic: only show intelligence/LMSR probability AFTER the user
-                // has a position — before betting always show the raw pool ratio so the
-                // detail page matches what the feed card displays.
+              {m.outcomes.map((outcome, idx) => {
+                const totalBets = Number(m.totalPool);
+                // Priority:
+                // 1. lmsrProbability  — live WS-updated value (most accurate)
+                // 2. pool ratio       — raw parimutuel share (when LMSR not yet computed)
+                // 3. equal weight     — fallback before any bets
                 const pct =
-                  hasBet &&
-                  outcome.intelligenceProb != null &&
-                  outcome.intelligenceProb > 0
-                    ? outcome.intelligenceProb * 100
-                    : hasBet &&
-                        outcome.lmsrProbability != null &&
-                        outcome.lmsrProbability > 0
-                      ? outcome.lmsrProbability * 100
-                      : totalBets > 0
-                        ? (Number(outcome.totalBetAmount) / totalBets) * 100
-                        : 100 / market.outcomes.length;
-                // Raw LMSR for delta display (crowd money) — only relevant post-bet
+                  outcome.lmsrProbability != null && outcome.lmsrProbability > 0
+                    ? outcome.lmsrProbability * 100
+                    : totalBets > 0
+                      ? (Number(outcome.totalBetAmount) / totalBets) * 100
+                      : 100 / m.outcomes.length;
+
+                // Intelligence delta: show expert vs crowd gap (only when hasBet & both values exist)
                 const rawPct =
-                  hasBet &&
-                  outcome.lmsrProbability != null &&
-                  outcome.lmsrProbability > 0
+                  outcome.lmsrProbability != null && outcome.lmsrProbability > 0
                     ? outcome.lmsrProbability * 100
                     : null;
                 const delta =
@@ -864,101 +807,197 @@ export const MarketDetailPage: FC = () => {
                 ];
                 const color = colors[idx % colors.length];
                 const signal = outcome.reputationSignal;
+                const barWidth = Math.max(4, Math.min(100, pct));
                 return (
-                  <div key={outcome.id}>
+                  <Link
+                    key={outcome.id}
+                    to={
+                      isOpen
+                        ? `/dkbank-bet/${m.id}?outcomeId=${outcome.id}`
+                        : "#"
+                    }
+                    style={{ textDecoration: "none", display: "block" }}
+                  >
                     <div
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "baseline",
-                        marginBottom: 6,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontWeight: 800,
-                          color: "var(--text-main)",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        {outcome.label}
-                      </span>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          gap: 6,
-                        }}
-                      >
-                        {delta !== null && delta !== 0 && (
-                          <span
-                            style={{
-                              fontSize: "0.65rem",
-                              fontWeight: 700,
-                              color: delta > 0 ? "#22c55e" : "#ef4444",
-                            }}
-                          >
-                            {delta > 0 ? "+" : ""}
-                            {delta}%
-                          </span>
-                        )}
-                        <span
-                          style={{
-                            fontWeight: 900,
-                            color: color,
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          {pct.toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        background: "var(--bg-secondary)",
-                        height: 8,
-                        borderRadius: 10,
+                        position: "relative",
+                        borderRadius: 14,
                         overflow: "hidden",
+                        background: "var(--bg-secondary)",
+                        border: `1.5px solid ${color}30`,
+                        boxShadow: `0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 1px ${color}18`,
+                        cursor: isOpen ? "pointer" : "default",
+                        transition:
+                          "transform 0.12s ease, box-shadow 0.15s ease",
+                      }}
+                      onMouseDown={(e) => {
+                        if (!isOpen) return;
+                        const el = e.currentTarget as HTMLDivElement;
+                        el.style.transform = "scale(0.982)";
+                        el.style.boxShadow = `inset 3px 3px 8px rgba(0,0,0,0.28), inset 0 0 0 1px ${color}50`;
+                      }}
+                      onMouseUp={(e) => {
+                        const el = e.currentTarget as HTMLDivElement;
+                        el.style.transform = "scale(1)";
+                        el.style.boxShadow = `0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 1px ${color}18`;
+                      }}
+                      onMouseLeave={(e) => {
+                        const el = e.currentTarget as HTMLDivElement;
+                        el.style.transform = "scale(1)";
+                        el.style.boxShadow = `0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 1px ${color}18`;
                       }}
                     >
+                      {/* probability fill */}
                       <div
                         style={{
-                          background: color,
-                          width: `${pct}%`,
-                          height: "100%",
-                          borderRadius: 10,
-                          transition: "width 1s",
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          bottom: 0,
+                          width: `${barWidth}%`,
+                          background: `linear-gradient(90deg, ${color}55 0%, ${color}28 60%, transparent 100%)`,
+                          borderRadius: "14px 0 0 14px",
+                          transition: "width 1s ease",
+                          pointerEvents: "none",
                         }}
                       />
-                    </div>
-                    {signal != null && hasBet && (
+
+                      {/* shimmer sweep — only on open markets */}
+                      {isOpen && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            overflow: "hidden",
+                            borderRadius: 14,
+                            pointerEvents: "none",
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              bottom: 0,
+                              width: "40%",
+                              background: `linear-gradient(90deg, transparent, ${color}18, transparent)`,
+                              animation:
+                                "shimmer-slide 2.4s ease-in-out infinite",
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* content */}
                       <div
                         style={{
+                          position: "relative",
+                          padding: "13px 16px",
                           display: "flex",
                           alignItems: "center",
-                          gap: 4,
-                          marginTop: 5,
-                          fontSize: "0.72rem",
-                          color: "var(--text-subtle)",
-                          fontWeight: 600,
+                          justifyContent: "space-between",
+                          gap: 8,
                         }}
                       >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="#f59e0b"
-                          stroke="none"
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 3,
+                            minWidth: 0,
+                          }}
                         >
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                        Top predictors lean {outcome.label} ·{" "}
-                        <span style={{ color: "#f59e0b", fontWeight: 800 }}>
-                          {Math.round(signal * 100)}%
-                        </span>
+                          <span
+                            style={{
+                              fontSize: "0.92rem",
+                              fontWeight: 800,
+                              color: "var(--text-main)",
+                              letterSpacing: "-0.01em",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {outcome.label}
+                          </span>
+                          {signal != null && hasBet && (
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                color: "#f59e0b",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 3,
+                              }}
+                            >
+                              <svg
+                                width="8"
+                                height="8"
+                                viewBox="0 0 24 24"
+                                fill="#f59e0b"
+                                stroke="none"
+                              >
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                              </svg>
+                              Experts {Math.round(signal * 100)}%
+                            </span>
+                          )}
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {delta !== null && delta !== 0 && (
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                color: delta > 0 ? "#22c55e" : "#ef4444",
+                              }}
+                            >
+                              {delta > 0 ? "+" : ""}
+                              {delta}%
+                            </span>
+                          )}
+                          <div
+                            style={{
+                              background: `${color}22`,
+                              border: `1.5px solid ${color}50`,
+                              color: color,
+                              fontSize: "1rem",
+                              fontWeight: 900,
+                              padding: "4px 14px",
+                              borderRadius: 99,
+                              letterSpacing: "-0.01em",
+                            }}
+                          >
+                            {pct.toFixed(0)}%
+                          </div>
+                          {isOpen && (
+                            <div
+                              style={{
+                                background: color,
+                                color: "#fff",
+                                fontSize: "0.65rem",
+                                fontWeight: 800,
+                                padding: "4px 10px",
+                                borderRadius: 99,
+                                letterSpacing: "0.06em",
+                                textTransform: "uppercase",
+                              }}
+                            >
+                              Predict
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  </Link>
                 );
               })}
             </div>

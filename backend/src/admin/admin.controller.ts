@@ -11,6 +11,7 @@ import {
   Delete,
   Request,
   NotFoundException,
+  BadRequestException,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -18,14 +19,22 @@ import {
   ApiOperation,
   ApiResponse,
   ApiQuery,
+  ApiProperty,
 } from "@nestjs/swagger";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { InjectRepository, InjectDataSource } from "@nestjs/typeorm";
+import { IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { Repository, DataSource } from "typeorm";
 import { JwtAuthGuard, AdminGuard } from "../auth/guards";
-import { MarketsService, CreateMarketDto } from "../markets/markets.service";
+import {
+  MarketsService,
+  CreateMarketDto,
+  UpdateMarketDto,
+} from "../markets/markets.service";
+import { KeeperService } from "../markets/keeper.service";
 import { FixturesService } from "./fixtures.service";
 import { AuditService } from "./audit.service";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
+import { RedisService } from "../redis/redis.service";
 import { AuditAction } from "../entities/audit-log.entity";
 import { Market, MarketStatus } from "../entities/market.entity";
 import { Outcome } from "../entities/outcome.entity";
@@ -34,11 +43,25 @@ import { Dispute } from "../entities/dispute.entity";
 import { Position } from "../entities/position.entity";
 import { User } from "../entities/user.entity";
 import { Payment } from "../entities/payment.entity";
+import { Transaction, TransactionType } from "../entities/transaction.entity";
 import { TransitionDto } from "./dto/transition.dto";
 import { ResolveDto } from "./dto/resolve.dto";
 import { ProposeResolutionDto } from "./dto/propose-resolution.dto";
 import { GetUsersQueryDto } from "./dto/get-users-query.dto";
 import { ToggleAdminDto } from "./dto/toggle-admin.dto";
+import { HealthCheckResponse } from "./dto/health-check.dto";
+
+class CreditUserDto {
+  @ApiProperty({ example: 500, description: "Amount to credit (BTN)" })
+  @IsNumber()
+  @Min(1)
+  amount: number;
+
+  @ApiProperty({ required: false, example: "Staging DK top-up" })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
 
 @ApiTags("admin")
 @ApiBearerAuth()
@@ -47,16 +70,86 @@ import { ToggleAdminDto } from "./dto/toggle-admin.dto";
 export class AdminController {
   constructor(
     private marketsService: MarketsService,
+    private keeperService: KeeperService,
     private fixturesService: FixturesService,
     private auditService: AuditService,
     private telegramSimple: TelegramSimpleService,
+    @InjectDataSource() private dataSource: DataSource,
+    private redis: RedisService,
     @InjectRepository(Settlement)
     private settlementRepo: Repository<Settlement>,
     @InjectRepository(Dispute) private disputeRepo: Repository<Dispute>,
     @InjectRepository(Position) private betRepo: Repository<Position>,
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
+    @InjectRepository(Transaction)
+    private transactionRepo: Repository<Transaction>,
   ) {}
+
+  // ── Health Check ──────────────────────────────────────────────────────────
+  @Get("health")
+  @ApiOperation({ summary: "System health check - database, redis, memory" })
+  @ApiResponse({ status: 200, type: HealthCheckResponse })
+  async healthCheck(): Promise<HealthCheckResponse> {
+    const startTime = Date.now();
+    const status: HealthCheckResponse = {
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      database: { status: "disconnected" },
+      redis: { status: "disconnected" },
+      memory: { used: 0, total: 0, percentage: 0 },
+      apiResponseTime: 0,
+    };
+
+    // Check database connection
+    try {
+      const dbStart = Date.now();
+      await this.dataSource.query("SELECT 1");
+      status.database = {
+        status: "connected",
+        responseTime: Date.now() - dbStart,
+      };
+    } catch (error) {
+      status.database = { status: "disconnected" };
+      status.status = "unhealthy";
+    }
+
+    // Check Redis connection
+    try {
+      const redisStart = Date.now();
+      await this.redis.get("oro:health:ping");
+      status.redis = {
+        status: "connected",
+        responseTime: Date.now() - redisStart,
+      };
+    } catch (error) {
+      status.redis = { status: "disconnected" };
+      status.status = status.status === "unhealthy" ? "unhealthy" : "degraded";
+    }
+
+    // Memory usage
+    const memUsage = process.memoryUsage();
+    const totalMem = memUsage.heapTotal;
+    const usedMem = memUsage.heapUsed;
+    const rss = memUsage.rss; // Resident Set Size - actual memory used by the process
+
+    status.memory = {
+      used: Math.round(rss / 1024 / 1024), // MB - actual memory in use (RSS)
+      total: Math.round(totalMem / 1024 / 1024), // MB - allocated heap
+      percentage: Math.round((usedMem / totalMem) * 100), // heap usage percentage
+    };
+
+    // Warn if memory is concerning (>500MB RSS or heap is consistently full)
+    if (rss > 500 * 1024 * 1024 || status.memory.percentage > 95) {
+      if (status.status === "healthy") {
+        status.status = "degraded";
+      }
+    }
+
+    status.apiResponseTime = Date.now() - startTime;
+    return status;
+  }
 
   // ── Markets ────────────────────────────────────────────────────────────────
   @Post("markets")
@@ -93,16 +186,70 @@ export class AdminController {
   }
 
   @Get("markets")
-  @ApiOperation({ summary: "List all markets (admin view)" })
-  async listMarkets() {
-    const data = await this.marketsService.findAll();
-    return { data, total: data.length };
+  @ApiOperation({ summary: "List all markets (admin view) with pagination" })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  @ApiQuery({ name: "status", required: false, type: String })
+  async listMarkets(
+    @Query("page") page = "1",
+    @Query("limit") limit = "20",
+    @Query("status") status?: string,
+  ) {
+    const take = Math.min(Number(limit) || 20, 100);
+    const skip = (Math.max(Number(page), 1) - 1) * take;
+    const qb = this.dataSource
+      .getRepository(Market)
+      .createQueryBuilder("market")
+      .leftJoinAndSelect("market.outcomes", "outcome")
+      .orderBy("market.createdAt", "DESC")
+      .skip(skip)
+      .take(take);
+    if (status && status.toLowerCase() !== "all") {
+      qb.where("market.status = :status", { status: status.toLowerCase() });
+    }
+    const [data, total] = await qb.getManyAndCount();
+    return {
+      data,
+      total,
+      page: Math.max(Number(page), 1),
+      pages: Math.ceil(total / take) || 1,
+    };
   }
 
   @Get("markets/:id")
   @ApiOperation({ summary: "Get market details" })
   getMarket(@Param("id") id: string) {
     return this.marketsService.findOne(id);
+  }
+
+  @Patch("markets/:id")
+  @ApiOperation({
+    summary: "Update market metadata and/or rename outcome labels",
+  })
+  async updateMarket(
+    @Param("id") id: string,
+    @Body() dto: UpdateMarketDto,
+    @Request() req: any,
+  ) {
+    const before = await this.marketsService.findOne(id);
+    const result = await this.marketsService.update(id, dto);
+    await this.auditService.log({
+      adminId: req.user.userId,
+      isAdmin: true,
+      action: AuditAction.MARKET_TRANSITION, // reuse closest action; no MARKET_UPDATE exists
+      entityType: "market",
+      entityId: id,
+      before: {
+        title: before.title,
+        outcomes: before.outcomes?.map((o) => o.label),
+      },
+      after: { title: result.title, outcomes: dto.outcomes },
+      meta: {
+        fields: Object.keys(dto).filter((k) => (dto as any)[k] !== undefined),
+      },
+      ipAddress: req.ip,
+    });
+    return result;
   }
 
   @Patch("markets/:id/status")
@@ -134,7 +281,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "Propose winning outcome — opens 24h dispute window (Closed → Resolving)",
+      "Propose winning outcome — opens 1–2h objection window (Closed → Resolving). " +
+      "Admin must include evidenceUrl and evidenceNote when calling /resolve immediately after.",
   })
   @ApiResponse({ status: 200, type: Market })
   async proposeResolution(
@@ -143,16 +291,18 @@ export class AdminController {
     @Request() req: any,
   ) {
     const before = await this.marketsService.findOne(id);
+    const windowMinutes = dto.windowMinutes ?? 60;
     const result = await this.marketsService.proposeResolution(
       id,
       dto.proposedOutcomeId,
+      windowMinutes,
     );
     const proposedOutcome = before.outcomes?.find(
       (o) => o.id === dto.proposedOutcomeId,
     );
     await this.auditService.log({
       adminId: req.user.userId,
-      isAdmin: true, // Admin controller - all users are admins
+      isAdmin: true,
       action: AuditAction.MARKET_PROPOSE,
       entityType: "market",
       entityId: id,
@@ -161,12 +311,22 @@ export class AdminController {
       meta: {
         title: before.title,
         proposedOutcomeLabel: proposedOutcome?.label,
+        windowMinutes,
       },
       ipAddress: req.ip,
     });
     const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL || "";
+    const windowLabel =
+      windowMinutes >= 60
+        ? `${windowMinutes / 60} hour${windowMinutes > 60 ? "s" : ""}`
+        : `${windowMinutes} minutes`;
     await this.telegramSimple.postToChannel(
-      `⚖️ <b>DISPUTE WINDOW OPEN</b>\n\n📊 <b>${before.title}</b>\n\n🔖 <b>Proposed Winner:</b> ${proposedOutcome?.label ?? "N/A"}\n⏳ Dispute window: 24 hours\n\n👉 <a href="${miniAppUrl}">Submit Dispute</a>`,
+      `⚖️ <b>OBJECTION WINDOW OPEN</b>\n\n` +
+        `📊 <b>${before.title}</b>\n\n` +
+        `🔖 <b>Proposed Winner:</b> ${proposedOutcome?.label ?? "N/A"}\n` +
+        `⏳ Window: ${windowLabel} — object if you disagree\n` +
+        `💡 Evidence will be published when the market is settled.\n\n` +
+        `👉 <a href="${miniAppUrl}">View Market</a>`,
     );
     return result;
   }
@@ -175,7 +335,10 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({
     summary:
-      "Final resolution after dispute window — set winner & auto-settle (Resolving → Settled)",
+      "Final resolution — set winner, publish mandatory evidence, settle payouts. " +
+      "evidenceUrl and evidenceNote are REQUIRED. If the window is still open and " +
+      "no objections exist, this will be rejected (cron auto-settles it). " +
+      "You may resolve early only when objections exist and have been reviewed.",
   })
   async resolveMarket(
     @Param("id") id: string,
@@ -183,16 +346,29 @@ export class AdminController {
     @Request() req: any,
   ) {
     const before = await this.marketsService.findOne(id);
-    const result = await this.marketsService.resolve(id, dto.winningOutcomeId);
+    const result = await this.marketsService.resolve(
+      id,
+      dto.winningOutcomeId,
+      req.user.userId,
+      dto.evidenceUrl,
+      dto.evidenceNote,
+    );
     const winningOutcome = before.outcomes?.find(
       (o) => o.id === dto.winningOutcomeId,
     );
     const totalPositions =
       before.outcomes?.reduce((s, o) => s + Number(o.totalBetAmount), 0) ?? 0;
+
+    const objections = await this.marketsService.getDisputesByMarket(id);
+    const hadObjections = objections.length > 0;
+    const proposalChanged = before.proposedOutcomeId !== dto.winningOutcomeId;
+
     await this.auditService.log({
       adminId: req.user.userId,
-      isAdmin: true, // Admin controller - all users are admins
-      action: AuditAction.MARKET_RESOLVE,
+      isAdmin: true,
+      action: hadObjections
+        ? AuditAction.MARKET_RESOLVE_DISPUTED
+        : AuditAction.MARKET_RESOLVE,
       entityType: "market",
       entityId: id,
       before: { status: before.status },
@@ -202,12 +378,30 @@ export class AdminController {
         winningOutcomeLabel: winningOutcome?.label,
         totalPool: before.totalPool,
         totalPositions,
+        objectionCount: objections.length,
+        proposalChanged,
+        evidenceUrl: dto.evidenceUrl,
       },
       ipAddress: req.ip,
     });
+
     const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL || "";
+    const objectionNote =
+      objections.length > 0
+        ? `\n⚠️ <b>${objections.length} objection(s) reviewed</b> — ${proposalChanged ? "outcome updated after review" : "original proposal confirmed"}\n` +
+          (proposalChanged
+            ? `✅ Correct objectors: bonds returned + rewarded\n`
+            : `❌ Wrong objectors: bonds forfeited`)
+        : "";
     await this.telegramSimple.postToChannel(
-      `✅ <b>MARKET RESOLVED</b>\n\n📊 <b>${before.title}</b>\n\n🏆 <b>Winner:</b> ${winningOutcome?.label ?? "N/A"}\n💰 <b>Pool:</b> Nu ${Number(before.totalPool).toLocaleString()}\n\n👉 <a href="${miniAppUrl}">View Results</a>`,
+      `✅ <b>MARKET SETTLED</b>\n\n` +
+        `📊 <b>${before.title}</b>\n\n` +
+        `🏆 <b>Winner:</b> ${winningOutcome?.label ?? "N/A"}\n` +
+        `💰 <b>Pool:</b> Nu ${Number(before.totalPool).toLocaleString()}` +
+        `${objectionNote}\n\n` +
+        `🔍 <b>Evidence:</b> <a href="${dto.evidenceUrl}">View Source</a>\n` +
+        `📝 ${dto.evidenceNote.slice(0, 200)}\n\n` +
+        `👉 <a href="${miniAppUrl}">View Results & Proof</a>`,
     );
     return result;
   }
@@ -228,6 +422,54 @@ export class AdminController {
       take: 500,
     });
     return { data, total: data.length };
+  }
+
+  /**
+   * Public admin accountability scoreboard.
+   * Returns every admin user with their resolution accuracy stats.
+   * Intentionally public (no admin guard on the GET) — users deserve to see this.
+   */
+  @Get("resolution-accuracy")
+  @ApiOperation({
+    summary:
+      "Public scoreboard of admin resolution accuracy. Shows how often each admin was overturned by objectors.",
+  })
+  async getResolutionAccuracy() {
+    const admins = await this.userRepo.find({
+      where: { isAdmin: true },
+      select: [
+        "id",
+        "username",
+        "firstName",
+        "adminTotalResolutions",
+        "adminWrongResolutions",
+      ],
+    });
+
+    return admins
+      .filter((a) => a.adminTotalResolutions > 0)
+      .map((a) => {
+        const total = a.adminTotalResolutions ?? 0;
+        const wrong = a.adminWrongResolutions ?? 0;
+        const correct = total - wrong;
+        const accuracyPct =
+          total > 0 ? Math.round((correct / total) * 100) : null;
+        const overturnPct =
+          total > 0 ? Math.round((wrong / total) * 100) : null;
+
+        return {
+          adminId: a.id,
+          name: a.username ? `@${a.username}` : (a.firstName ?? "Admin"),
+          totalResolutions: total,
+          correctResolutions: correct,
+          wrongResolutions: wrong,
+          accuracyPct,
+          overturnPct,
+          // Flag for the UI — > 20% overturn rate is a red flag
+          flagged: overturnPct !== null && overturnPct > 20,
+        };
+      })
+      .sort((a, b) => b.totalResolutions - a.totalResolutions);
   }
 
   @Post("markets/:id/cancel")
@@ -307,9 +549,16 @@ export class AdminController {
 
   // ── Settlements ───────────────────────────────────────────────────────────
   @Get("settlements")
-  @ApiOperation({ summary: "List all settlements" })
-  async listSettlements() {
-    const data = await this.settlementRepo
+  @ApiOperation({ summary: "List settlements with pagination" })
+  @ApiQuery({ name: "page", required: false, type: Number })
+  @ApiQuery({ name: "limit", required: false, type: Number })
+  async listSettlements(
+    @Query("page") page = "1",
+    @Query("limit") limit = "20",
+  ) {
+    const take = Math.min(Number(limit) || 20, 100);
+    const skip = (Math.max(Number(page), 1) - 1) * take;
+    const [data, total] = await this.settlementRepo
       .createQueryBuilder("settlement")
       .leftJoinAndMapOne(
         "settlement.market",
@@ -324,8 +573,15 @@ export class AdminController {
         "outcome.id = settlement.winningOutcomeId",
       )
       .orderBy("settlement.settledAt", "DESC")
-      .getMany();
-    return { data, total: data.length };
+      .skip(skip)
+      .take(take)
+      .getManyAndCount();
+    return {
+      data,
+      total,
+      page: Math.max(Number(page), 1),
+      pages: Math.ceil(total / take) || 1,
+    };
   }
 
   // ── Users ─────────────────────────────────────────────────────────────────
@@ -468,6 +724,69 @@ export class AdminController {
     return { userId, isAdmin: dto.isAdmin };
   }
 
+  @Post("users/:userId/credit")
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Manually credit a user's wallet with a DEPOSIT transaction (staging use)",
+  })
+  async creditUser(
+    @Param("userId") userId: string,
+    @Body() dto: CreditUserDto,
+    @Request() req: any,
+  ) {
+    const user = await this.userRepo.findOneBy({ id: userId });
+    if (!user) throw new NotFoundException("User not found");
+
+    if (dto.amount <= 0) throw new BadRequestException("Amount must be > 0");
+
+    const note = dto.note ?? "Admin manual credit";
+
+    const tx = await this.dataSource.transaction(async (em) => {
+      const { balance } = await em
+        .getRepository(Transaction)
+        .createQueryBuilder("t")
+        .select("COALESCE(SUM(t.amount), 0)", "balance")
+        .where("t.userId = :userId", { userId })
+        .getRawOne();
+      const balanceBefore = Number(balance);
+      const balanceAfter = balanceBefore + dto.amount;
+
+      return em.save(
+        Transaction,
+        em.create(Transaction, {
+          type: TransactionType.DEPOSIT,
+          amount: dto.amount,
+          balanceBefore,
+          balanceAfter,
+          userId,
+          note,
+        }),
+      );
+    });
+
+    // Bust the cached balance so the next /me call reflects immediately
+    await this.redis.del(`oro:cache:balance:${userId}`);
+
+    await this.auditService.log({
+      adminId: req.user.userId,
+      isAdmin: true,
+      action: AuditAction.USER_ADMIN_TOGGLE, // closest existing action; rename later if needed
+      entityType: "user",
+      entityId: userId,
+      after: { creditAmount: dto.amount, note, transactionId: tx.id },
+      ipAddress: req.ip,
+    });
+
+    return {
+      transactionId: tx.id,
+      userId,
+      credited: dto.amount,
+      newBalance: tx.balanceAfter,
+      note,
+    };
+  }
+
   // ── Payments ───────────────────────────────────────────────────────────────
   @Get("payments")
   @ApiOperation({ summary: "List all payments (admin view)" })
@@ -536,5 +855,38 @@ export class AdminController {
   })
   getAuditLogsByEntity(@Param("entityId") entityId: string) {
     return this.auditService.findByEntity(entityId);
+  }
+
+  // ── Keeper Bot ────────────────────────────────────────────────────────────
+
+  @Get("keeper/status")
+  @ApiOperation({ summary: "Get keeper bot status and recent logs" })
+  getKeeperStatus() {
+    return this.keeperService.getStatus();
+  }
+
+  @Post("keeper/active")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Start or pause the keeper bot" })
+  setKeeperActive(@Body() body: { active: boolean }) {
+    this.keeperService.setActive(body.active);
+    return { active: body.active };
+  }
+
+  @Post("keeper/trigger/:job")
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Manually trigger a keeper job (expiry | dispute | liquidity)",
+  })
+  async triggerKeeperJob(@Param("job") job: string) {
+    if (!["expiry", "dispute", "liquidity"].includes(job)) {
+      throw new BadRequestException(
+        "Unknown job. Valid: expiry, dispute, liquidity",
+      );
+    }
+    await this.keeperService.triggerJob(
+      job as "expiry" | "dispute" | "liquidity",
+    );
+    return { triggered: job };
   }
 }

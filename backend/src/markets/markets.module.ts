@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Market } from "../entities/market.entity";
 import { Outcome } from "../entities/outcome.entity";
@@ -14,10 +15,16 @@ import { ParimutuelEngine } from "./parimutuel.engine";
 import { LMSRService } from "./lmsr.service";
 import { KeeperService } from "./keeper.service";
 import { ReputationService } from "./reputation.service";
+import { MarketsGateway } from "./markets.gateway";
 import { TelegramModule } from "../telegram/telegram.module";
+import { PaymentModule } from "../payment/payment.module";
+import { UsersModule } from "../users/users.module";
+import { ChallengesModule } from "../challenges/challenges.module";
+import { RedisModule } from "../redis/redis.module";
 
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([
       Market,
       Outcome,
@@ -29,9 +36,20 @@ import { TelegramModule } from "../telegram/telegram.module";
       Dispute,
     ]),
     TelegramModule,
+    PaymentModule,
+    UsersModule,
+    RedisModule,
+    forwardRef(() => ChallengesModule),
   ],
-  providers: [MarketsService, ParimutuelEngine, LMSRService, KeeperService, ReputationService],
+  providers: [
+    MarketsService,
+    ParimutuelEngine,
+    LMSRService,
+    KeeperService,
+    ReputationService,
+    MarketsGateway,
+  ],
   controllers: [MarketsController],
-  exports: [MarketsService, ParimutuelEngine],
+  exports: [MarketsService, ParimutuelEngine, KeeperService, MarketsGateway],
 })
 export class MarketsModule {}

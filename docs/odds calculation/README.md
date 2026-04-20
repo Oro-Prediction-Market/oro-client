@@ -1,14 +1,14 @@
-# Tara Documentation
+# Oro Documentation
 
-Welcome to the Tara betting platform documentation.
+Welcome to the Oro betting platform documentation.
 
 ## Quick Start Guides
 
 ### For Developers
 
 - **[LMSR Integration Guide](./LMSR-Integration-Guide.md)** ⭐ START HERE
-  - Step-by-step implementation for Tara
-  - Code examples using actual Tara files
+  - Step-by-step implementation for Oro
+  - Code examples using actual Oro files
   - Database migrations
   - Testing checklist
   - Deployment guide
@@ -51,7 +51,7 @@ Welcome to the Tara betting platform documentation.
 
 ### Parimutuel Betting
 
-Tara currently uses traditional parimutuel (pool-based) betting:
+Oro currently uses traditional parimutuel (pool-based) betting:
 
 - Users bet on outcomes (e.g., "Thimphu Tigers" vs "Paro Panthers")
 - Bets accumulate in pools per outcome
@@ -178,5 +178,5 @@ Settlement: Still uses parimutuel pool ✅
 
 ---
 
-_Tara v1.0 - Bhutanese Archery Betting Platform_  
+_Oro v1.0 - Bhutanese Archery Betting Platform_  
 _Last updated: March 23, 2026_

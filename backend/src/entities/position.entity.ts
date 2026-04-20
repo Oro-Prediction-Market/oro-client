@@ -22,6 +22,7 @@ export enum PositionStatus {
 export { PositionStatus as BetStatus };
 
 @Index(["userId", "marketId"])
+@Index(["placedAt"])
 @Entity("positions")
 export class Position {
   @PrimaryGeneratedColumn("uuid")
@@ -30,7 +31,11 @@ export class Position {
   @Column({ type: "decimal", precision: 18, scale: 2 })
   amount: number;
 
-  @Column({ type: "enum", enum: PositionStatus, default: PositionStatus.PENDING })
+  @Column({
+    type: "enum",
+    enum: PositionStatus,
+    default: PositionStatus.PENDING,
+  })
   status: PositionStatus;
 
   @Column({ type: "decimal", precision: 10, scale: 4, nullable: true })
@@ -45,6 +50,13 @@ export class Position {
    */
   @Column({ type: "decimal", precision: 10, scale: 6, nullable: true })
   predictedProbability: number | null;
+
+  /**
+   * Fraction of the total pool sitting on this outcome at bet time (0–1).
+   * Used to compute the early-confidence bonus payout: closer to 0.5 = higher uncertainty = more conviction.
+   */
+  @Column({ type: "decimal", precision: 10, scale: 6, nullable: true })
+  poolPctAtBet: number | null;
 
   @CreateDateColumn()
   placedAt: Date;

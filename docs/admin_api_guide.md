@@ -1,6 +1,6 @@
 # Admin API Integration Guide
 
-This document provides the necessary information to integrate an admin dashboard with the Tara Prediction Market backend.
+This document provides the necessary information to integrate an admin dashboard with the Oro Prediction Market backend.
 
 ## Base URL
 `http://localhost:3000/admin` (Default development environment)

@@ -17,6 +17,15 @@ export enum TransactionType {
   REFUND = "refund",
   DISPUTE_BOND = "dispute_bond",
   DISPUTE_REFUND = "dispute_refund",
+  DISPUTE_BOND_LOCK = "dispute_bond_lock",
+  DISPUTE_BOND_FORFEIT = "dispute_bond_forfeit",
+  DISPUTE_BOND_REWARD = "dispute_bond_reward",
+  REFERRAL_BONUS = "referral_bonus",
+  FREE_CREDIT = "free_credit",
+  STREAK_BONUS = "streak_bonus",
+  REFERRAL_PRIZE = "referral_prize",
+  DUEL_WAGER = "duel_wager",
+  DUEL_PAYOUT = "duel_payout",
 }
 
 // Back-compat aliases
@@ -41,7 +50,7 @@ export class Transaction {
   balanceAfter: number;
 
   @Index()
-  @Column({ type: "uuid", nullable: true })
+  @Column({ type: "uuid", nullable: true, unique: true })
   paymentId: string;
 
   @Index()
@@ -50,6 +59,14 @@ export class Transaction {
 
   @Column({ type: "varchar", nullable: true })
   note: string;
+
+  /**
+   * True when this transaction originated from a FREE_CREDIT grant or a
+   * payout derived from a free-credit bet. Winnings from bonus credits are
+   * capped at Nu 50 withdrawable — the rest is re-credited as play money.
+   */
+  @Column({ default: false })
+  isBonus: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

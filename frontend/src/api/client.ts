@@ -4,12 +4,12 @@
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-// Store the JWT in sessionStorage — survives page navigation, cleared on tab close
-let _token: string | null = sessionStorage.getItem("tara_token");
+// Store the JWT in localStorage — persists across browser/app restarts (PWA-friendly)
+let _token: string | null = localStorage.getItem("oro_token");
 
 export function setToken(token: string) {
   _token = token;
-  sessionStorage.setItem("tara_token", token);
+  localStorage.setItem("oro_token", token);
 }
 
 export function getToken(): string | null {
@@ -18,7 +18,7 @@ export function getToken(): string | null {
 
 export function clearToken() {
   _token = null;
-  sessionStorage.removeItem("tara_token");
+  localStorage.removeItem("oro_token");
 }
 
 // Decode a JWT payload without a library — returns null if malformed
@@ -41,36 +41,66 @@ export function isTokenValid(): boolean {
   return payload.exp * 1000 > Date.now() + 30_000;
 }
 
-// Base fetch wrapper — automatically attaches Bearer token
-export async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+// ─── In-memory GET cache (stale-while-revalidate, 15s TTL) ───────────────────
+const _cache = new Map<string, { data: unknown; expiresAt: number; inflight?: Promise<unknown> }>();
+const CACHE_TTL_MS = 15_000;
+
+export function bustCache(pathPrefix?: string) {
+  if (!pathPrefix) { _cache.clear(); return; }
+  for (const key of _cache.keys()) {
+    if (key.startsWith(pathPrefix)) _cache.delete(key);
+  }
+}
+
+async function fetchAndCache<T>(path: string, options: RequestInit, cacheKey: string): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-
-  if (_token) {
-    headers["Authorization"] = `Bearer ${_token}`;
-  }
+  if (_token) headers["Authorization"] = `Bearer ${_token}`;
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    // Token rejected by server — clear it and notify the app
     clearToken();
-    window.dispatchEvent(new Event("tara:unauthorized"));
+    window.dispatchEvent(new Event("oro:unauthorized"));
     const err = await res.json().catch(() => ({ message: "Unauthorized" }));
     throw new Error(err.message || "Unauthorized");
   }
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(err.message || `HTTP ${res.status}`);
   }
 
-  return res.json();
+  const data: T = await res.json();
+  _cache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  return data;
+}
+
+// Base fetch wrapper — automatically attaches Bearer token
+export async function request<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const isGet = !options.method || options.method.toUpperCase() === "GET";
+  const cacheKey = isGet ? `${path}::${_token ?? ""}` : null;
+
+  if (cacheKey) {
+    const hit = _cache.get(cacheKey);
+    if (hit) {
+      if (hit.expiresAt > Date.now()) return hit.data as T;
+      // Stale — serve cached value but revalidate in background
+      if (!hit.inflight) {
+        hit.inflight = fetchAndCache<T>(path, options, cacheKey).catch(() => undefined);
+      }
+      return hit.data as T;
+    }
+    return fetchAndCache<T>(path, options, cacheKey);
+  }
+
+  // Non-GET: never cache, bust any cached version of this path
+  bustCache(path);
+  return fetchAndCache<T>(path, options, `__nocache__${Date.now()}`);
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
@@ -105,6 +135,13 @@ export interface AuthUser {
   contrarianAttempts?: number;
   // Win streak
   telegramStreak?: number | null;
+  // Daily bet streak
+  betStreakCount?: number;
+  dayInCycle?: number;
+  nextBoostInDays?: number;
+  boostReady?: boolean;
+  // Referrals
+  referralCount?: number;
 }
 
 export interface AuthResponse {
@@ -115,23 +152,46 @@ export interface AuthResponse {
 /** Login / register using Telegram initData (HMAC validated on server) */
 export async function loginWithTelegram(
   initData: string,
+  referralCode?: string,
 ): Promise<AuthResponse> {
   const result = await request<AuthResponse>("/auth/telegram", {
     method: "POST",
-    body: JSON.stringify({ initData }),
+    body: JSON.stringify({
+      initData,
+      ...(referralCode ? { referralCode } : {}),
+    }),
   });
   setToken(result.token);
   return result;
 }
 
 /** Login / register using DK Bank CID — for PWA users without Telegram */
-export async function loginWithDKBank(cid: string): Promise<AuthResponse> {
+export async function loginWithDKBank(cid: string, password?: string): Promise<AuthResponse> {
   const result = await request<AuthResponse>("/auth/dkbank", {
     method: "POST",
-    body: JSON.stringify({ cid }),
+    body: JSON.stringify({ cid, ...(password ? { password } : {}) }),
   });
   setToken(result.token);
   return result;
+}
+
+/**
+ * Check whether the account for a given CID has a PWA password set.
+ * Used by the PWA login form to know whether to show the password field.
+ */
+export async function getPwaStatus(cid: string): Promise<{ hasPassword: boolean }> {
+  return request<{ hasPassword: boolean }>(`/auth/pwa-status?cid=${encodeURIComponent(cid)}`);
+}
+
+/**
+ * Set or change the PWA login password from inside the TMA.
+ * Requires a valid JWT (TMA session).
+ */
+export async function setPwaPassword(password: string): Promise<{ ok: boolean; message: string }> {
+  return request("/auth/set-pwa-password", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
 }
 
 /**
@@ -143,6 +203,23 @@ export async function linkDKBank(cid: string): Promise<AuthResponse> {
   return request<AuthResponse>("/auth/link-dkbank", {
     method: "POST",
     body: JSON.stringify({ cid }),
+  });
+}
+
+/**
+ * Verify phone from Telegram.WebApp.requestContact() inside the TMA.
+ * The hash is signed by Telegram with the bot token — the backend verifies
+ * this signature before trusting the phone number.
+ */
+export async function verifyPhoneTma(params: {
+  phoneNumber: string;
+  userId: number;
+  authDate: number;
+  hash: string;
+}): Promise<{ linked: boolean; message: string }> {
+  return request("/auth/verify-phone-tma", {
+    method: "POST",
+    body: JSON.stringify(params),
   });
 }
 
@@ -172,6 +249,7 @@ export interface Market {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrlAlt: string | null;
   status:
     | "upcoming"
     | "open"
@@ -180,7 +258,6 @@ export interface Market {
     | "resolved"
     | "settled"
     | "cancelled";
-  mechanism: "parimutuel";
   liquidityParam: string;
   totalPool: string;
   houseEdgePct: string;
@@ -242,6 +319,19 @@ export function submitDispute(
   });
 }
 
+export interface ActivityEvent {
+  type: "bet" | "win";
+  userName: string;
+  outomeLabel: string; // note: matches backend spelling
+  marketTitle: string;
+  amount: number;
+  placedAt: string;
+}
+
+export function getRecentActivity(): Promise<ActivityEvent[]> {
+  return request<ActivityEvent[]>("/markets/activity");
+}
+
 export function getMarkets(q?: string): Promise<Market[]> {
   const qs = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
   return request<Market[]>(`/markets${qs}`);
@@ -256,6 +346,7 @@ export interface ResolvedMarket {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  imageUrlAlt: string | null;
   category: string | null;
   status: "resolved" | "settled";
   totalPool: number;
@@ -266,6 +357,13 @@ export interface ResolvedMarket {
   resolvedAt: string | null;
   participantCount: number;
   winner: { id: string; label: string } | null;
+  objectionCount: number;
+  outcomeChanged: boolean;
+  evidence: {
+    url: string | null;
+    note: string | null;
+    submittedAt: string | null;
+  };
 }
 
 export function getResolvedMarkets(): Promise<ResolvedMarket[]> {
@@ -279,8 +377,23 @@ export interface PlaceBetPayload {
   amount: number;
 }
 
-export function placeBet(marketId: string, payload: PlaceBetPayload) {
-  return request(`/markets/${marketId}/bets`, {
+export interface BetStreak {
+  count: number;
+  dayInCycle: number;
+  boostActive: boolean;
+}
+
+export interface PlaceBetResult {
+  id: string;
+  streak?: BetStreak;
+  [key: string]: any;
+}
+
+export function placeBet(
+  marketId: string,
+  payload: PlaceBetPayload,
+): Promise<PlaceBetResult> {
+  return request<PlaceBetResult>(`/markets/${marketId}/bets`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -308,7 +421,10 @@ export interface Transaction {
     | "bet_payout"
     | "refund"
     | "dispute_bond"
-    | "dispute_refund";
+    | "dispute_refund"
+    | "referral_bonus"
+    | "duel_wager"
+    | "duel_payout";
   amount: number;
   balanceBefore: number;
   balanceAfter: number;
@@ -374,4 +490,161 @@ export function getBetsByWallet(walletAddress: string) {
   return fetch(`${API_URL}/bets/wallet/${walletAddress}`).then((r) =>
     r.ok ? r.json() : Promise.reject(r.statusText),
   );
+}
+
+// ─── Leaderboard ─────────────────────────────────────────────────────────────
+
+export interface LeaderboardEntry {
+  rank: number;
+  id: string;
+  firstName: string;
+  lastName: string | null;
+  username: string | null;
+  photoUrl: string | null;
+  reputationScore: number | null;
+  reputationTier: string;
+  totalPredictions: number;
+  correctPredictions: number;
+  winRate: number;
+  totalBetAmount: number;
+  isMe: boolean;
+}
+
+export interface LeaderboardResponse {
+  board: LeaderboardEntry[];
+  myRank: number | null;
+  totalRanked: number;
+}
+
+export function getLeaderboard(): Promise<LeaderboardResponse> {
+  return request<LeaderboardResponse>("/users/leaderboard");
+}
+
+// ─── Challenges (Prediction Duels) ───────────────────────────────────────────
+
+export type CardType = "doubleDown" | "shield" | "ghost";
+
+export interface CardInventory {
+  doubleDown: number;
+  shield: number;
+  ghost: number;
+}
+
+export interface ChallengeResponse {
+  id: string;
+  marketId: string;
+  marketTitle: string | null;
+  outcomeId: string;
+  outcomeLabel: string | null;
+  creatorId: string;
+  creatorName: string | null;
+  joinerId: string | null;
+  joinerName: string | null;
+  winnerId: string | null;
+  /** null when Ghost card is active and viewer is not the creator */
+  wagerAmount: number | null;
+  isOwner: boolean;
+  participantCount: number;
+  status: "open" | "active" | "settled" | "expired" | "void";
+  equippedCard: CardType | null;
+  expiresAt: string;
+  settledAt: string | null;
+  createdAt: string;
+  link: string;
+}
+
+export interface DuelLeaderboardEntry {
+  userId: string;
+  username: string | null;
+  wins: number;
+  wagerWon: number;
+}
+
+export function createChallenge(
+  marketId: string,
+  outcomeId: string,
+  wagerAmount: number = 0,
+  equippedCard?: CardType,
+): Promise<ChallengeResponse> {
+  return request<ChallengeResponse>("/challenges", {
+    method: "POST",
+    body: JSON.stringify({
+      marketId,
+      outcomeId,
+      wagerAmount,
+      ...(equippedCard ? { equippedCard } : {}),
+    }),
+  });
+}
+
+export function getMyCards(): Promise<CardInventory> {
+  return request<CardInventory>("/challenges/cards");
+}
+
+export function getChallenges(): Promise<ChallengeResponse[]> {
+  return request<ChallengeResponse[]>("/challenges");
+}
+
+export function getOpenChallenges(): Promise<ChallengeResponse[]> {
+  return request<ChallengeResponse[]>("/challenges/open");
+}
+
+export function getDuelLeaderboard(): Promise<DuelLeaderboardEntry[]> {
+  return request<DuelLeaderboardEntry[]>("/challenges/leaderboard");
+}
+
+export function joinChallenge(challengeId: string): Promise<ChallengeResponse> {
+  return request<ChallengeResponse>(`/challenges/${challengeId}/join`, {
+    method: "POST",
+  });
+}
+
+// ─── Seasons ─────────────────────────────────────────────────────────────────
+
+export interface Season {
+  id: string;
+  weekNumber: number;
+  year: number;
+  startsAt: string;
+  endsAt: string;
+  status: "active" | "closed";
+  winnersSnapshot:
+    | {
+        rank: number;
+        userId: string;
+        firstName: string | null;
+        username: string | null;
+        reputationScore: number | null;
+        reputationTier: string;
+        winRate: number;
+      }[]
+    | null;
+  createdAt: string;
+}
+
+export function getCurrentSeason(): Promise<Season | null> {
+  return request<Season | null>("/users/seasons/current");
+}
+
+export function getSeasonHistory(limit = 10): Promise<Season[]> {
+  return request<Season[]>(`/users/seasons/history?limit=${limit}`);
+}
+
+// ─── Referral ─────────────────────────────────────────────────────────────────
+
+export interface ReferralStats {
+  referralLink: string;
+  referredCount: number;
+  convertedCount: number;
+  totalEarned: number;
+  flatBonus: number;
+  betPct: number;
+  cap: number;
+  prizeThreshold: number;
+  prizeAmount: number;
+  prizeClaimed: boolean;
+}
+
+export function getReferralStats(): Promise<ReferralStats> {
+  return request<ReferralStats>("/users/me/referral");
 }

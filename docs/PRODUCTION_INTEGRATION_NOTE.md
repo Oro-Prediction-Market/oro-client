@@ -13,7 +13,7 @@
 | Telegram phone hash === DK Bank phone hash check | ✅ Done             |
 | OTP sent to Telegram bot after hash match        | ✅ Done             |
 | OTP verification                                 | ✅ Done             |
-| Tara internal balance credited after OTP         | ✅ Done             |
+| Oro internal balance credited after OTP         | ✅ Done             |
 | Balance check before placing bet                 | ✅ Done             |
 | Bet deduction from balance                       | ✅ Done             |
 | Payout on winning bet                            | ✅ Done             |
@@ -41,7 +41,7 @@ Payment (every deposit):
   1. verifyPaymentIdentity() re-checks telegramPhoneHash === dkPhoneHash
   2. ONLY if match → 6-digit OTP generated → sent to Telegram bot
   3. User enters OTP in TMA
-  4. OTP verified → [PRODUCTION: DK debit here] → Tara balance credited
+  4. OTP verified → [PRODUCTION: DK debit here] → Oro balance credited
 ```
 
 **This is more secure than DK's own SMS OTP** because:
@@ -63,7 +63,7 @@ Payment (every deposit):
 Replace this comment block:
 
 ```typescript
-// Telegram OTP verified — credit Tara balance directly.
+// Telegram OTP verified — credit Oro balance directly.
 // We never call DK account_auth/debit_request so no DK SMS is ever triggered.
 ```
 
@@ -98,7 +98,7 @@ payment.dkTxnStatusId = txnStatusId;
 await this.paymentRepo.save(payment);
 ```
 
-Then keep the existing `applyDKStatusUpdate()` call — it already handles crediting Tara balance.
+Then keep the existing `applyDKStatusUpdate()` call — it already handles crediting Oro balance.
 
 > **Note on OTP:** In staging, DK uses `DK_STAGING_OTP_BYPASS=000000` (already in your .env).  
 > In production, `account_auth` triggers a DK SMS to the user — but since your Telegram OTP  
@@ -134,11 +134,11 @@ you can reuse the same pattern for deposits.
 Withdrawal flow:
 
 1. User enters amount to withdraw
-2. Backend checks Tara balance >= amount
+2. Backend checks Oro balance >= amount
 3. Backend calls DK transfer: merchant account → user's DK account  
    (use `DK_BATCH_BASE_URL` — DK has a credit/transfer API for merchant → customer)
 4. On DK SUCCESS → deduct from Transaction table (create WITHDRAWAL transaction entry)
-5. User's Tara balance decreases, real BTN arrives in their DK account
+5. User's Oro balance decreases, real BTN arrives in their DK account
 
 ---
 
@@ -156,15 +156,15 @@ Delete both `transactionRepo.save(...)` blocks entirely.
 ```
 YOUR MERCHANT ACCOUNT (110158212197)  ←  the vault (real BTN)
         ↑ deposit            ↓ withdrawal/payout
-TARA TRANSACTION TABLE  ←  the receipt (scoreboard per user)
+Oro TRANSACTION TABLE  ←  the receipt (scoreboard per user)
         ↑ payout win         ↓ bet placed
-USER'S TARA WALLET  ←  just a number = sum of their Transaction rows
+USER'S Oro WALLET  ←  just a number = sum of their Transaction rows
 ```
 
 The solvency rule that must always hold in production:
 
 ```
-Sum of all user Tara balances  =  Merchant account balance (minus house edge kept)
+Sum of all user Oro balances  =  Merchant account balance (minus house edge kept)
 ```
 
 ---
@@ -223,11 +223,11 @@ Wins paid back in TON from platform wallet
 Completely separate from DK/BTN system
 ```
 
-**Option B — TON converts to Tara BTN credits**
+**Option B — TON converts to Oro BTN credits**
 
 ```
 User sends TON → you convert to BTN at exchange rate
-Credits BTN to Tara internal balance
+Credits BTN to Oro internal balance
 User bets from BTN balance as normal
 Requires: exchange rate oracle + conversion management
 ```

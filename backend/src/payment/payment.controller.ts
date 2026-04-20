@@ -15,6 +15,7 @@ import {
   ValidationPipe,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from "@nestjs/swagger";
+import { Throttle, SkipThrottle } from "@nestjs/throttler";
 import { ConfigService } from "@nestjs/config";
 import { JwtAuthGuard } from "../auth/guards";
 import { DKBankPaymentService } from "./dkbank-payment.service";
@@ -56,6 +57,7 @@ class ConfirmWithdrawalDto {
 
 @ApiTags("Payments")
 @Controller("payments")
+@Throttle({ default: { limit: 8, ttl: 60_000 } }) // 8 req/min per IP on payment endpoints
 export class PaymentController {
   constructor(
     private readonly configService: ConfigService,
@@ -128,7 +130,7 @@ export class PaymentController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Step 1: Initiate withdrawal from Tara balance → DK Bank account",
+    summary: "Step 1: Initiate withdrawal from Oro balance → DK Bank account",
   })
   @ApiBody({ type: InitiateWithdrawalDto })
   @ApiResponse({
@@ -233,8 +235,9 @@ export class PaymentController {
     );
   }
 
-  // DK webhook/callback endpoint (no user JWT required)
+  // DK webhook/callback endpoint (no user JWT required) — skip throttle, comes from DK Bank servers
   @Post("dkbank/webhook")
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "DK Bank webhook: update payment status" })
   async dkBankWebhook(
@@ -248,8 +251,9 @@ export class PaymentController {
     return this.dkBankPaymentService.handleWebhook(payload, signature);
   }
 
-  // Backward-compatible alias
+  // Backward-compatible alias — skip throttle, comes from DK Bank servers
   @Post("dkbank/callback")
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   async dkBankCallback(
     @Body() payload: any,
@@ -275,8 +279,8 @@ export class PaymentController {
           type: "dkbank",
           currency: "BTN",
           enabled: true,
-          minAmount: 50,
-          maxAmount: 10000,
+          minAmount: 100,
+          maxAmount: 15000,
           icon: "🏦",
         },
         {
@@ -291,7 +295,7 @@ export class PaymentController {
         },
         {
           id: "credits",
-          name: "Tara Credits",
+          name: "Oro Credits",
           type: "credits",
           currency: "CREDITS",
           enabled: true,

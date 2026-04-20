@@ -4,6 +4,8 @@ export const JobName = {
   PAYMENT_SUCCESS: "payment.success",
   MARKET_SETTLED: "market.settled",
   BET_RESULT: "bet.result",
+  STREAK_MILESTONE: "streak.milestone",
+  DAILY_CREDIT: "daily.credit",
 } as const;
 
 export interface PaymentSuccessJobData {
@@ -26,4 +28,18 @@ export interface BetResultJobData {
   outcomeLabel: string;
   status: "WON" | "LOST" | "REFUNDED";
   payout?: number;
+}
+
+export interface StreakMilestoneJobData {
+  userId: string;
+  telegramId: string;
+  streakCount: number;
+  dayInCycle: number;
+  boostActive: boolean;
+}
+
+export interface DailyCreditJobData {
+  userId: string;
+  telegramId: string;
+  creditAmount: number;
 }

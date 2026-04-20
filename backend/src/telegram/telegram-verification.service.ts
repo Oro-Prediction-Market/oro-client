@@ -102,8 +102,8 @@ export class TelegramVerificationService {
           `[PhoneVerify] No user found for telegramId=${telegramUserId} or matching dkPhoneHash`,
         );
         throw new BadRequestException(
-          "No Tara account found for this phone number. " +
-            "Please make sure you have linked your DK Bank CID in the Tara Mini App first, then try again.",
+          "No Oro account found for this phone number. " +
+            "Please make sure you have linked your DK Bank CID in the Oro Mini App first, then try again.",
         );
       }
 
@@ -181,9 +181,9 @@ export class TelegramVerificationService {
         }
       } else {
         throw new BadRequestException(
-          "You haven't linked a DK Bank CID to your Tara account yet.\n\n" +
+          "You haven't linked a DK Bank CID to your Oro account yet.\n\n" +
             "Steps to fix:\n" +
-            "1️⃣ Open the Tara Mini App\n" +
+            "1️⃣ Open the Oro Mini App\n" +
             "2️⃣ Go to Profile → Link DK Bank Account\n" +
             "3️⃣ Enter your 11-digit CID number\n" +
             "4️⃣ Come back here and share your phone number again.",
@@ -261,7 +261,7 @@ export class TelegramVerificationService {
     if (!user.telegramChatId || !user.telegramPhoneHash) {
       throw new UnauthorizedException(
         "Your Telegram account is not yet phone-verified. " +
-          "Please open the Tara bot and share your phone number first.",
+          "Please open the Oro bot and share your phone number first.",
       );
     }
 
@@ -277,7 +277,7 @@ export class TelegramVerificationService {
     if (user.telegramPhoneHash !== user.dkPhoneHash) {
       await this.flagSuspiciousActivity(userId, "phone_hash_mismatch");
       throw new UnauthorizedException(
-        "Phone verification mismatch detected. Please re-verify your phone via the Tara bot.",
+        "Phone verification mismatch detected. Please re-verify your phone via the Oro bot.",
       );
     }
 

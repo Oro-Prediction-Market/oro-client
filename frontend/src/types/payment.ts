@@ -1,6 +1,6 @@
 /**
  * Payment System Types
- * Supports DK Bank (BTN) and TON payments for Tara Platform
+ * Supports DK Bank (BTN) and TON payments for Oro Platform
  */
 
 export interface PaymentMethod {

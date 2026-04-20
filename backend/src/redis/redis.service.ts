@@ -69,7 +69,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     windowSec: number,
   ): Promise<{ allowed: boolean; remaining: number }> {
     try {
-      const windowKey = `tara:rate:${key}:${Math.floor(Date.now() / (windowSec * 1000))}`;
+      const windowKey = `oro:rate:${key}:${Math.floor(Date.now() / (windowSec * 1000))}`;
       const count = await this.client.incr(windowKey);
       if (count === 1) await this.client.expire(windowKey, windowSec * 2);
       return { allowed: count <= max, remaining: Math.max(0, max - count) };
@@ -87,7 +87,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     try {
       const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const result = await this.client.set(
-        `tara:lock:${resource}`,
+        `oro:lock:${resource}`,
         token,
         "EX",
         ttlSec,
@@ -112,7 +112,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
           return 0
         end
       `;
-      await this.client.eval(script, 1, `tara:lock:${resource}`, token);
+      await this.client.eval(script, 1, `oro:lock:${resource}`, token);
     } catch {}
   }
 
@@ -132,7 +132,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       try {
         const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const result = await this.client.set(
-          `tara:lock:${resource}`,
+          `oro:lock:${resource}`,
           token,
           "EX",
           ttlSec,

@@ -11,7 +11,7 @@ import config from "@/config";
 
 const { minBet } = config.payments.dkBank;
 
-const QUICK_AMOUNTS = [50, 100, 200, 500];
+const QUICK_AMOUNTS = [100, 200, 500, 1000];
 
 /** Returns true if the user's chosen outcome has an intelligence signal < 50%
  *  — meaning they're going against Expert consensus. */
@@ -67,6 +67,7 @@ export const DKBankBetPage: FC = () => {
           outcomeId: selectedOutcomeId,
           amount: parseFloat(amount),
         });
+        window.dispatchEvent(new CustomEvent("oro:balance-changed"));
       } catch (betErr: any) {
         console.warn("Bet registration warning:", betErr.message);
       }
@@ -112,12 +113,12 @@ export const DKBankBetPage: FC = () => {
   let priceImpact: { from: number; to: number } | null = null;
 
   if (selectedOutcome && betAmount >= minBet) {
-    const totalPool = Number(market.totalPool);
-    const outcomePool = Number(selectedOutcome.totalBetAmount);
+    const totalPool = Number(market.totalPool) || 0;
+    const outcomePool = Number(selectedOutcome.totalBetAmount) || 0;
     const newOutcomePool = outcomePool + betAmount;
     const newTotalPool = totalPool + betAmount;
     const houseEdge = Number(market.houseEdgePct) / 100;
-    if (newOutcomePool > 0) {
+    if (newOutcomePool > 0 && !isNaN(newOutcomePool) && !isNaN(newTotalPool)) {
       winAmount = (betAmount / newOutcomePool) * newTotalPool * (1 - houseEdge);
     }
 

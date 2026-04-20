@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "./auth/auth.module";
@@ -24,11 +26,18 @@ import { Dispute } from "./entities/dispute.entity";
 import { DKGatewayAuthToken } from "./entities/dk-gateway-auth-token.entity";
 import { PaymentOtp } from "./entities/payment-otp.entity";
 import { AuditLog } from "./entities/audit-log.entity";
+import { Challenge } from "./entities/challenge.entity";
+import { Season } from "./entities/season.entity";
+import { TelegramGroup } from "./entities/telegram-group.entity";
+import { GroupMembership } from "./entities/group-membership.entity";
+import { ChallengesModule } from "./challenges/challenges.module";
+import { LeaguesModule } from "./leagues/leagues.module";
 import { ReportingModule } from "./reporting/reporting.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]), // 120 req/min global default
     ScheduleModule.forRoot(),
     RedisModule,
     BullModule.forRootAsync({
@@ -44,6 +53,15 @@ import { ReportingModule } from "./reporting/reporting.module";
             port: parseInt(parsed.port || "6379", 10),
             password: parsed.password || undefined,
           },
+          defaultJobOptions: {
+            attempts: 3,
+            backoff: {
+              type: "exponential",
+              delay: 5000, // 5s → 10s → 20s
+            },
+            removeOnComplete: 100, // keep last 100 completed jobs
+            removeOnFail: 200, // keep last 200 failed jobs for inspection
+          },
         };
       },
     }),
@@ -57,7 +75,7 @@ import { ReportingModule } from "./reporting/reporting.module";
         port: config.get<number>("DB_PORT", 5432),
         username: config.get("DB_USERNAME", "postgres"),
         password: config.get("DB_PASSWORD", "postgres"),
-        database: config.get("DB_NAME", "tara_db"),
+        database: config.get("DB_NAME", "oro_db"),
         entities: [
           User,
           AuthMethod,
@@ -71,13 +89,18 @@ import { ReportingModule } from "./reporting/reporting.module";
           DKGatewayAuthToken,
           PaymentOtp,
           AuditLog,
+          Challenge,
+          Season,
+          TelegramGroup,
+          GroupMembership,
         ],
         synchronize: false,
         logging: false,
         extra: {
-          max: 5,
-          idleTimeoutMillis: 10000,
-          connectionTimeoutMillis: 5000,
+          max: 20,
+          min: 2,
+          idleTimeoutMillis: 30_000,
+          connectionTimeoutMillis: 5_000,
         },
       }),
     }),
@@ -88,7 +111,10 @@ import { ReportingModule } from "./reporting/reporting.module";
     AdminModule,
     TelegramModule,
     PaymentModule,
+    ChallengesModule,
+    LeaguesModule,
     ReportingModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

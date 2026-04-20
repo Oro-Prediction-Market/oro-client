@@ -10,6 +10,12 @@ import { Transaction } from "./entities/transaction.entity";
 import { Settlement } from "./entities/settlement.entity";
 import { Dispute } from "./entities/dispute.entity";
 import { DKGatewayAuthToken } from "./entities/dk-gateway-auth-token.entity";
+import { PaymentOtp } from "./entities/payment-otp.entity";
+import { AuditLog } from "./entities/audit-log.entity";
+import { Challenge } from "./entities/challenge.entity";
+import { Season } from "./entities/season.entity";
+import { TelegramGroup } from "./entities/telegram-group.entity";
+import { GroupMembership } from "./entities/group-membership.entity";
 
 dotenv.config();
 
@@ -19,7 +25,7 @@ export const AppDataSource = new DataSource({
   port: Number(process.env.DB_PORT) || 5433,
   username: process.env.DB_USERNAME || "postgres",
   password: process.env.DB_PASSWORD || "postgres",
-  database: process.env.DB_NAME || "tara_db",
+  database: process.env.DB_NAME || "oro_db",
   synchronize: false,
   logging: true,
   extra: {
@@ -38,6 +44,12 @@ export const AppDataSource = new DataSource({
     Settlement,
     Dispute,
     DKGatewayAuthToken,
+    PaymentOtp,
+    AuditLog,
+    Challenge,
+    Season,
+    TelegramGroup,
+    GroupMembership,
   ],
   migrations: [__dirname + "/migrations/*{.ts,.js}"],
   subscribers: [],

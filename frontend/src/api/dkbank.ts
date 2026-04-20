@@ -83,7 +83,7 @@ export async function initiateDKBankDeposit(params: {
   return initiateDKBankPayment({
     amount: params.amount,
     cid: params.cid,
-    description: params.description || "Tara wallet top-up",
+    description: params.description || "Oro wallet top-up",
   });
 }
 
@@ -98,7 +98,7 @@ export async function confirmDKBankDeposit(
 }
 
 /**
- * Step 1: Initiate a withdrawal from Tara balance → DK Bank account.
+ * Step 1: Initiate a withdrawal from Oro balance → DK Bank account.
  * Requires the user to have a linked DK Bank account (dkCid + dkAccountNumber).
  * Sends an OTP to the user's Telegram chat.
  */

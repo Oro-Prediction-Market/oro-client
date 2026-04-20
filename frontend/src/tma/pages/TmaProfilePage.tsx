@@ -1,1377 +1,1346 @@
-import { FC, useState, useEffect, ReactNode } from "react";
-import dkBankLogo from "../../../assets/dk blue.png";
+import { FC, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/tma/hooks/useAuth";
 import {
-  linkDKBank,
   getMe,
-  getMyTransactions,
+  getReferralStats,
   AuthUser,
-  Transaction,
+  type ReferralStats,
 } from "@/api/client";
-import {
-  initiateDKBankDeposit,
-  confirmDKBankDeposit,
-  initiateDKBankWithdrawal,
-  confirmDKBankWithdrawal,
-  formatBTN,
-} from "@/api/dkbank";
 import { Page } from "@/tma/components/Page";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { StreakBenefitsModal } from "@/tma/components/StreakBenefitsModal";
+import { ProfileShareCard } from "@/tma/components/ProfileShareCard";
 import {
-  CheckCircle2,
-  XCircle,
-  Link2,
-  Smartphone,
-  AlertCircle,
-  Loader2,
-  ShieldCheck,
-  ArrowDownLeft,
-  ArrowUpRight,
-  Target,
+  BadgeGrid,
+  buildBadges,
+  type CollectibleBadge,
+} from "@/tma/components/BadgeGrid";
+import {
   Trophy,
-  RotateCcw,
-  Lock,
-  Unlock,
-  Wallet,
-  Plus,
-  ArrowUpCircle,
-  Clock,
+  Flame,
+  Swords,
+  Sprout,
+  Settings,
+  UserPlus,
+  Medal,
+  Share2,
+  Target,
+  TrendingUp,
   X,
-  Send,
+  Wallet,
+  ChevronRight,
 } from "lucide-react";
 
-type LinkStep = "idle" | "loading" | "success" | "error";
-type ActiveTab = "profile" | "wallet";
-type PaymentModalType = "deposit" | "withdraw" | null;
-type PaymentStep = "amount" | "otp" | "success" | "failed";
-
-const QUICK_DEPOSIT_AMOUNTS = [100, 200, 500, 1000];
-const QUICK_WITHDRAW_AMOUNTS = [100, 200, 500, 1000];
-const MIN_DEPOSIT = 50;
-const MIN_WITHDRAW = 50;
-
-const TX_ICON: Record<Transaction["type"], React.ReactNode> = {
-  deposit: <ArrowDownLeft size={20} />,
-  withdrawal: <ArrowUpRight size={20} />,
-  bet_placed: <Target size={20} />,
-  bet_payout: <Trophy size={20} />,
-  refund: <RotateCcw size={20} />,
-  dispute_bond: <Lock size={20} />,
-  dispute_refund: <Unlock size={20} />,
-};
-
-const TX_LABEL: Record<Transaction["type"], string> = {
-  deposit: "Deposit",
-  withdrawal: "Withdrawal",
-  bet_placed: "Position opened",
-  bet_payout: "Returns",
-  refund: "Refund",
-  dispute_bond: "Dispute bond",
-  dispute_refund: "Bond refund",
-};
-
-function TxRow({ tx }: { tx: Transaction }) {
-  const isCredit = tx.amount > 0;
-  return (
-    <div style={walletStyles.txRow}>
-      <div style={walletStyles.txIcon}>{TX_ICON[tx.type]}</div>
-      <div style={walletStyles.txInfo}>
-        <div style={walletStyles.txLabel}>{TX_LABEL[tx.type]}</div>
-        {tx.note && <div style={walletStyles.txNote}>{tx.note}</div>}
-        <div style={walletStyles.txDate}>
-          {new Date(tx.createdAt).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </div>
-      </div>
-      <div style={walletStyles.txAmountCol}>
-        <div
-          style={{
-            ...walletStyles.txAmount,
-            color: isCredit ? "#059669" : "#dc2626",
-          }}
-        >
-          {isCredit ? "+" : ""}
-          {Number(tx.amount).toLocaleString()}
-        </div>
-        <div style={walletStyles.txBalance}>
-          Bal {Number(tx.balanceAfter).toLocaleString()}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export const TmaProfilePage: FC = () => {
-  const { user: authUser, loading: authLoading, retry } = useAuth();
+  const navigate = useNavigate();
+  const { user: authUser, loading: authLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>("profile");
   const [freshUser, setFreshUser] = useState<AuthUser | null>(null);
   const [freshLoading, setFreshLoading] = useState(true);
-  const [txs, setTxs] = useState<Transaction[]>([]);
-  const [txLoading, setTxLoading] = useState(false);
-  const [txError, setTxError] = useState<string | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [referralStats, setReferralStats] = useState<ReferralStats | null>(
+    null,
+  );
+  const [streakModalOpen, setStreakModalOpen] = useState(false);
+  const [showProfileShare, setShowProfileShare] = useState(false);
+  const [collectiblesOpen, setCollectiblesOpen] = useState(false);
+
+  // Badge unlock popup
+  const [newlyUnlockedQueue, setNewlyUnlockedQueue] = useState<
+    CollectibleBadge[]
+  >([]);
+  const [badgePopup, setBadgePopup] = useState<CollectibleBadge | null>(null);
 
   useEffect(() => {
     getMe()
-      .then(setFreshUser)
+      .then((u) => {
+        setFreshUser(u);
+        // Detect newly unlocked badges
+        const storageKey = `oro_seen_badges_${u.id ?? u.telegramId}`;
+        const seenRaw = localStorage.getItem(storageKey);
+        const seen: string[] = seenRaw ? JSON.parse(seenRaw) : [];
+
+        const currentBadges = buildBadges(
+          u.totalPredictions ?? 0,
+          u.correctPredictions ?? 0,
+          u.reputationTier ?? "rookie",
+          Number(u.reputationScore ?? 0),
+          !!u.isPhoneVerified,
+          !!u.dkCid,
+          u.referralCount ?? 0,
+        );
+
+        const newlyUnlocked = currentBadges.filter(
+          (b) => b.unlocked && !seen.includes(b.id),
+        );
+
+        // Mark all currently unlocked as seen so we don't re-show on next visit
+        const allUnlockedIds = currentBadges
+          .filter((b) => b.unlocked)
+          .map((b) => b.id);
+        localStorage.setItem(storageKey, JSON.stringify(allUnlockedIds));
+
+        if (newlyUnlocked.length > 0) {
+          setNewlyUnlockedQueue(newlyUnlocked.slice(1));
+          setBadgePopup(newlyUnlocked[0]);
+        }
+      })
       .catch(() => setFreshUser(authUser))
       .finally(() => setFreshLoading(false));
+    getReferralStats()
+      .then(setReferralStats)
+      .catch(() => undefined);
   }, []);
-
-  const refreshWallet = () => {
-    setBalanceLoading(true);
-    getMe()
-      .then(setFreshUser)
-      .catch(() => {})
-      .finally(() => setBalanceLoading(false));
-    setTxLoading(true);
-    setTxError(null);
-    getMyTransactions()
-      .then(setTxs)
-      .catch((e) => setTxError(e.message))
-      .finally(() => setTxLoading(false));
-  };
-
-  useEffect(() => {
-    if (activeTab === "wallet") {
-      refreshWallet();
-    }
-  }, [activeTab]);
 
   const user = freshUser ?? authUser;
   const loading = authLoading && freshLoading;
 
-  const [cid, setCid] = useState("");
-  const [step, setStep] = useState<LinkStep>("idle");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [linkedName, setLinkedName] = useState("");
-
-  // ── Payment modal state ───────────────────────────────────────────────────
-  const [paymentModal, setPaymentModal] = useState<PaymentModalType>(null);
-  const [payStep, setPayStep] = useState<PaymentStep>("amount");
-  const [payAmountStr, setPayAmountStr] = useState("200");
-  const [payOtp, setPayOtp] = useState("");
-  const [payPendingId, setPayPendingId] = useState("");
-  const [payError, setPayError] = useState("");
-  const [payProcessing, setPayProcessing] = useState(false);
-  const [paySuccessMsg, setPaySuccessMsg] = useState("");
-
-  const openPaymentModal = (type: PaymentModalType) => {
-    setPaymentModal(type);
-    setPayStep("amount");
-    setPayAmountStr("200");
-    setPayOtp("");
-    setPayPendingId("");
-    setPayError("");
-    setPayProcessing(false);
-    setPaySuccessMsg("");
-  };
-
-  const closePaymentModal = () => {
-    setPaymentModal(null);
-    if (payStep === "success") refreshWallet();
-  };
-
-  const handlePaymentInitiate = async () => {
-    const amount = parseFloat(payAmountStr);
-    const minAmt = paymentModal === "deposit" ? MIN_DEPOSIT : MIN_WITHDRAW;
-    if (!Number.isFinite(amount) || amount < minAmt) {
-      setPayError(
-        `Minimum ${paymentModal === "deposit" ? "deposit" : "withdrawal"} is Nu ${minAmt}.`,
-      );
-      return;
-    }
-    setPayError("");
-    setPayProcessing(true);
-    try {
-      let res;
-      if (paymentModal === "deposit") {
-        if (!user?.dkCid) {
-          setPayError("Please link your DK Bank account first (Profile tab).");
-          setPayProcessing(false);
-          return;
-        }
-        res = await initiateDKBankDeposit({ amount, cid: user.dkCid });
-      } else {
-        res = await initiateDKBankWithdrawal({ amount });
-      }
-      setPayPendingId(res.paymentId);
-      setPayStep("otp");
-    } catch (err: any) {
-      setPayError(err.message || "Something went wrong. Please try again.");
-    } finally {
-      setPayProcessing(false);
-    }
-  };
-
-  const handlePaymentConfirm = async () => {
-    if (payOtp.length < 4) {
-      setPayError("Please enter the OTP sent to your Telegram.");
-      return;
-    }
-    setPayError("");
-    setPayProcessing(true);
-    try {
-      if (paymentModal === "deposit") {
-        await confirmDKBankDeposit(payPendingId, payOtp);
-      } else {
-        await confirmDKBankWithdrawal(payPendingId, payOtp);
-      }
-      setPaySuccessMsg(
-        paymentModal === "deposit"
-          ? `Nu ${parseFloat(payAmountStr).toLocaleString()} deposited successfully!`
-          : `Nu ${parseFloat(payAmountStr).toLocaleString()} withdrawal confirmed. Funds on their way to DK Bank.`,
-      );
-      setPayStep("success");
-    } catch (err: any) {
-      setPayError(err.message || "OTP confirmation failed. Please try again.");
-      if (
-        err.message?.toLowerCase().includes("expired") ||
-        err.message?.toLowerCase().includes("initiate")
-      ) {
-        setPayStep("failed");
-      }
-    } finally {
-      setPayProcessing(false);
-    }
-  };
-
-  const hasDKBank = !!user?.dkCid;
-  const hasPhoneVerified = !!user?.isPhoneVerified;
-
-  const handleLink = async () => {
-    if (cid.length !== 11) {
-      setErrorMsg("CID must be exactly 11 digits.");
-      setStep("error");
-      return;
-    }
-    setStep("loading");
-    setErrorMsg("");
-    try {
-      const res = await linkDKBank(cid);
-      setLinkedName(res.user.dkAccountName || res.user.firstName || "");
-      setStep("success");
-      const updated = await getMe();
-      setFreshUser(updated);
-      await retry();
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to link CID. Please try again.");
-      setStep("error");
-    }
-  };
-
   if (loading) {
     return (
       <Page>
-        <div style={styles.center}>
-          <div style={styles.spinner} />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "50vh",
+          }}
+        >
+          <div style={spinner} />
         </div>
       </Page>
     );
   }
 
-  const totalIn = txs
-    .filter((t) => Number(t.amount) > 0)
-    .reduce((s, t) => s + Number(t.amount), 0);
-  const totalOut = txs
-    .filter((t) => Number(t.amount) < 0)
-    .reduce((s, t) => s + Number(t.amount), 0);
+  const tier = user?.reputationTier ?? "rookie";
+  const tierLabel =
+    tier === "legend"
+      ? "Legend"
+      : tier === "hot_hand"
+        ? "Hot Hand"
+        : tier === "sharpshooter"
+          ? "Sharpshooter"
+          : "Rookie";
+  const tierBg =
+    tier === "legend"
+      ? "rgba(245,158,11,0.25)"
+      : tier === "hot_hand"
+        ? "rgba(16,185,129,0.25)"
+        : tier === "sharpshooter"
+          ? "rgba(59,130,246,0.25)"
+          : "rgba(255,255,255,0.12)";
+  const tierColor =
+    tier === "legend"
+      ? "#fbbf24"
+      : tier === "hot_hand"
+        ? "#6ee7b7"
+        : tier === "sharpshooter"
+          ? "#93c5fd"
+          : "rgba(255,255,255,0.6)";
+  const tierBorder =
+    tier === "legend"
+      ? "rgba(245,158,11,0.4)"
+      : tier === "hot_hand"
+        ? "rgba(16,185,129,0.4)"
+        : tier === "sharpshooter"
+          ? "rgba(59,130,246,0.4)"
+          : "rgba(255,255,255,0.2)";
+  const tierIcon =
+    tier === "legend" ? (
+      <Trophy size={11} />
+    ) : tier === "hot_hand" ? (
+      <Flame size={11} />
+    ) : tier === "sharpshooter" ? (
+      <Swords size={11} />
+    ) : (
+      <Sprout size={11} />
+    );
+
+  const badgeColor =
+    user?.contrarianBadge === "gold"
+      ? "#f59e0b"
+      : user?.contrarianBadge === "silver"
+        ? "#94a3b8"
+        : user?.contrarianBadge
+          ? "#b45309"
+          : null;
+
+  const winRate =
+    (user?.totalPredictions ?? 0) > 0
+      ? Math.round(
+          ((user?.correctPredictions ?? 0) / (user?.totalPredictions ?? 1)) *
+            100,
+        )
+      : 0;
+
+  const repScore = Math.round(Number(user?.reputationScore ?? 0) * 100);
+
+  const total = user?.totalPredictions ?? 0;
+  const correct = user?.correctPredictions ?? 0;
+  const acc = total > 0 ? correct / total : 0;
+  const badges = buildBadges(
+    total,
+    correct,
+    tier,
+    Number(user?.reputationScore ?? 0),
+    !!user?.isPhoneVerified,
+    !!user?.dkCid,
+    user?.referralCount ?? 0,
+  );
+  const unlockedCount = badges.filter((b) => b.unlocked).length;
+
+  type TierProgress = {
+    label: string;
+    nextColor: string;
+    progress: number;
+    hint: string;
+  } | null;
+  let tierProgress: TierProgress = null;
+  if (tier === "rookie") {
+    const left = Math.max(10 - total, 0);
+    tierProgress = {
+      label: "Rookie → Sharpshooter",
+      nextColor: "#3b82f6",
+      progress: Math.min(total / 10, 1),
+      hint:
+        left > 0 ? `${left} more picks to reach Sharpshooter` : "Almost there!",
+    };
+  } else if (tier === "sharpshooter") {
+    const left = Math.max(50 - total, 0);
+    tierProgress = {
+      label: "Sharpshooter → Hot Hand",
+      nextColor: "#10b981",
+      progress: Math.min(
+        (Math.min(total / 50, 1) + Math.min(acc / 0.65, 1)) / 2,
+        1,
+      ),
+      hint:
+        left > 0
+          ? `${left} more picks · aim for 65%+ accuracy`
+          : acc < 0.65
+            ? `${Math.round((0.65 - acc) * 100)}% more accuracy needed`
+            : "Keep it up!",
+    };
+  } else if (tier === "hot_hand") {
+    const left = Math.max(100 - total, 0);
+    tierProgress = {
+      label: "Hot Hand → Legend",
+      nextColor: "#f59e0b",
+      progress: Math.min(
+        (Math.min(total / 100, 1) + Math.min(acc / 0.75, 1)) / 2,
+        1,
+      ),
+      hint:
+        left > 0
+          ? `${left} more picks · aim for 75%+ accuracy`
+          : acc < 0.75
+            ? `${Math.round((0.75 - acc) * 100)}% more accuracy needed`
+            : "So close to Legend!",
+    };
+  }
+
+  const closePopup = () => {
+    if (newlyUnlockedQueue.length > 0) {
+      setBadgePopup(newlyUnlockedQueue[0]);
+      setNewlyUnlockedQueue((q) => q.slice(1));
+    } else {
+      setBadgePopup(null);
+    }
+  };
 
   return (
     <Page>
-      <div style={styles.container}>
-        {/* Top Header Layer: Toggles */}
-        <div
-          style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}
-        >
-          <ThemeToggle />
-        </div>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes streakFire {
+          0%, 100% { filter: drop-shadow(0 0 2px rgba(239,68,68,0.5)); transform: scale(1); }
+          50%       { filter: drop-shadow(0 0 8px rgba(249,115,22,0.8)); transform: scale(1.05); }
+        }
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes badgeUnlockPop {
+          0%   { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+          55%  { transform: scale(1.22) rotate(4deg); opacity: 1; }
+          75%  { transform: scale(0.94) rotate(-2deg); }
+          100% { transform: scale(1) rotate(0deg); }
+        }
+        @keyframes badgeUnlockGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.6); }
+          50%       { box-shadow: 0 0 0 28px rgba(245,158,11,0); }
+        }
+        @keyframes confettiFall {
+          0%   { transform: translateY(-40px) rotate(0deg); opacity: 1; }
+          80%  { opacity: 1; }
+          100% { transform: translateY(120vh) rotate(600deg); opacity: 0; }
+        }
+        @keyframes badgeTextSlide {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
 
-        {/* ── Avatar / Name ──────────────────────────────────── */}
-        <div style={styles.avatarSection}>
-          {user?.photoUrl ? (
-            <img src={user.photoUrl} alt="avatar" style={styles.avatar} />
-          ) : (
-            <div style={styles.avatarPlaceholder}>
-              {(user?.firstName?.[0] || "?").toUpperCase()}
-            </div>
-          )}
-          <h2 style={styles.name}>
-            {user?.firstName} {user?.lastName || ""}
-          </h2>
-          {user?.username && <p style={styles.username}>@{user.username}</p>}
-        </div>
+        /* Desktop layout */
+        @media (min-width: 640px) {
+          .profile-hero-card {
+            border-radius: var(--radius-xl) !important;
+            margin: 20px 0 0 !important;
+          }
+          .profile-hero-inner {
+            padding: 24px 28px 24px !important;
+          }
+          .profile-avatar {
+            width: 72px !important;
+            height: 72px !important;
+          }
+          .profile-name {
+            font-size: 20px !important;
+          }
+          .profile-stats-val {
+            font-size: 18px !important;
+          }
+          .profile-two-col {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 12px !important;
+            padding: 0 !important;
+          }
+          .profile-two-col > * {
+            margin: 0 !important;
+          }
+          .profile-full-width {
+            padding: 0 !important;
+          }
+          .profile-full-width > * {
+            margin: 0 !important;
+          }
+          .profile-card-margin {
+            margin: 0 !important;
+          }
+        }
+      `}</style>
 
-        {/* ── Tab Switcher ───────────────────────────────────── */}
-        <div style={styles.tabBar}>
-          <button
+      <div
+        style={{
+          maxWidth: 760,
+          margin: "0 auto",
+          padding: "0 0 100px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        {/* ── Hero Card ────────────────────────────────────────── */}
+        <div className="profile-hero-card" style={heroCard}>
+          {/* Top row: avatar + name + settings */}
+          <div
             style={{
-              ...styles.tab,
-              ...(activeTab === "profile" ? styles.tabActive : {}),
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              marginBottom: 20,
             }}
-            onClick={() => setActiveTab("profile")}
           >
-            Profile
-          </button>
-          <button
-            style={{
-              ...styles.tab,
-              ...(activeTab === "wallet" ? styles.tabActive : {}),
-            }}
-            onClick={() => setActiveTab("wallet")}
-          >
-            <Wallet size={14} style={{ marginRight: 5 }} />
-            Wallet
-          </button>
-        </div>
-
-        {/* ── Profile Tab ────────────────────────────────────── */}
-        {activeTab === "profile" && (
-          <>
-            {/* ── Status badges ──────────────────────────────────── */}
-            <div style={styles.badgeRow}>
-              <StatusBadge
-                label={
-                  <img
-                    src={dkBankLogo}
-                    alt="DK Bank"
-                    style={{
-                      height: 13,
-                      width: "auto",
-                      mixBlendMode: "multiply",
-                    }}
-                  />
-                }
-                active={hasDKBank}
-                activeText={user?.dkAccountName || user?.dkCid || "Linked"}
-                inactiveText="Not linked"
-              />
-              <StatusBadge
-                label="Phone"
-                active={hasPhoneVerified}
-                activeText="Verified"
-                inactiveText="Not verified"
-              />
-            </div>
-
-            {/* ── Reputation Card ────────────────────────────────── */}
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>
-                <span style={styles.titleRow}>
-                  <Trophy size={16} color="#f59e0b" />
-                  Prediction Reputation
-                </span>
-              </h3>
-              {(user?.totalPredictions ?? 0) === 0 ? (
+            {/* Avatar */}
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              {user?.photoUrl ? (
+                <img
+                  src={user.photoUrl}
+                  alt="avatar"
+                  style={{
+                    width: 60,
+                    height: 60,
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                    border: badgeColor
+                      ? `2.5px solid ${badgeColor}`
+                      : "2.5px solid rgba(255,255,255,0.4)",
+                    boxShadow: badgeColor
+                      ? `0 0 12px ${badgeColor}66`
+                      : undefined,
+                    flexShrink: 0,
+                  }}
+                />
+              ) : (
                 <div
                   style={{
-                    fontSize: 13,
-                    color: "var(--text-subtle)",
-                    lineHeight: 1.5,
+                    width: 60,
+                    height: 60,
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.2)",
+                    color: "#fff",
+                    fontSize: 24,
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    border: badgeColor
+                      ? `2.5px solid ${badgeColor}`
+                      : "2.5px solid rgba(255,255,255,0.3)",
                   }}
                 >
-                  <p style={{ margin: "0 0 8px" }}>
-                    Make your first prediction to start building your reputation
-                    score.
-                  </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 12,
-                      color: "var(--text-subtle)",
-                    }}
-                  >
-                    Top predictors earn an Expert badge and their predictions
-                    carry more weight in market probabilities.
-                  </p>
+                  {(user?.firstName?.[0] || "?").toUpperCase()}
                 </div>
-              ) : (
-                <div>
-                  <div
+              )}
+              {/* Badge pip */}
+              {badgeColor && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: -2,
+                    right: -2,
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    background: badgeColor,
+                    border: "2px solid var(--bg-card)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: `0 2px 6px ${badgeColor}66`,
+                  }}
+                >
+                  <Medal size={11} color="#fff" />
+                </div>
+              )}
+            </div>
+
+            {/* Name + tier + streak */}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>
+                  {user?.firstName} {user?.lastName || ""}
+                </span>
+                {(user?.betStreakCount ?? 0) > 0 && (
+                  <button
+                    onClick={() => setStreakModalOpen(true)}
                     style={{
+                      background: "linear-gradient(135deg, #ef4444, #f97316)",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "2px 8px",
                       display: "flex",
                       alignItems: "center",
-                      gap: 8,
-                      marginBottom: 10,
+                      gap: 4,
+                      cursor: "pointer",
+                      animation: "streakFire 2s ease-in-out infinite",
+                      boxShadow: "0 4px 12px rgba(239,68,68,0.25)",
                     }}
                   >
+                    <Flame size={14} color="#fff" fill="#fff" />
                     <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        padding: "2px 10px",
-                        borderRadius: 99,
-                        background:
-                          user?.reputationTier === "expert"
-                            ? "#fef3c7"
-                            : user?.reputationTier === "reliable"
-                              ? "#d1fae5"
-                              : user?.reputationTier === "regular"
-                                ? "#dbeafe"
-                                : "#f3f4f6",
-                        color:
-                          user?.reputationTier === "expert"
-                            ? "#92400e"
-                            : user?.reputationTier === "reliable"
-                              ? "#065f46"
-                              : user?.reputationTier === "regular"
-                                ? "#1e40af"
-                                : "#374151",
-                        textTransform: "capitalize",
-                      }}
+                      style={{ fontSize: 13, fontWeight: 900, color: "#fff" }}
                     >
-                      {user?.reputationTier === "expert"
-                        ? "Expert"
-                        : user?.reputationTier === "reliable"
-                          ? "Reliable"
-                          : user?.reputationTier === "regular"
-                            ? "Regular"
-                            : "Newcomer"}
-                    </span>
-                    {user?.reputationScore != null && (
-                      <span
-                        style={{ fontSize: 13, color: "var(--text-subtle)" }}
-                        title="Confidence-adjusted score — grows more accurate as you make more predictions"
-                      >
-                        {Math.round(user.reputationScore * 100)}% confidence
-                        score
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 20,
-                      fontSize: 12,
-                      color: "var(--text-subtle)",
-                    }}
-                  >
-                    <span>
-                      <strong
-                        style={{ color: "var(--text-primary)", fontSize: 14 }}
-                      >
-                        {user?.totalPredictions ?? 0}
-                      </strong>{" "}
-                      predictions
-                    </span>
-                    <span>
-                      <strong
-                        style={{ color: "var(--text-primary)", fontSize: 14 }}
-                      >
-                        {user?.correctPredictions ?? 0}
-                      </strong>{" "}
-                      correct
-                    </span>
-                  </div>
-
-                  {/* ── Tier progress bar ─────────────────────────── */}
-                  {(() => {
-                    const total = user?.totalPredictions ?? 0;
-                    const correct = user?.correctPredictions ?? 0;
-                    const accuracy = total > 0 ? correct / total : 0;
-                    const tier = user?.reputationTier ?? "newcomer";
-
-                    // Already at the top — show a completion state
-                    if (tier === "expert") {
-                      return (
-                        <div style={{ marginTop: 14 }}>
-                          <div
-                            style={{
-                              background: "var(--bg-secondary)",
-                              borderRadius: 99,
-                              height: 6,
-                              overflow: "hidden",
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                borderRadius: 99,
-                                background:
-                                  "linear-gradient(90deg, #f59e0b, #fbbf24)",
-                              }}
-                            />
-                          </div>
-                          <div
-                            style={{
-                              marginTop: 6,
-                              fontSize: 11,
-                              color: "#92400e",
-                              fontWeight: 700,
-                            }}
-                          >
-                            🏆 Maximum tier reached
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // Compute progress toward next tier
-                    // Tiers: newcomer (<10) → regular (10–49) → reliable (50+, ≥65%) → expert (100+, ≥75%)
-                    type TierInfo = {
-                      label: string;
-                      color: string;
-                      progressPct: number;
-                      hint: string;
-                    };
-
-                    let info: TierInfo;
-
-                    if (tier === "newcomer") {
-                      // Need 10 predictions to reach Regular
-                      const progressPct = Math.min((total / 10) * 100, 100);
-                      const remaining = 10 - total;
-                      info = {
-                        label: "Regular",
-                        color: "#3b82f6",
-                        progressPct,
-                        hint: `${remaining} more prediction${remaining !== 1 ? "s" : ""} to reach Regular`,
-                      };
-                    } else if (tier === "regular") {
-                      // Need 50 predictions AND ≥65% accuracy to reach Reliable
-                      const predProgress = Math.min(total / 50, 1);
-                      const accProgress = Math.min(accuracy / 0.65, 1);
-                      // Weight both equally
-                      const progressPct =
-                        ((predProgress + accProgress) / 2) * 100;
-                      const predRemaining = Math.max(0, 50 - total);
-                      const accNeeded = accuracy < 0.65;
-                      const hint =
-                        predRemaining > 0 && accNeeded
-                          ? `${predRemaining} more predictions & ${Math.round(accuracy * 100)}% → 65% accuracy for Reliable`
-                          : predRemaining > 0
-                            ? `${predRemaining} more predictions to reach Reliable`
-                            : `Reach 65% accuracy to unlock Reliable (currently ${Math.round(accuracy * 100)}%)`;
-                      info = {
-                        label: "Reliable",
-                        color: "#059669",
-                        progressPct,
-                        hint,
-                      };
-                    } else {
-                      // reliable → need 100 predictions AND ≥75% accuracy for Expert
-                      const predProgress = Math.min(total / 100, 1);
-                      const accProgress = Math.min(accuracy / 0.75, 1);
-                      const progressPct =
-                        ((predProgress + accProgress) / 2) * 100;
-                      const predRemaining = Math.max(0, 100 - total);
-                      const accNeeded = accuracy < 0.75;
-                      const hint =
-                        predRemaining > 0 && accNeeded
-                          ? `${predRemaining} more predictions & ${Math.round(accuracy * 100)}% → 75% accuracy for Expert`
-                          : predRemaining > 0
-                            ? `${predRemaining} more predictions to reach Expert`
-                            : `Reach 75% accuracy to unlock Expert (currently ${Math.round(accuracy * 100)}%)`;
-                      info = {
-                        label: "Expert",
-                        color: "#f59e0b",
-                        progressPct,
-                        hint,
-                      };
-                    }
-
-                    return (
-                      <div style={{ marginTop: 14 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: 5,
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: "var(--text-subtle)",
-                            }}
-                          >
-                            Progress to{" "}
-                            <span style={{ color: info.color }}>
-                              {info.label}
-                            </span>
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 800,
-                              color: info.color,
-                            }}
-                          >
-                            {Math.round(info.progressPct)}%
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            background: "var(--bg-secondary)",
-                            borderRadius: 99,
-                            height: 6,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${info.progressPct}%`,
-                              height: "100%",
-                              borderRadius: 99,
-                              background: info.color,
-                              transition: "width 0.8s ease",
-                            }}
-                          />
-                        </div>
-                        <div
-                          style={{
-                            marginTop: 5,
-                            fontSize: 11,
-                            color: "var(--text-subtle)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {info.hint}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
-
-            {/* ── DK Bank link form ──────────────────────────────── */}
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>
-                <span style={styles.titleRow}>
-                  {hasDKBank ? (
-                    <CheckCircle2 size={16} color="#059669" />
-                  ) : (
-                    <Link2 size={16} color="#2775d0" />
-                  )}
-                  {hasDKBank ? (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      <span
-                        style={{
-                          background: "#fff",
-                          borderRadius: 4,
-                          padding: "1px 5px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                        }}
-                      >
-                        <img
-                          src={dkBankLogo}
-                          alt="DK Bank"
-                          style={{ height: 14, width: "auto" }}
-                        />
-                      </span>
-                      Linked
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      Link
-                      <img
-                        src={dkBankLogo}
-                        alt="DK Bank"
-                        style={{
-                          height: 14,
-                          width: "auto",
-                          mixBlendMode: "multiply",
-                        }}
-                      />
-                      Account
-                    </span>
-                  )}
-                </span>
-              </h3>
-
-              {hasDKBank ? (
-                <div style={styles.linkedInfo}>
-                  <p style={styles.linkedRow}>
-                    <span style={styles.label}>CID</span>
-                    <span style={styles.value}>{user?.dkCid}</span>
-                  </p>
-                  <p style={styles.linkedRow}>
-                    <span style={styles.label}>Account</span>
-                    <span style={styles.value}>
-                      {user?.dkAccountName || "—"}
-                    </span>
-                  </p>
-                  <p style={styles.linkedRow}>
-                    <span style={styles.label}>Phone</span>
-                    <span style={{ ...styles.value, ...styles.inlineIcon }}>
-                      {user?.isDkPhoneLinked ? (
-                        <>
-                          <ShieldCheck size={13} color="#059669" />
-                          Registered
-                        </>
-                      ) : (
-                        <span
-                          style={{ color: "#d97706", ...styles.inlineIcon }}
-                        >
-                          <AlertCircle size={13} color="#d97706" />
-                          No phone on DK Bank record
-                        </span>
-                      )}
-                    </span>
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <p style={styles.hint}>
-                    Enter your 11-digit Bhutanese National ID (CID) to link your
-                    DK Bank account. This stores a secure hash of your
-                    registered phone number so payments can be verified.
-                  </p>
-                  <input
-                    style={styles.input}
-                    type="tel"
-                    inputMode="numeric"
-                    placeholder="11-digit CID number"
-                    maxLength={11}
-                    value={cid}
-                    onChange={(e) => {
-                      setCid(e.target.value.replace(/\D/g, ""));
-                      setStep("idle");
-                      setErrorMsg("");
-                    }}
-                  />
-                  {step === "error" && (
-                    <p style={{ ...styles.error, ...styles.inlineIcon }}>
-                      <XCircle size={14} color="#dc2626" />
-                      {errorMsg}
-                    </p>
-                  )}
-                  {step === "success" && (
-                    <p style={{ ...styles.success, ...styles.inlineIcon }}>
-                      <CheckCircle2 size={14} color="#059669" />
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        <img
-                          src={dkBankLogo}
-                          alt="DK Bank"
-                          style={{
-                            height: 13,
-                            width: "auto",
-                            mixBlendMode: "multiply",
-                          }}
-                        />
-                        account linked
-                      </span>
-                      {linkedName ? ` as ${linkedName}` : ""}!
-                    </p>
-                  )}
-                  <button
-                    style={{
-                      ...styles.btn,
-                      opacity:
-                        step === "loading" || cid.length !== 11 ? 0.6 : 1,
-                    }}
-                    disabled={step === "loading" || cid.length !== 11}
-                    onClick={handleLink}
-                  >
-                    <span style={styles.inlineIcon}>
-                      {step === "loading" ? (
-                        <>
-                          <Loader2
-                            size={15}
-                            style={{ animation: "spin 0.8s linear infinite" }}
-                          />
-                          Linking…
-                        </>
-                      ) : (
-                        <>
-                          <Link2 size={15} />
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 6,
-                            }}
-                          >
-                            Link
-                            <img
-                              src={dkBankLogo}
-                              alt="DK Bank"
-                              style={{
-                                height: 13,
-                                width: "auto",
-                                mixBlendMode: "multiply",
-                              }}
-                            />
-                            Account
-                          </span>
-                        </>
-                      )}
+                      {user?.betStreakCount}
                     </span>
                   </button>
-                </>
-              )}
-            </div>
-
-            {/* ── Phone verification instructions ───────────────── */}
-            <div style={styles.card}>
-              <h3 style={styles.cardTitle}>
-                <span style={styles.titleRow}>
-                  {hasPhoneVerified ? (
-                    <ShieldCheck size={16} color="#059669" />
-                  ) : (
-                    <Smartphone size={16} color="#2775d0" />
-                  )}
-                  {hasPhoneVerified ? "Phone Verified" : "Verify Your Phone"}
-                </span>
-              </h3>
-              {hasPhoneVerified ? (
-                <p style={styles.hint}>
-                  Your Telegram phone matches your DK Bank registered phone.
-                  Payments are fully secured.
-                </p>
-              ) : (
-                <>
-                  <p style={styles.hint}>
-                    After linking your DK Bank CID above, go to the Tara bot and
-                    send <strong>/verify</strong> to verify your phone number.
-                  </p>
-                  <div style={styles.steps}>
-                    <Step
-                      n={1}
-                      done={hasDKBank}
-                      text="Link DK Bank CID (above)"
-                    />
-                    <Step
-                      n={2}
-                      done={false}
-                      text='Open Tara bot → send "/verify"'
-                    />
-                    <Step
-                      n={3}
-                      done={false}
-                      text="Tap Share Phone Number button"
-                    />
-                    <Step
-                      n={4}
-                      done={hasPhoneVerified}
-                      text="Phone verified — payments unlocked!"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* ── Wallet Tab ─────────────────────────────────────── */}
-        {activeTab === "wallet" && (
-          <>
-            {/* Balance card — always shown, amount pulses while loading */}
-            <div style={walletStyles.balanceCard}>
+                )}
+              </div>
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
+                  gap: 6,
+                  marginTop: 6,
+                  flexWrap: "wrap",
                 }}
               >
-                <div style={walletStyles.balanceLabel}>Available Balance</div>
-                <button
-                  onClick={refreshWallet}
-                  disabled={balanceLoading || txLoading}
+                <span
                   style={{
-                    background: "rgba(255,255,255,0.15)",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "4px 8px",
-                    cursor:
-                      balanceLoading || txLoading ? "not-allowed" : "pointer",
-                    color: "#fff",
-                    opacity: balanceLoading || txLoading ? 0.6 : 1,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    background: tierBg,
+                    color: tierColor,
+                    border: `1px solid ${tierBorder}`,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  {tierIcon}
+                  {tierLabel}
+                </span>
+              </div>
+              {(user?.referralCount ?? 0) > 0 && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "rgba(255,255,255,0.75)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <UserPlus size={12} color="#6ee7b7" />
+                  <span style={{ color: "#6ee7b7" }}>
+                    {user?.referralCount} friend
+                    {user?.referralCount !== 1 ? "s" : ""}
+                  </span>{" "}
+                  brought in
+                </div>
+              )}
+            </div>
+
+            {/* Settings */}
+            <button
+              onClick={() => navigate("/settings")}
+              aria-label="Settings"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "8px",
+                borderRadius: 10,
+                border: "1.5px solid rgba(255,255,255,0.5)",
+                background: "transparent",
+                color: "#fff",
+                cursor: "pointer",
+                flexShrink: 0,
+                alignSelf: "flex-start",
+                marginTop: 5,
+              }}
+            >
+              <Settings size={16} />
+            </button>
+          </div>
+
+          {/* Prediction stats row */}
+          <div
+            style={{
+              display: "flex",
+              gap: 0,
+              borderTop: "1px solid rgba(255,255,255,0.15)",
+              paddingTop: 14,
+            }}
+          >
+            {[
+              {
+                label: "Win Rate",
+                value: `${winRate}%`,
+                color:
+                  winRate >= 60
+                    ? "#6ee7b7"
+                    : winRate >= 40
+                      ? "#fbbf24"
+                      : "#fca5a5",
+                icon: <Target size={12} />,
+              },
+              {
+                label: "Predictions",
+                value: String(user?.totalPredictions ?? 0),
+                color: "rgba(255,255,255,0.9)",
+                icon: <TrendingUp size={12} />,
+              },
+              {
+                label: "Insight Score",
+                value: `${repScore}`,
+                color: tierColor,
+                icon: tierIcon,
+              },
+            ].map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  borderLeft:
+                    i > 0 ? "1px solid rgba(255,255,255,0.12)" : "none",
+                  paddingLeft: i > 0 ? 14 : 0,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "rgba(255,255,255,0.55)",
+                    fontWeight: 600,
+                    marginBottom: 3,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
                     display: "flex",
                     alignItems: "center",
                     gap: 4,
-                    fontSize: "0.75rem",
-                    fontWeight: 600,
                   }}
                 >
-                  <RotateCcw
-                    size={12}
-                    style={
-                      balanceLoading
-                        ? { animation: "spin 0.8s linear infinite" }
-                        : {}
-                    }
-                  />
-                  Refresh
-                </button>
+                  {s.icon}
+                  {s.label}
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: s.color }}>
+                  {s.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Cards grid: streak + tier progress (two-col on desktop) ─── */}
+        <div className="profile-two-col" style={{ display: "contents" }}>
+        {/* ── Streak Status ─────────────────────────────────────── */}
+        {(user?.betStreakCount ?? 0) > 0 && (
+          <button
+            onClick={() => setStreakModalOpen(true)}
+            style={{
+              margin: "0 16px",
+              borderRadius: 14,
+              padding: "14px 16px",
+              background:
+                "linear-gradient(135deg, rgba(239,68,68,0.12), rgba(249,115,22,0.08))",
+              border: "1px solid rgba(239,68,68,0.3)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                background: "linear-gradient(135deg, #ef4444, #f97316)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                animation: "streakFire 2s ease-in-out infinite",
+              }}
+            >
+              <Flame size={20} color="#fff" fill="#fff" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: "var(--text-main)",
+                }}
+              >
+                {user?.betStreakCount}-day prediction streak
               </div>
               <div
                 style={{
-                  ...walletStyles.balanceAmount,
-                  opacity: balanceLoading ? 0.5 : 1,
-                  transition: "opacity 0.3s",
+                  fontSize: 11,
+                  color: "var(--text-subtle)",
+                  marginTop: 2,
                 }}
               >
-                <span style={walletStyles.balanceCurrency}>BTN</span>
-                {Number(
-                  freshUser?.creditsBalance ?? user?.creditsBalance ?? 0,
-                ).toLocaleString()}
-              </div>
-              <div style={walletStyles.balanceStats}>
-                <div style={walletStyles.statItem}>
-                  <div style={walletStyles.statLabel}>Total In</div>
-                  <div style={walletStyles.statValue}>
-                    +{totalIn.toLocaleString()}
-                  </div>
-                </div>
-                <div style={walletStyles.statItem}>
-                  <div style={walletStyles.statLabel}>Total Out</div>
-                  <div style={walletStyles.statValue}>
-                    {Math.abs(totalOut).toLocaleString()}
-                  </div>
-                </div>
+                {(user?.betStreakCount ?? 0) >= 7
+                  ? "1.2x payout boost is active on your next win!"
+                  : `${7 - (user?.betStreakCount ?? 0)} more day${7 - (user?.betStreakCount ?? 0) !== 1 ? "s" : ""} until your 1.2x boost`}
               </div>
             </div>
-
-            {/* Action buttons */}
-            <div style={walletStyles.walletActions}>
-              <button
-                style={walletStyles.actionBtnPrimary}
-                onClick={() => openPaymentModal("deposit")}
-              >
-                <Plus size={18} />
-                Deposit
-              </button>
-              <button
-                style={walletStyles.actionBtn}
-                onClick={() => openPaymentModal("withdraw")}
-              >
-                <ArrowUpCircle size={18} />
-                Withdraw
-              </button>
+            {/* Streak pip bar */}
+            <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div
+                  key={i}
+                  style={{
+                    width: 6,
+                    height: 18,
+                    borderRadius: 3,
+                    background:
+                      i < (user?.betStreakCount ?? 0)
+                        ? "linear-gradient(180deg, #f97316, #ef4444)"
+                        : "rgba(255,255,255,0.15)",
+                  }}
+                />
+              ))}
             </div>
+          </button>
+        )}
 
-            {/* Transaction history */}
+        {/* ── Tier Progress ─────────────────────────────────────── */}
+        {tier === "legend" ? (
+          <div
+            style={{
+              margin: "0 16px",
+              padding: "10px 14px",
+              background: "rgba(245,158,11,0.1)",
+              borderRadius: 12,
+              border: "1px solid rgba(245,158,11,0.25)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Trophy size={14} color="#f59e0b" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>
+              You've reached the top — Legend tier!
+            </span>
+          </div>
+        ) : tierProgress ? (
+          <div
+            style={{
+              margin: "0 16px",
+              padding: "12px 14px",
+              background: "var(--bg-card)",
+              borderRadius: 12,
+              border: "1px solid var(--glass-border)",
+            }}
+          >
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "flex-end",
-                marginBottom: 12,
+                alignItems: "center",
+                marginBottom: 8,
               }}
             >
-              <div>
-                <h2 style={walletStyles.sectionTitle}>History</h2>
-                <div style={walletStyles.sectionSubtitle}>
-                  {txLoading
-                    ? "Updating…"
-                    : `${txs.length} transaction${txs.length !== 1 ? "s" : ""}`}
-                </div>
-              </div>
-              <Clock size={16} color="#9ca3af" style={{ marginBottom: 20 }} />
-            </div>
-
-            {txLoading && (
-              <div
+              <span
                 style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  padding: "20px 0",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--text-muted)",
                 }}
               >
-                <div style={styles.spinner} />
-              </div>
-            )}
+                {tierProgress.label}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: tierProgress.nextColor,
+                }}
+              >
+                {Math.round(tierProgress.progress * 100)}%
+              </span>
+            </div>
+            <div
+              style={{
+                height: 6,
+                borderRadius: 99,
+                background: "var(--bg-secondary)",
+                overflow: "hidden",
+                marginBottom: 7,
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.round(tierProgress.progress * 100)}%`,
+                  borderRadius: 99,
+                  background: `linear-gradient(90deg, ${tierProgress.nextColor}99, ${tierProgress.nextColor})`,
+                  transition: "width 0.6s ease",
+                }}
+              />
+            </div>
+            <span
+              style={{
+                fontSize: 11,
+                color: "var(--text-subtle)",
+                fontWeight: 600,
+              }}
+            >
+              {tierProgress.hint}
+            </span>
+          </div>
+        ) : null}
 
-            {txError && !txLoading && (
-              <div style={walletStyles.emptyState}>
-                <AlertCircle size={48} color="#ef4444" />
-                <p style={{ color: "#ef4444" }}>{txError}</p>
-              </div>
-            )}
+        </div>{/* close profile-two-col (streak + tier) */}
 
-            {!txLoading && !txError && (
-              <div style={walletStyles.txList}>
-                {txs.length === 0 ? (
-                  <div style={walletStyles.emptyState}>
-                    <Wallet size={48} color="#9ca3af" />
-                    <p style={{ color: "#9ca3af" }}>No transactions yet</p>
-                  </div>
-                ) : (
-                  txs.map((tx) => <TxRow key={tx.id} tx={tx} />)
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Payment Modal ───────────────────────────────────── */}
-      {paymentModal && (
-        <div
-          style={modalStyles.overlay}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closePaymentModal();
+        {/* ── Collectibles + Wallet shortcut: two-col on desktop ─── */}
+        <div className="profile-two-col" style={{ display: "contents" }}>
+        {/* ── Collectibles row (tappable) ───────────────────────── */}
+        <button
+          onClick={() => setCollectiblesOpen(true)}
+          style={{
+            margin: "0 16px",
+            borderRadius: 14,
+            padding: "14px 16px",
+            background: "var(--bg-card)",
+            border: "1px solid var(--glass-border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            cursor: "pointer",
+            boxShadow: "var(--shadow-sm)",
           }}
         >
-          <div style={modalStyles.sheet}>
-            {/* Header */}
-            <div style={modalStyles.header}>
-              <div style={modalStyles.headerLeft}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              background: "rgba(245,158,11,0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Medal size={20} color="#f59e0b" />
+          </div>
+          <div style={{ flex: 1, textAlign: "left" }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: "var(--text-main)",
+              }}
+            >
+              Collectibles
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: unlockedCount > 0 ? "#f59e0b" : "var(--text-subtle)",
+                marginTop: 2,
+                fontWeight: 600,
+              }}
+            >
+              {unlockedCount}/{badges.length} unlocked
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" />
+        </button>
+
+        {/* ── Wallet shortcut ───────────────────────────────────── */}
+        <button
+          onClick={() => navigate("/wallet")}
+          style={{
+            margin: "0 16px",
+            borderRadius: 14,
+            padding: "14px 16px",
+            background: "var(--bg-card)",
+            border: "1px solid var(--glass-border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            cursor: "pointer",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              background: "rgba(39,117,208,0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Wallet size={20} color="#2775d0" />
+          </div>
+          <div style={{ flex: 1, textAlign: "left" }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: "var(--text-main)",
+              }}
+            >
+              Wallet & Transactions
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--text-subtle)",
+                marginTop: 2,
+              }}
+            >
+              Top up, cash out, transaction history
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" />
+        </button>
+
+        </div>{/* close profile-two-col (collectibles + wallet) */}
+
+        {/* ── Invite & Referral ─────────────────────────────────── */}
+        <div className="profile-full-width" style={{ padding: "0 16px" }}>
+          <div
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.04))",
+              border: "1px solid rgba(99,102,241,0.25)",
+              borderRadius: 16,
+              padding: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 10,
+              }}
+            >
+              <UserPlus size={18} color="#818cf8" />
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 800,
+                  color: "var(--text-main)",
+                }}
+              >
+                Invite Friends
+              </span>
+              {(referralStats?.convertedCount ?? 0) > 0 && (
                 <span
                   style={{
-                    ...modalStyles.title,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
+                    marginLeft: "auto",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#22c55e",
+                    background: "rgba(34,197,94,0.12)",
+                    padding: "2px 8px",
+                    borderRadius: 99,
                   }}
                 >
-                  {paymentModal === "deposit" ? "Deposit via" : "Withdraw to"}
-                  <span
-                    style={{
-                      background: "#fff",
-                      borderRadius: 5,
-                      padding: "2px 7px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    <img
-                      src={dkBankLogo}
-                      alt="DK Bank"
-                      style={{ height: 18, width: "auto" }}
-                    />
-                  </span>
+                  {referralStats!.convertedCount} converted
                 </span>
+              )}
+            </div>
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                margin: "0 0 12px",
+                lineHeight: 1.5,
+              }}
+            >
+              Earn{" "}
+              <b style={{ color: "var(--text-main)" }}>
+                Nu {referralStats?.flatBonus ?? 50} +{" "}
+                {referralStats?.betPct ?? 5}%
+              </b>{" "}
+              of their first bet when they sign up with your link.
+            </p>
+            {referralStats?.totalEarned ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#22c55e",
+                  fontWeight: 700,
+                  marginBottom: 10,
+                }}
+              >
+                Total earned: Nu{" "}
+                {Number(referralStats.totalEarned).toLocaleString()}
               </div>
-              <button style={modalStyles.closeBtn} onClick={closePaymentModal}>
-                <X size={18} />
-              </button>
+            ) : null}
+            <button
+              onClick={() => setShowProfileShare(true)}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                padding: "11px 0",
+                borderRadius: 12,
+                background:
+                  "linear-gradient(135deg, rgba(59,130,246,0.18), rgba(99,102,241,0.18))",
+                border: "1px solid rgba(99,102,241,0.35)",
+                color: "#a5b4fc",
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              <Share2 size={14} />
+              Share your stats &amp; invite friends
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Streak Benefits Modal ─────────────────────────────── */}
+      <StreakBenefitsModal
+        isOpen={streakModalOpen}
+        onClose={() => setStreakModalOpen(false)}
+        streakCount={user?.betStreakCount ?? 0}
+      />
+
+      {/* ── Collectibles Modal ────────────────────────────────── */}
+      {collectiblesOpen && (
+        <div
+          onClick={() => setCollectiblesOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--bg-card)",
+              borderRadius: "20px 20px 0 0",
+              width: "100%",
+              maxWidth: 480,
+              maxHeight: "85vh",
+              overflowY: "auto",
+              boxShadow: "0 -4px 40px rgba(0,0,0,0.3)",
+              animation: "fadeSlideUp 0.25s ease",
+            }}
+          >
+            {/* Handle + header */}
+            <div
+              style={{
+                padding: "12px 20px 0",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  height: 4,
+                  borderRadius: 99,
+                  background: "var(--glass-border)",
+                }}
+              />
+              <div
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingBottom: 12,
+                  borderBottom: "1px solid var(--glass-border)",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 800,
+                    color: "var(--text-main)",
+                  }}
+                >
+                  Collectibles
+                </span>
+                <button
+                  onClick={() => setCollectiblesOpen(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    padding: 4,
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div style={{ padding: "16px 20px 40px", overflow: "visible" }}>
+              <BadgeGrid
+                totalPredictions={total}
+                correctPredictions={correct}
+                reputationTier={tier}
+                reputationScore={Number(user?.reputationScore ?? 0)}
+                hasPhone={!!user?.isPhoneVerified}
+                hasDKBank={!!user?.dkCid}
+                referralCount={user?.referralCount ?? 0}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Share Profile Modal ────────────────────────────────── */}
+      {showProfileShare && (
+        <div
+          onClick={() => setShowProfileShare(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2000,
+            background: "rgba(0,0,0,0.88)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px 16px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              position: "relative",
+              animation:
+                "fadeSlideUp 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards",
+            }}
+          >
+            <button
+              onClick={() => setShowProfileShare(false)}
+              style={{
+                position: "absolute",
+                top: -40,
+                right: 0,
+                background: "rgba(255,255,255,0.1)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: 10,
+                width: 32,
+                height: 32,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "rgba(255,255,255,0.8)",
+                cursor: "pointer",
+              }}
+            >
+              <X size={16} />
+            </button>
+            <div style={{ marginBottom: 14, textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: 16,
+                  fontWeight: 800,
+                  color: "#fff",
+                  marginBottom: 4,
+                }}
+              >
+                Share Your Profile
+              </div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>
+                Challenge friends with your prediction record
+              </div>
+            </div>
+            <ProfileShareCard
+              userName={
+                user?.username
+                  ? `@${user.username}`
+                  : (user?.firstName ?? "Predictor")
+              }
+              userPhotoUrl={user?.photoUrl ?? null}
+              reputationTier={user?.reputationTier ?? "rookie"}
+              reputationScore={Number(user?.reputationScore ?? 0)}
+              totalPredictions={user?.totalPredictions ?? 0}
+              correctPredictions={user?.correctPredictions ?? 0}
+              referralId={String(user?.telegramId ?? user?.id ?? "")}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Badge Unlock Popup ─────────────────────────────────── */}
+      {badgePopup && (
+        <div
+          onClick={closePopup}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 3000,
+            background: "rgba(0,0,0,0.82)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px 16px",
+          }}
+        >
+          {/* Confetti */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              overflow: "hidden",
+            }}
+          >
+            {Array.from({ length: 24 }).map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  left: `${(i * 41 + 7) % 100}%`,
+                  top: 0,
+                  width: [8, 10, 6, 9, 7][i % 5],
+                  height: [8, 10, 6, 9, 7][i % 5],
+                  borderRadius: i % 3 === 0 ? "50%" : i % 3 === 1 ? 2 : 0,
+                  background: [
+                    "#f59e0b",
+                    "#6366f1",
+                    "#22c55e",
+                    "#ec4899",
+                    "#3b82f6",
+                    "#fbbf24",
+                  ][i % 6],
+                  animation: `confettiFall ${1.4 + (i % 6) * 0.3}s ease-in ${(i % 5) * 0.18}s both`,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Card */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "linear-gradient(160deg, #1e1b4b, #1a1a2e)",
+              border: "1.5px solid rgba(245,158,11,0.4)",
+              borderRadius: 28,
+              padding: "36px 28px 28px",
+              maxWidth: 320,
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 0,
+              boxShadow:
+                "0 32px 80px rgba(0,0,0,0.6), 0 0 60px rgba(245,158,11,0.12)",
+              animation: "fadeSlideUp 0.3s ease forwards",
+              position: "relative",
+            }}
+          >
+            {/* Close button */}
+            <button
+              onClick={closePopup}
+              style={{
+                position: "absolute",
+                top: 14,
+                right: 14,
+                background: "rgba(255,255,255,0.08)",
+                border: "none",
+                borderRadius: 8,
+                width: 28,
+                height: 28,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+              }}
+            >
+              <X size={14} />
+            </button>
+
+            {/* "Unlocked!" label */}
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "#f59e0b",
+                marginBottom: 20,
+                background: "rgba(245,158,11,0.12)",
+                padding: "4px 14px",
+                borderRadius: 99,
+                border: "1px solid rgba(245,158,11,0.3)",
+                animation: "badgeTextSlide 0.4s ease 0.1s both",
+              }}
+            >
+              Collectible Unlocked
             </div>
 
-            {/* ── Step: Amount ── */}
-            {payStep === "amount" && (
-              <div style={modalStyles.body}>
-                {paymentModal === "deposit" && !user?.dkCid && (
-                  <div style={modalStyles.warningBox}>
-                    <AlertCircle size={14} color="#d97706" />
-                    <span>
-                      Link your DK Bank account (Profile tab) before depositing.
-                    </span>
-                  </div>
-                )}
-                {paymentModal === "withdraw" && !user?.dkCid && (
-                  <div style={modalStyles.warningBox}>
-                    <AlertCircle size={14} color="#d97706" />
-                    <span>You need a linked DK Bank account to withdraw.</span>
-                  </div>
-                )}
-
-                <p style={modalStyles.label}>
-                  {paymentModal === "deposit"
-                    ? "Top-up amount (BTN)"
-                    : "Withdrawal amount (BTN)"}
-                </p>
-                <input
-                  style={modalStyles.input}
-                  type="number"
-                  inputMode="numeric"
-                  min={paymentModal === "deposit" ? MIN_DEPOSIT : MIN_WITHDRAW}
-                  placeholder="Enter amount"
-                  value={payAmountStr}
-                  onChange={(e) => {
-                    setPayAmountStr(e.target.value);
-                    setPayError("");
+            {/* Badge image */}
+            <div
+              style={{
+                width: 110,
+                height: 110,
+                borderRadius: badgePopup.legendary ? 30 : 26,
+                overflow: "hidden",
+                marginBottom: 22,
+                animation:
+                  "badgeUnlockPop 0.65s cubic-bezier(0.34,1.56,0.64,1) 0.1s both, badgeUnlockGlow 1.6s ease 0.7s 3",
+                border: badgePopup.legendary
+                  ? "2.5px solid #ffd700"
+                  : "2.5px solid rgba(245,158,11,0.6)",
+                background: "#13131f",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {badgePopup.img ? (
+                <img
+                  src={badgePopup.img}
+                  alt={badgePopup.name}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: "block",
                   }}
                 />
+              ) : (
+                <div style={{ color: "#f59e0b" }}>{badgePopup.icon}</div>
+              )}
+            </div>
 
-                <div style={modalStyles.quickRow}>
-                  {(paymentModal === "deposit"
-                    ? QUICK_DEPOSIT_AMOUNTS
-                    : QUICK_WITHDRAW_AMOUNTS
-                  ).map((amt) => (
-                    <button
-                      key={amt}
-                      style={{
-                        ...modalStyles.quickBtn,
-                        ...(payAmountStr === String(amt)
-                          ? modalStyles.quickBtnActive
-                          : {}),
-                      }}
-                      onClick={() => {
-                        setPayAmountStr(String(amt));
-                        setPayError("");
-                      }}
-                    >
-                      {formatBTN(amt).replace("Nu. ", "Nu ")}
-                    </button>
-                  ))}
-                </div>
+            {/* Badge name */}
+            <div
+              style={{
+                fontSize: 20,
+                fontWeight: 900,
+                color: badgePopup.legendary ? "#ffd700" : "#fff",
+                textAlign: "center",
+                animation: "badgeTextSlide 0.4s ease 0.35s both",
+              }}
+            >
+              {badgePopup.name}
+            </div>
 
-                {paymentModal === "deposit" && user?.dkCid && (
-                  <div style={modalStyles.infoRow}>
-                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                      DK Account
-                    </span>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>
-                      {user.dkAccountName || user.dkCid}
-                    </span>
-                  </div>
-                )}
-                {paymentModal === "withdraw" && (
-                  <div style={modalStyles.infoRow}>
-                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                      Available balance
-                    </span>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>
-                      Nu{" "}
-                      {Number(
-                        freshUser?.creditsBalance ?? user?.creditsBalance ?? 0,
-                      ).toLocaleString()}
-                    </span>
-                  </div>
-                )}
+            {/* Requirement text */}
+            <div
+              style={{
+                fontSize: 13,
+                color: "rgba(255,255,255,0.55)",
+                textAlign: "center",
+                marginTop: 8,
+                marginBottom: 28,
+                lineHeight: 1.5,
+                animation: "badgeTextSlide 0.4s ease 0.45s both",
+              }}
+            >
+              {badgePopup.requirement}
+            </div>
 
-                {payError && (
-                  <div style={modalStyles.errorBox}>
-                    <XCircle size={14} color="#dc2626" />
-                    <span>{payError}</span>
-                  </div>
-                )}
-
-                <button
-                  style={{
-                    ...modalStyles.primaryBtn,
-                    opacity:
-                      payProcessing ||
-                      (paymentModal === "deposit" ? !user?.dkCid : !user?.dkCid)
-                        ? 0.6
-                        : 1,
-                  }}
-                  disabled={payProcessing}
-                  onClick={handlePaymentInitiate}
-                >
-                  {payProcessing ? (
-                    <>
-                      <Loader2
-                        size={16}
-                        style={{ animation: "spin 0.8s linear infinite" }}
-                      />{" "}
-                      Sending OTP…
-                    </>
-                  ) : (
-                    <>
-                      <Send size={16} />{" "}
-                      {paymentModal === "deposit"
-                        ? "Deposit & Send OTP"
-                        : "Withdraw & Send OTP"}
-                    </>
-                  )}
-                </button>
-                <p style={modalStyles.hint}>
-                  An OTP will be sent to your Telegram chat to confirm this
-                  transaction.
-                </p>
-              </div>
-            )}
-
-            {/* ── Step: OTP ── */}
-            {payStep === "otp" && (
-              <div style={modalStyles.body}>
-                <div style={modalStyles.otpInfo}>
-                  <Send size={32} color="#2775d0" />
-                  <p
-                    style={{
-                      margin: "12px 0 4px",
-                      fontWeight: 700,
-                      fontSize: 16,
-                    }}
-                  >
-                    Check your Telegram
-                  </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 13,
-                      color: "var(--text-muted)",
-                      textAlign: "center",
-                    }}
-                  >
-                    We sent a 6-digit OTP to confirm your{" "}
-                    {paymentModal === "deposit"
-                      ? `deposit of `
-                      : `withdrawal of `}
-                    <strong>
-                      Nu {parseFloat(payAmountStr).toLocaleString()}
-                    </strong>
-                    .
-                  </p>
-                </div>
-
-                <input
-                  style={{
-                    ...modalStyles.input,
-                    textAlign: "center",
-                    letterSpacing: 10,
-                    fontSize: 22,
-                    fontWeight: 700,
-                  }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={8}
-                  placeholder="● ● ● ● ● ●"
-                  value={payOtp}
-                  onChange={(e) => {
-                    setPayOtp(e.target.value.replace(/\D/g, ""));
-                    setPayError("");
-                  }}
-                  autoFocus
-                />
-
-                {payError && (
-                  <div style={modalStyles.errorBox}>
-                    <XCircle size={14} color="#dc2626" />
-                    <span>{payError}</span>
-                  </div>
-                )}
-
-                <button
-                  style={{
-                    ...modalStyles.primaryBtn,
-                    opacity: payProcessing || payOtp.length < 4 ? 0.6 : 1,
-                  }}
-                  disabled={payProcessing || payOtp.length < 4}
-                  onClick={handlePaymentConfirm}
-                >
-                  {payProcessing ? (
-                    <>
-                      <Loader2
-                        size={16}
-                        style={{ animation: "spin 0.8s linear infinite" }}
-                      />{" "}
-                      Confirming…
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={16} /> Confirm
-                    </>
-                  )}
-                </button>
-                <button
-                  style={modalStyles.ghostBtn}
-                  onClick={() => {
-                    setPayStep("amount");
-                    setPayOtp("");
-                    setPayError("");
-                  }}
-                >
-                  ← Change amount
-                </button>
-              </div>
-            )}
-
-            {/* ── Step: Success ── */}
-            {payStep === "success" && (
+            {/* Remaining count */}
+            {newlyUnlockedQueue.length > 0 && (
               <div
                 style={{
-                  ...modalStyles.body,
-                  alignItems: "center",
-                  textAlign: "center",
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.4)",
+                  marginBottom: 14,
                 }}
               >
-                <CheckCircle2
-                  size={56}
-                  color="#059669"
-                  style={{ marginBottom: 8 }}
-                />
-                <p style={{ fontWeight: 700, fontSize: 18, margin: "0 0 8px" }}>
-                  {paymentModal === "deposit"
-                    ? "Deposit Successful!"
-                    : "Withdrawal Confirmed!"}
-                </p>
-                <p
-                  style={{
-                    color: "var(--text-muted)",
-                    fontSize: 14,
-                    margin: "0 0 24px",
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {paySuccessMsg}
-                </p>
-                <button
-                  style={modalStyles.primaryBtn}
-                  onClick={closePaymentModal}
-                >
-                  Done
-                </button>
+                +{newlyUnlockedQueue.length} more badge
+                {newlyUnlockedQueue.length !== 1 ? "s" : ""} unlocked
               </div>
             )}
 
-            {/* ── Step: Failed ── */}
-            {payStep === "failed" && (
-              <div
-                style={{
-                  ...modalStyles.body,
-                  alignItems: "center",
-                  textAlign: "center",
-                }}
-              >
-                <XCircle
-                  size={56}
-                  color="#dc2626"
-                  style={{ marginBottom: 8 }}
-                />
-                <p style={{ fontWeight: 700, fontSize: 18, margin: "0 0 8px" }}>
-                  Transaction Failed
-                </p>
-                <p
-                  style={{
-                    color: "var(--text-muted)",
-                    fontSize: 14,
-                    margin: "0 0 24px",
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {payError ||
-                    "The transaction could not be completed. Please try again."}
-                </p>
-                <button
-                  style={modalStyles.primaryBtn}
-                  onClick={() => {
-                    setPayStep("amount");
-                    setPayError("");
-                  }}
-                >
-                  Try Again
-                </button>
-                <button
-                  style={modalStyles.ghostBtn}
-                  onClick={closePaymentModal}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
+            {/* Dismiss / next button */}
+            <button
+              onClick={closePopup}
+              style={{
+                width: "100%",
+                padding: "14px",
+                borderRadius: 14,
+                border: "none",
+                background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                color: "#1c1917",
+                fontSize: 15,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              {newlyUnlockedQueue.length > 0 ? `Next →` : "Awesome!"}
+            </button>
           </div>
         </div>
       )}
@@ -1379,634 +1348,23 @@ export const TmaProfilePage: FC = () => {
   );
 };
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function StatusBadge({
-  label,
-  active,
-  activeText,
-  inactiveText,
-}: {
-  label: ReactNode;
-  active: boolean;
-  activeText: string;
-  inactiveText: string;
-}) {
-  return (
-    <div
-      style={{
-        ...styles.badge,
-        background: active ? "#d1fae5" : "#fee2e2",
-        borderColor: active ? "#6ee7b7" : "#fca5a5",
-      }}
-    >
-      <span style={styles.badgeLabel}>{label}</span>
-      <span
-        style={{
-          ...styles.badgeValue,
-          ...styles.inlineIcon,
-          color: active ? "#065f46" : "#991b1b",
-        }}
-      >
-        {active ? (
-          <>
-            <CheckCircle2 size={12} />
-            {activeText}
-          </>
-        ) : (
-          <>
-            <XCircle size={12} />
-            {inactiveText}
-          </>
-        )}
-      </span>
-    </div>
-  );
-}
-
-function Step({ n, done, text }: { n: number; done: boolean; text: string }) {
-  return (
-    <div style={styles.step}>
-      <div
-        style={{
-          ...styles.stepNum,
-          background: done ? "#2775d0" : "#e5e7eb",
-          color: done ? "#fff" : "#6b7280",
-        }}
-      >
-        {done ? <CheckCircle2 size={14} /> : n}
-      </div>
-      <span style={{ ...styles.stepText, color: done ? "#111" : "#6b7280" }}>
-        {text}
-      </span>
-    </div>
-  );
-}
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    maxWidth: 480,
-    margin: "0 auto",
-    padding: "16px 16px 100px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 16,
-  },
-  center: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    height: "50vh",
-  },
-  spinner: {
-    width: 36,
-    height: 36,
-    border: "4px solid #e5e7eb",
-    borderTop: "4px solid #2775d0",
-    borderRadius: "50%",
-    animation: "spin 0.8s linear infinite",
-  },
-  avatarSection: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-    paddingTop: 16,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: "50%",
-    objectFit: "cover",
-    border: "3px solid #2775d0",
-  },
-  avatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: "50%",
-    background: "linear-gradient(135deg, #2775d0, #5b9bd5)",
-    color: "#fff",
-    fontSize: 32,
-    fontWeight: 700,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  name: {
-    margin: 0,
-    fontSize: 20,
-    fontWeight: 700,
-    color: "var(--text-main)",
-  },
-  username: {
-    margin: 0,
-    fontSize: 14,
-    color: "var(--text-muted)",
-  },
-  tabBar: {
-    display: "flex",
-    background: "rgba(0,0,0,0.08)",
-    borderRadius: 12,
-    padding: 4,
-    gap: 4,
-    border: "1px solid var(--glass-border)",
-  },
-  tab: {
-    flex: 1,
-    padding: "10px 0",
-    fontSize: 14,
-    fontWeight: 600,
-    border: "none",
-    borderRadius: 9,
-    background: "transparent",
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "all 0.18s ease",
-  },
-  tabActive: {
-    background: "linear-gradient(135deg, #4d87c9ff, #3874c8ff)",
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(253, 254, 255, 0.4)",
-  },
-  badgeRow: {
-    display: "flex",
-    gap: 10,
-    justifyContent: "center",
-  },
-  badge: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 4,
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid",
-    maxWidth: 180,
-  },
-  badgeLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    color: "#6b7280",
-  },
-  badgeValue: {
-    fontSize: 13,
-    fontWeight: 600,
-  },
-  card: {
-    background: "var(--bg-card)",
-    borderRadius: 16,
-    padding: "18px 16px",
-    boxShadow: "var(--shadow-sm)",
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  cardTitle: {
-    margin: 0,
-    fontSize: 16,
-    fontWeight: 700,
-    color: "var(--text-main)",
-  },
-  titleRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-  },
-  inlineIcon: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-  },
-  hint: {
-    margin: 0,
-    fontSize: 14,
-    color: "var(--text-muted)",
-    lineHeight: 1.6,
-  },
-  input: {
-    width: "100%",
-    padding: "12px 14px",
-    fontSize: 16,
-    borderRadius: 10,
-    border: "1.5px solid var(--glass-border)",
-    background: "var(--bg-main)",
-    color: "var(--text-main)",
-    outline: "none",
-    boxSizing: "border-box",
-    letterSpacing: 2,
-  },
-  btn: {
-    width: "100%",
-    padding: "14px",
-    fontSize: 15,
-    fontWeight: 700,
-    background: "linear-gradient(135deg, #00499cff, #1a5bb5)",
-    color: "#fff",
-    border: "none",
-    borderRadius: 12,
-    cursor: "pointer",
-    transition: "opacity 0.2s",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  error: {
-    margin: 0,
-    fontSize: 13,
-    color: "#dc2626",
-  },
-  success: {
-    margin: 0,
-    fontSize: 13,
-    color: "#059669",
-    fontWeight: 600,
-  },
-  linkedInfo: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  linkedRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    margin: 0,
-    fontSize: 14,
-  },
-  label: {
-    color: "var(--text-muted)",
-    fontWeight: 500,
-  },
-  value: {
-    color: "var(--text-main)",
-    fontWeight: 600,
-    fontFamily: "monospace",
-    fontSize: 13,
-  },
-  steps: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  step: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  stepNum: {
-    width: 28,
-    height: 28,
-    borderRadius: "50%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 13,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  stepText: {
-    fontSize: 14,
-    lineHeight: 1.4,
-  },
+// ── Styles ─────────────────────────────────────────────────────────────────────
+const spinner: React.CSSProperties = {
+  width: 36,
+  height: 36,
+  border: "4px solid #e5e7eb",
+  borderTop: "4px solid #2775d0",
+  borderRadius: "50%",
+  animation: "spin 0.8s linear infinite",
 };
 
-const walletStyles: Record<string, React.CSSProperties> = {
-  balanceCard: {
-    background: "var(--balance-card-bg)",
-    borderRadius: 20,
-    padding: "28px 20px",
-    color: "#ffffff",
-    position: "relative",
-    overflow: "hidden",
-    boxShadow: "var(--balance-card-shadow)",
-  },
-  balanceLabel: {
-    fontSize: "0.8rem",
-    fontWeight: 600,
-    color: "rgba(255,255,255,0.8)",
-    marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  balanceAmount: {
-    fontSize: "2.4rem",
-    fontWeight: 800,
-    marginBottom: 20,
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-  },
-  balanceCurrency: {
-    fontSize: "1.1rem",
-    fontWeight: 600,
-    opacity: 0.9,
-  },
-  balanceStats: {
-    display: "flex",
-    gap: 28,
-    borderTop: "1px solid rgba(255,255,255,0.2)",
-    paddingTop: 16,
-  },
-  statItem: {
-    display: "flex",
-    flexDirection: "column",
-  },
-  statLabel: {
-    fontSize: "0.72rem",
-    color: "rgba(255,255,255,0.7)",
-    marginBottom: 3,
-  },
-  statValue: {
-    fontSize: "0.95rem",
-    fontWeight: 700,
-  },
-  walletActions: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-  },
-  actionBtn: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    padding: "13px",
-    borderRadius: 12,
-    border: "1.5px solid var(--glass-border)",
-    background: "var(--bg-card)",
-    color: "var(--text-main)",
-    fontWeight: 600,
-    fontSize: "0.9rem",
-    cursor: "pointer",
-  },
-  actionBtnPrimary: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    padding: "13px",
-    borderRadius: 12,
-    border: "none",
-    background: "var(--deposit-btn-bg)",
-    color: "#fff",
-    fontWeight: 600,
-    fontSize: "0.9rem",
-    cursor: "pointer",
-  },
-  sectionTitle: {
-    margin: 0,
-    fontSize: "1.1rem",
-    fontWeight: 700,
-    color: "var(--text-main)",
-  },
-  sectionSubtitle: {
-    fontSize: "0.8rem",
-    color: "var(--text-muted)",
-    marginTop: 3,
-    marginBottom: 0,
-  },
-  txList: {
-    background: "var(--bg-card)",
-    borderRadius: 16,
-    overflow: "hidden",
-    boxShadow: "var(--shadow-sm)",
-    border: "1px solid var(--glass-border)",
-  },
-  txRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    padding: "14px 16px",
-    borderBottom: "1px solid var(--glass-border)",
-  },
-  txIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    background: "var(--bg-main)",
-    color: "var(--text-muted)",
-  },
-  txInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  txLabel: {
-    fontWeight: 600,
-    fontSize: "0.9rem",
-    color: "var(--text-main)",
-    marginBottom: 2,
-  },
-  txNote: {
-    fontSize: "0.75rem",
-    color: "var(--text-muted)",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
-  txDate: {
-    fontSize: "0.72rem",
-    color: "var(--text-muted)",
-    marginTop: 2,
-  },
-  txAmountCol: {
-    textAlign: "right",
-    flexShrink: 0,
-  },
-  txAmount: {
-    fontWeight: 700,
-    fontSize: "0.95rem",
-  },
-  txBalance: {
-    fontSize: "0.72rem",
-    color: "var(--text-muted)",
-    marginTop: 2,
-  },
-  emptyState: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 12,
-    padding: "40px 20px",
-    color: "var(--text-muted)",
-  },
-};
-
-const modalStyles: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.5)",
-    zIndex: 1000,
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
-  sheet: {
-    background: "var(--bg-card)",
-    borderRadius: "20px 20px 0 0",
-    width: "100%",
-    maxWidth: 480,
-    maxHeight: "90vh",
-    overflowY: "auto",
-    boxShadow: "0 -4px 40px rgba(0,0,0,0.25)",
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "18px 16px 14px",
-    borderBottom: "1px solid var(--glass-border)",
-  },
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  },
-  title: {
-    fontWeight: 700,
-    fontSize: 16,
-    color: "var(--text-main)",
-  },
-  closeBtn: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    color: "var(--text-muted)",
-    padding: 4,
-    borderRadius: 8,
-    display: "flex",
-    alignItems: "center",
-  },
-  body: {
-    padding: "20px 16px 32px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 14,
-  },
-  label: {
-    margin: 0,
-    fontSize: 13,
-    fontWeight: 600,
-    color: "var(--text-muted)",
-    textTransform: "uppercase" as const,
-    letterSpacing: 0.5,
-  },
-  input: {
-    width: "100%",
-    padding: "14px",
-    fontSize: 18,
-    borderRadius: 12,
-    border: "1.5px solid var(--glass-border)",
-    background: "var(--bg-main)",
-    color: "var(--text-main)",
-    outline: "none",
-    boxSizing: "border-box" as const,
-    fontWeight: 700,
-  },
-  quickRow: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, 1fr)",
-    gap: 8,
-  },
-  quickBtn: {
-    padding: "10px 4px",
-    borderRadius: 10,
-    border: "1.5px solid var(--glass-border)",
-    background: "var(--bg-main)",
-    color: "var(--text-main)",
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: "pointer",
-    transition: "all 0.15s",
-  },
-  quickBtnActive: {
-    background: "linear-gradient(135deg, #2775d0, #1a5bb5)",
-    color: "#fff",
-    border: "1.5px solid transparent",
-  },
-  infoRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "10px 14px",
-    background: "var(--bg-main)",
-    borderRadius: 10,
-    border: "1px solid var(--glass-border)",
-  },
-  warningBox: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 14px",
-    background: "#fef3c7",
-    borderRadius: 10,
-    border: "1px solid #fcd34d",
-    fontSize: 13,
-    color: "#92400e",
-  },
-  errorBox: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 14px",
-    background: "#fee2e2",
-    borderRadius: 10,
-    border: "1px solid #fca5a5",
-    fontSize: 13,
-    color: "#991b1b",
-  },
-  primaryBtn: {
-    width: "100%",
-    padding: "15px",
-    borderRadius: 12,
-    border: "none",
-    background: "linear-gradient(135deg, #2775d0, #1a5bb5)",
-    color: "#fff",
-    fontWeight: 700,
-    fontSize: 15,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    transition: "opacity 0.2s",
-  },
-  ghostBtn: {
-    width: "100%",
-    padding: "12px",
-    borderRadius: 12,
-    border: "1.5px solid var(--glass-border)",
-    background: "transparent",
-    color: "var(--text-muted)",
-    fontWeight: 600,
-    fontSize: 14,
-    cursor: "pointer",
-    textAlign: "center" as const,
-  },
-  hint: {
-    margin: 0,
-    fontSize: 12,
-    color: "var(--text-muted)",
-    textAlign: "center" as const,
-    lineHeight: 1.5,
-  },
-  otpInfo: {
-    display: "flex",
-    flexDirection: "column" as const,
-    alignItems: "center",
-    padding: "8px 0 4px",
-  },
+const heroCard: React.CSSProperties = {
+  background: "var(--balance-card-bg)",
+  borderRadius: "0 0 var(--radius-xl) var(--radius-xl)",
+  padding: "var(--space-md) var(--space-md) var(--space-lg)",
+  color: "#fff",
+  position: "relative",
+  overflow: "hidden",
+  boxShadow: "var(--balance-card-shadow)",
+  borderBottom: "1px solid rgba(255,255,255,0.1)",
 };

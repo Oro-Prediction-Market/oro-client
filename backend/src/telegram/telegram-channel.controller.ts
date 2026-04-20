@@ -79,7 +79,7 @@ export class TelegramChannelController {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: this.channelId,
-          text: "✅ <b>Tara channel connected successfully!</b>\n\nBot is configured and posting works.",
+          text: "✅ <b>Oro channel connected successfully!</b>\n\nBot is configured and posting works.",
           parse_mode: "HTML",
         }),
       },

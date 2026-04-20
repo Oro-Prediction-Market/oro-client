@@ -19,6 +19,10 @@ export enum AuditAction {
   MARKET_TRANSITION = "market.transition",
   MARKET_PROPOSE = "market.propose",
   MARKET_RESOLVE = "market.resolve",
+  MARKET_RESOLVE_DISPUTED = "market.resolve_disputed", // resolved while objections were open
+  MARKET_RESOLUTION_OVERTURNED = "market.resolution_overturned", // admin changed outcome after objection — admin accountability event
+  MARKET_AUTO_RESOLVED = "market.auto_resolved", // auto-settled by cron after clean window
+  MARKET_DISPUTE = "market.dispute", // user raised an objection
   MARKET_CANCEL = "market.cancel",
 
   // Balance / financial
@@ -28,7 +32,8 @@ export enum AuditAction {
   // User management
   USER_ADMIN_TOGGLE = "user.admin_toggle",
   USER_VIEW = "user.view",
-  USER_LOGIN = "user.login", // User login
+  USER_LOGIN = "user.login",
+  USER_LOGOUT = "user.logout",
 
   // Malpractice & Dispute resolution (GMC Authority)
   MALPRACTICE_VOTE_CREATE = "malpractice.vote.create",
@@ -44,6 +49,12 @@ export enum AuditAction {
   TRANSACTION_VERIFY = "transaction.verify",
   TRANSACTION_FLAG = "transaction.flag",
   TRANSACTION_REVIEW = "transaction.review",
+
+  // Security events
+  AUTH_FAIL_DKBANK = "auth.fail.dkbank",  // wrong CID/password
+  AUTH_FAIL_PWA = "auth.fail.pwa",        // wrong PWA password
+  AUTH_FAIL_TELEGRAM = "auth.fail.telegram", // tampered initData
+  AUTH_TOKEN_REVOKED = "auth.token_revoked",
 }
 
 @Entity("audit_logs")

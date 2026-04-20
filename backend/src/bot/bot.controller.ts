@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Headers, UnauthorizedException, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Headers,
+  UnauthorizedException,
+  UseGuards,
+} from "@nestjs/common";
 import { timingSafeEqual } from "crypto";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -6,6 +14,8 @@ import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { JwtAuthGuard, AdminGuard } from "../auth/guards";
 import { TelegramSimpleService } from "../telegram/telegram.service.simple";
 import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+import { LeaguesService } from "../leagues/leagues.service";
+import { BotPollingService } from "./bot-polling.service";
 import { User } from "../entities/user.entity";
 import { Market, MarketStatus } from "../entities/market.entity";
 
@@ -15,6 +25,8 @@ export class BotController {
   constructor(
     private readonly telegramSimpleService: TelegramSimpleService,
     private readonly telegramVerificationService: TelegramVerificationService,
+    private readonly leaguesService: LeaguesService,
+    private readonly botPollingService: BotPollingService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(Market) private readonly marketRepo: Repository<Market>,
   ) {}
@@ -56,6 +68,10 @@ export class BotController {
         timingSafeEqual(expectedBuf, receivedBuf);
       if (!valid) throw new UnauthorizedException("Invalid webhook token");
     }
+    // Bot added to / removed from a group
+    if (update.my_chat_member) {
+      await this.handleMyChatMember(update.my_chat_member);
+    }
     if (update.message) {
       await this.handleMessage(update.message);
     }
@@ -67,15 +83,33 @@ export class BotController {
 
   private async handleMessage(message: any) {
     const chatId: number = message.chat.id;
+    const chatType: string = message.chat.type ?? "private";
+
+    // Auto-register Oro users who send messages in group chats
+    if (
+      (chatType === "group" || chatType === "supergroup") &&
+      message.from?.id
+    ) {
+      await this.leaguesService
+        .registerMember(String(chatId), String(message.from.id))
+        .catch(() => {});
+    }
 
     // Handle shared contact (phone verification)
     if (message.contact) {
       const contact = message.contact;
       try {
+        // contact.user_id is optional in the Telegram API — fall back to
+        // the sender's ID so the security check in linkTelegramPhone always
+        // passes for a user sharing their own contact via request_contact.
+        const contactUserId =
+          contact.user_id != null
+            ? String(contact.user_id)
+            : String(message.from.id);
         const result = await this.telegramVerificationService.linkTelegramPhone(
           String(message.from.id),
           String(chatId),
-          String(contact.user_id),
+          contactUserId,
           contact.phone_number,
         );
         await this.telegramSimpleService.sendMessage(chatId, result.message);
@@ -98,7 +132,7 @@ export class BotController {
           const payload: Record<string, unknown> = {
             chat_id: chatId,
             text:
-              "🎯 <b>Welcome to Tara!</b>\n\n" +
+              "🎯 <b>Welcome to Oro!</b>\n\n" +
               "To enable secure payments, please verify your phone:\n" +
               "👉 Type /verify and share your phone number.\n\n" +
               "Other commands:\n" +
@@ -107,18 +141,25 @@ export class BotController {
             parse_mode: "HTML",
           };
           const buttons: { text: string; url: string }[] = [];
-          if (miniAppUrl) buttons.push({ text: "🚀 Open Tara", url: miniAppUrl });
-          if (channelUrl) buttons.push({ text: "📢 Join Channel", url: channelUrl });
+          if (miniAppUrl)
+            buttons.push({ text: "🚀 Open Oro", url: miniAppUrl });
+          if (channelUrl)
+            buttons.push({ text: "📢 Join Channel", url: channelUrl });
           if (buttons.length) {
             payload.reply_markup = { inline_keyboard: [buttons] };
           }
-          const startRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+          const startRes = await fetch(
+            `https://api.telegram.org/bot${botToken}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+          );
           if (!startRes.ok) {
-            console.error(`[Bot] /start sendMessage failed: ${await startRes.text()}`);
+            console.error(
+              `[Bot] /start sendMessage failed: ${await startRes.text()}`,
+            );
           }
           break;
         }
@@ -131,41 +172,146 @@ export class BotController {
           await this.handlePredictCommand(chatId, message.from.id);
           break;
 
+        case "/standings":
+          if (!(await this.assertGroupMember(chatId, message.from?.id))) break;
+          await this.leaguesService.postStandingsToGroup(String(chatId));
+          break;
+
+        case "/mystats": {
+          if (!message.from?.id) break;
+          if (!(await this.assertGroupMember(chatId, message.from.id))) break;
+          const board = await this.leaguesService.getGroupLeaderboard(
+            String(chatId),
+          );
+          const myTelegramId = String(message.from.id);
+          const user = await this.userRepo.findOne({
+            where: { telegramId: myTelegramId },
+            select: [
+              "id",
+              "reputationTier",
+              "reputationScore",
+              "totalPredictions",
+              "correctPredictions",
+            ],
+          });
+          if (!user || (user.totalPredictions ?? 0) === 0) {
+            await this.telegramSimpleService.sendMessage(
+              chatId,
+              "You haven't made any predictions yet. Open the Oro mini app to get started!",
+            );
+            break;
+          }
+          const myEntry = board.find((e) => e.userId === user.id);
+          if (!myEntry) {
+            await this.telegramSimpleService.sendMessage(
+              chatId,
+              "You're not on the group leaderboard yet. Send a message in the group after making predictions!",
+            );
+            break;
+          }
+          const tierLabel =
+            user.reputationTier === "legend"
+              ? "Legend"
+              : user.reputationTier === "hot_hand"
+                ? "Hot Hand"
+                : user.reputationTier === "sharpshooter"
+                  ? "Sharpshooter"
+                  : "Rookie";
+          const score =
+            user.reputationScore != null
+              ? `${Math.round(user.reputationScore * 100)}%`
+              : "—";
+          const winRate =
+            (user.totalPredictions ?? 0) > 0
+              ? Math.round(
+                  ((user.correctPredictions ?? 0) /
+                    (user.totalPredictions ?? 1)) *
+                    100,
+                )
+              : 0;
+          await this.telegramSimpleService.sendMessage(
+            chatId,
+            `🎯 <b>Your group rank: #${myEntry.rank}</b>\n\n` +
+              `Tier: ${tierLabel}\n` +
+              `Accuracy: ${score}\n` +
+              `Win rate: ${winRate}%\n` +
+              `Predictions: ${user.totalPredictions}`,
+          );
+          break;
+        }
+
         case "/help":
           await this.telegramSimpleService.sendMessage(
             chatId,
             "🔧 <b>Available commands:</b>\n" +
-              "/start   - Welcome message\n" +
-              "/verify  - Link your DK Bank phone for secure payments\n" +
-              "/predict - View active markets\n" +
-              "/help    - Show this message",
+              "/start      - Welcome message\n" +
+              "/verify     - Link your DK Bank phone for secure payments\n" +
+              "/predict    - View active markets\n" +
+              "/standings  - Group prediction leaderboard\n" +
+              "/mystats    - Your rank in this group\n" +
+              "/help       - Show this message",
           );
           break;
 
         default:
-          await this.telegramSimpleService.sendMessage(
-            chatId,
-            "❓ Unknown command. Use /help to see available commands.",
-          );
+          // Ignore unknown commands in groups to avoid spam; only respond in private chats
+          if (chatType === "private") {
+            await this.telegramSimpleService.sendMessage(
+              chatId,
+              "❓ Unknown command. Use /help to see available commands.",
+            );
+          }
       }
     }
   }
 
+  /** Guard: returns true if the user is a registered Oro member of this group. */
+  private async assertGroupMember(
+    chatId: number,
+    telegramUserId?: number,
+  ): Promise<boolean> {
+    if (!telegramUserId) return false;
+    const isMember = await this.leaguesService.isGroupMember(
+      String(chatId),
+      String(telegramUserId),
+    );
+    if (!isMember) {
+      await this.telegramSimpleService.sendMessage(
+        chatId,
+        "🔒 <b>Oro members only</b>\n\n" +
+          "This command is available to users who have made at least one prediction on Oro.\n\n" +
+          "👉 Open the Oro mini app, make a prediction, then try again!",
+      );
+    }
+    return isMember;
+  }
+
   private async handlePredictCommand(chatId: number, telegramUserId?: number) {
     const markets = await this.marketRepo.find({
-      where: [{ status: MarketStatus.OPEN }, { status: MarketStatus.RESOLVING }],
+      where: [
+        { status: MarketStatus.OPEN },
+        { status: MarketStatus.RESOLVING },
+      ],
       order: { closesAt: "ASC" },
       take: 5,
     });
 
     if (!markets.length) {
-      await this.telegramSimpleService.sendMessage(chatId, "📊 No active markets right now. Check back soon!");
+      await this.telegramSimpleService.sendMessage(
+        chatId,
+        "📊 No active markets right now. Check back soon!",
+      );
       return;
     }
 
     const miniAppUrl = process.env.TELEGRAM_MINI_APP_URL || "";
     const lines = markets.map((m) => {
-      const closes = m.closesAt ? new Date(m.closesAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "TBD";
+      const closes = m.closesAt
+        ? new Date(m.closesAt).toLocaleString("en-US", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })
+        : "TBD";
       const statusIcon = m.status === MarketStatus.RESOLVING ? "⚖️" : "🟢";
       return `${statusIcon} <b>${m.title}</b>\n⏰ ${closes}`;
     });
@@ -182,12 +328,17 @@ export class BotController {
           "\n\n⭐ <i>Make your first prediction to start building your reputation score. Top predictors carry more weight in market probabilities.</i>";
       } else {
         const tierLabel =
-          user.reputationTier === "expert" ? "Expert" :
-          user.reputationTier === "reliable" ? "Reliable" :
-          user.reputationTier === "regular" ? "Regular" : "Newcomer";
-        const pct = user.reputationScore != null
-          ? ` · ${Math.round(user.reputationScore * 100)}% accuracy`
-          : "";
+          user.reputationTier === "legend"
+            ? "Legend"
+            : user.reputationTier === "hot_hand"
+              ? "Hot Hand"
+              : user.reputationTier === "sharpshooter"
+                ? "Sharpshooter"
+                : "Rookie";
+        const pct =
+          user.reputationScore != null
+            ? ` · ${Math.round(user.reputationScore * 100)}% accuracy`
+            : "";
         reputationLine = `\n\n⭐ Your tier: <b>${tierLabel}</b>${pct} (${user.totalPredictions} predictions)`;
       }
     }
@@ -210,7 +361,7 @@ export class BotController {
         chatId,
         "⚠️ <b>DK Bank CID not linked yet</b>\n\n" +
           "Before verifying your phone, you need to link your DK Bank CID:\n\n" +
-          "1️⃣ Open the <b>Tara Mini App</b>\n" +
+          "1️⃣ Open the <b>Oro Mini App</b>\n" +
           "2️⃣ Go to <b>Profile → Link DK Bank Account</b>\n" +
           "3️⃣ Enter your <b>11-digit CID number</b>\n" +
           "4️⃣ Come back here and type /verify again.",
@@ -238,7 +389,7 @@ export class BotController {
         chatId,
         "✅ <b>Your phone is already verified!</b>\n\n" +
           "Your Telegram account is securely linked to your DK Bank account.\n" +
-          "You're all set to make payments on Tara.",
+          "You're all set to make payments on Oro.",
       );
       return;
     }
@@ -258,7 +409,7 @@ export class BotController {
       chat_id: chatId,
       text:
         "🔐 <b>Phone Verification Required</b>\n\n" +
-        "To secure your payments, Tara needs to confirm your phone number matches " +
+        "To secure your payments, Oro needs to confirm your phone number matches " +
         "the one registered with DK Bank.\n\n" +
         "Tap the button below to share your phone number securely via Telegram.",
       parse_mode: "HTML",
@@ -270,22 +421,48 @@ export class BotController {
     });
 
     try {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
+      const res = await fetch(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        },
+      );
+      if (!res.ok) {
+        console.error(
+          `[Bot] sendPhoneRequest failed ${res.status}: ${await res.text()}`,
+        );
+      }
     } catch (err: any) {
       console.error("Failed to send phone request keyboard:", err.message);
     }
   }
 
-  private async handleCallbackQuery(callback: any) {
-    if (callback.data) {
+  /** Fires when the bot's membership status in a chat changes. */
+  private async handleMyChatMember(update: any): Promise<void> {
+    const chat = update.chat;
+    if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+
+    const chatId = String(chat.id);
+    const newStatus: string = update.new_chat_member?.status;
+
+    if (newStatus === "member" || newStatus === "administrator") {
+      await this.leaguesService.upsertGroup(chatId, chat.title ?? null);
       await this.telegramSimpleService.sendMessage(
-        callback.message.chat.id,
-        `🎯 You selected: ${callback.data}`,
+        chat.id,
+        "👋 <b>Oro is here!</b>\n\n" +
+          "I'll track predictions for everyone in this group.\n\n" +
+          "📊 /standings — see the top predictors in this group\n" +
+          "🎯 /mystats — check your own rank here\n\n" +
+          "Rankings update every Sunday. Make your predictions in the Oro mini app!",
       );
+    } else if (newStatus === "left" || newStatus === "kicked") {
+      await this.leaguesService.deactivateGroup(chatId);
     }
+  }
+
+  private async handleCallbackQuery(callback: any) {
+    await this.botPollingService.handleCallbackQuery(callback);
   }
 }

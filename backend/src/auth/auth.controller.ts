@@ -6,6 +6,7 @@ import {
   Get,
   Query,
   UnauthorizedException,
+  BadRequestException,
   UseGuards,
   Request,
 } from "@nestjs/common";
@@ -17,17 +18,69 @@ import {
   ApiBearerAuth,
 } from "@nestjs/swagger";
 import { createHmac, timingSafeEqual } from "crypto";
+import { IsNumber, IsString, IsOptional, MinLength as MinLengthValidator } from "class-validator";
+import { ApiProperty } from "@nestjs/swagger";
+import { Throttle, SkipThrottle } from "@nestjs/throttler";
+import { verify as totpVerify, generateSecret as totpGenerateSecret, generateURI as totpGenerateURI } from "otplib";
 import { AuthService } from "./auth.service";
 import { Public, JwtAuthGuard } from "./guards";
 import { TelegramAuthDto } from "./dto/telegram-auth.dto";
 import { DKBankAuthDto } from "./dto/dkbank-auth.dto";
 import { ManualLoginRequestDto } from "./dto/manual-login-request.dto";
 import { ManualLoginVerifyDto } from "./dto/manual-login-verify.dto";
+import { TelegramVerificationService } from "../telegram/telegram-verification.service";
+import { AuditAction } from "../entities/audit-log.entity";
+
+class SetPwaPasswordDto {
+  @ApiProperty({ example: "MySecret123", description: "New PWA password (min 6 chars)" })
+  @IsString()
+  @MinLengthValidator(6)
+  password: string;
+}
+
+class DKBankAuthWithPasswordDto {
+  @ApiProperty({ description: "CID (11-digit national ID)", example: "11000000000" })
+  @IsString()
+  cid: string;
+
+  @ApiProperty({ description: "PWA password (required if one has been set)", required: false })
+  @IsOptional()
+  @IsString()
+  password?: string;
+}
+
+class PwaStatusDto {
+  @ApiProperty({ description: "11-digit CID", example: "11000000000" })
+  @IsString()
+  cid: string;
+}
+
+class VerifyPhoneTmaDto {
+  @ApiProperty({ example: "+97517123456", description: "Phone from Telegram contact" })
+  @IsString()
+  phoneNumber: string;
+
+  @ApiProperty({ example: 123456789, description: "Telegram user_id from contact data" })
+  @IsNumber()
+  userId: number;
+
+  @ApiProperty({ example: 1700000000, description: "auth_date from Telegram" })
+  @IsNumber()
+  authDate: number;
+
+  @ApiProperty({ description: "HMAC-SHA-256 hash from Telegram contact data" })
+  @IsString()
+  hash: string;
+}
 
 @ApiTags("auth")
 @Controller("auth")
+@Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 req/min per IP on all auth endpoints
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private telegramVerification: TelegramVerificationService,
+  ) {}
 
   @Post("telegram")
   @HttpCode(200)
@@ -36,21 +89,75 @@ export class AuthController {
     summary: "Login/register with Telegram initData (HMAC validated)",
   })
   async telegramLogin(@Body() dto: TelegramAuthDto) {
-    return this.authService.loginWithTelegram(dto.initData);
+    return this.authService.loginWithTelegram(dto.initData, dto.referralCode);
   }
 
   @Post("dkbank")
   @HttpCode(200)
   @Public()
   @ApiOperation({
-    summary: "Login or register with DK Bank CID (no JWT required)",
+    summary: "Login or register with DK Bank CID (password required if set)",
   })
-  @ApiBody({ type: DKBankAuthDto })
-  async dkBankLogin(@Body() dto: DKBankAuthDto, @Request() req: any) {
-    // If the caller already carries a valid JWT, treat this as an authenticated
-    // link request so we merge into the existing row rather than create a duplicate.
+  @ApiBody({ type: DKBankAuthWithPasswordDto })
+  async dkBankLogin(@Body() dto: DKBankAuthWithPasswordDto, @Request() req: any) {
     const callerUserId: string | undefined = req.user?.userId;
-    return this.authService.loginWithDKBank(dto.cid, callerUserId);
+    try {
+      return await this.authService.loginWithDKBank(dto.cid, callerUserId, dto.password);
+    } catch (e) {
+      if (e instanceof UnauthorizedException) {
+        await this.authService.recordAuthFailure(
+          AuditAction.AUTH_FAIL_DKBANK,
+          dto.cid,
+          req.ip ?? "unknown",
+        ).catch(() => {});
+      }
+      throw e;
+    }
+  }
+
+  @Post("logout")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Revoke the current JWT (logout)" })
+  async logout(@Request() req: any) {
+    const { jti, exp, userId } = req.user as {
+      jti?: string;
+      exp?: number;
+      userId: string;
+    };
+    if (jti && exp) {
+      await this.authService.revokeToken(jti, exp, userId);
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Returns whether the account for a given CID has a PWA password set.
+   * Used by the PWA login form to decide whether to show the password field.
+   * Does NOT leak any user data — only returns a boolean.
+   */
+  @Get("pwa-status")
+  @Public()
+  @ApiOperation({ summary: "Check if a CID account has a PWA password set" })
+  @ApiQuery({ name: "cid", required: true })
+  async pwaStatus(@Query("cid") cid: string) {
+    return this.authService.getPwaStatus(cid);
+  }
+
+  /**
+   * Called from the TMA Settings page (JWT required).
+   * Sets or changes the user's PWA login password.
+   */
+  @Post("set-pwa-password")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Set or change the PWA login password (TMA only)" })
+  @ApiBody({ type: SetPwaPasswordDto })
+  async setPwaPassword(@Body() dto: SetPwaPasswordDto, @Request() req: any) {
+    await this.authService.setPwaPassword(req.user.userId, dto.password);
+    return { ok: true, message: "PWA password updated successfully." };
   }
 
   /**
@@ -72,11 +179,78 @@ export class AuthController {
   }
 
   /**
+   * Called from the TMA when the user shares their phone via Telegram.WebApp.requestContact().
+   * Telegram signs the contact data with the bot token — we verify that signature here
+   * before trusting the phone number. Security is equivalent to the bot /verify flow.
+   */
+  @Post("verify-phone-tma")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: "Verify phone from Telegram.WebApp.requestContact() inside the TMA",
+  })
+  @ApiBody({ type: VerifyPhoneTmaDto })
+  async verifyPhoneTma(@Body() dto: VerifyPhoneTmaDto, @Request() req: any) {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) throw new BadRequestException("Bot not configured");
+
+    // ── Verify Telegram-signed hash ────────────────────────────────────────────
+    // Build the data-check string from the fields Telegram signed.
+    // Only include non-empty fields, sorted alphabetically, excluding hash.
+    const fields: Record<string, string> = {
+      auth_date: String(dto.authDate),
+      phone_number: dto.phoneNumber,
+      user_id: String(dto.userId),
+    };
+    const dataCheckString = Object.keys(fields)
+      .sort()
+      .map((k) => `${k}=${fields[k]}`)
+      .join("\n");
+
+    const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest();
+    const expectedHash = createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest("hex");
+
+    const expectedBuf = Buffer.from(expectedHash, "hex");
+    const receivedBuf = Buffer.from(dto.hash, "hex");
+    const hashValid =
+      expectedBuf.length === receivedBuf.length &&
+      timingSafeEqual(expectedBuf, receivedBuf);
+
+    if (!hashValid) {
+      throw new UnauthorizedException("Invalid contact data signature — possible tampering.");
+    }
+
+    // ── Auth_date freshness check (5 minutes) ─────────────────────────────────
+    const ageSeconds = Math.floor(Date.now() / 1000) - dto.authDate;
+    if (ageSeconds > 300) {
+      throw new BadRequestException("Contact data expired. Please try again.");
+    }
+
+    // ── userId in contact must match the authenticated user ───────────────────
+    const telegramId = String(req.user.telegramId ?? req.user.userId);
+    if (String(dto.userId) !== telegramId) {
+      throw new UnauthorizedException("Contact user_id does not match your Telegram account.");
+    }
+
+    // ── Delegate to existing verification logic ───────────────────────────────
+    return this.telegramVerification.linkTelegramPhone(
+      telegramId,       // telegramUserId
+      telegramId,       // telegramChatId (same as userId for TMA context)
+      String(dto.userId), // contactUserId — must equal telegramUserId
+      dto.phoneNumber,
+    );
+  }
+
+  /**
    * DEV ONLY — generates a valid signed initData for any Telegram user ID.
    * Remove or guard this endpoint before going to production.
    */
   @Get("dev/mock-init-data")
   @Public()
+  @SkipThrottle()
   @ApiOperation({
     summary: "[DEV] Generate a valid signed initData for testing",
   })
@@ -134,19 +308,49 @@ export class AuthController {
   }
 
   /**
+   * DEV ONLY — generates a TOTP secret and QR URI for admin 2FA setup.
+   * Run once, scan QR with Google Authenticator, then set ADMIN_TOTP_SECRET in .env.
+   */
+  @Get("dev/admin-totp-setup")
+  @Public()
+  @SkipThrottle()
+  @ApiOperation({ summary: "[DEV] Generate TOTP secret for admin 2FA setup" })
+  @ApiQuery({ name: "secret", required: true })
+  devAdminTotpSetup(@Query("secret") secret: string) {
+    if (process.env.NODE_ENV === "production") {
+      throw new UnauthorizedException("Not available in production");
+    }
+    const expected = process.env.ADMIN_DEV_SECRET;
+    if (!expected || secret !== expected) {
+      throw new UnauthorizedException("Wrong secret");
+    }
+    if (process.env.ADMIN_TOTP_SECRET) {
+      return { message: "TOTP already configured. Remove ADMIN_TOTP_SECRET from .env to regenerate." };
+    }
+    const newSecret = totpGenerateSecret();
+    const otpAuthUri = totpGenerateURI({ issuer: "Oro Admin", label: "admin", secret: newSecret });
+    return {
+      secret: newSecret,
+      otpAuthUri,
+      instructions: "1. Copy ADMIN_TOTP_SECRET value into your .env  2. Scan the otpAuthUri with Google Authenticator or Authy  3. Never share this secret",
+    };
+  }
+
+  /**
    * DEV ONLY — one-shot admin token endpoint.
    * Generates signed initData for your real Telegram ID and returns a JWT directly.
-   * Protected by a secret from .env (ADMIN_DEV_SECRET).
+   * Protected by a secret from .env (ADMIN_DEV_SECRET) + optional TOTP.
    */
   @Get("dev/admin-token")
   @Public()
-  @ApiOperation({ summary: "[DEV] Get admin JWT in one request" })
-  @ApiQuery({
-    name: "secret",
-    required: true,
-    description: "Value of ADMIN_DEV_SECRET in .env",
-  })
-  async devAdminToken(@Query("secret") secret: string) {
+  @SkipThrottle()
+  @ApiOperation({ summary: "[DEV] Get admin JWT in one request (requires secret + TOTP if configured)" })
+  @ApiQuery({ name: "secret", required: true, description: "Value of ADMIN_DEV_SECRET in .env" })
+  @ApiQuery({ name: "totp", required: false, description: "6-digit TOTP code (required when ADMIN_TOTP_SECRET is set)" })
+  async devAdminToken(
+    @Query("secret") secret: string,
+    @Query("totp") totp?: string,
+  ) {
     if (process.env.NODE_ENV === "production") {
       throw new UnauthorizedException("Not available in production");
     }
@@ -161,6 +365,14 @@ export class AuthController {
       timingSafeEqual(expectedBuf, receivedBuf);
     if (!match) {
       throw new UnauthorizedException("Wrong secret");
+    }
+
+    // TOTP 2FA — required if ADMIN_TOTP_SECRET is configured
+    const totpSecret = process.env.ADMIN_TOTP_SECRET;
+    if (totpSecret) {
+      if (!totp) throw new UnauthorizedException("TOTP code required");
+      const { valid } = await totpVerify({ token: totp, secret: totpSecret });
+      if (!valid) throw new UnauthorizedException("Invalid or expired TOTP code");
     }
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;

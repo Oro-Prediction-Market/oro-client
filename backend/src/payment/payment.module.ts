@@ -25,5 +25,6 @@ import { TelegramModule } from "../telegram/telegram.module";
   ],
   controllers: [PaymentController],
   providers: [DKGatewayService, DKBankPaymentService],
+  exports: [DKGatewayService],
 })
 export class PaymentModule {}

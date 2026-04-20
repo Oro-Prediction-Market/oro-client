@@ -7,17 +7,17 @@
 #### 1. Create Telegram Bot
 1. Go to [@BotFather](https://t.me/botfather)
 2. Send `/newbot`
-3. Choose a name: `Tara Prediction Bot`
-4. Choose a username: `tara_prediction_bot`
+3. Choose a name: `Oro Prediction Bot`
+4. Choose a username: `Oro_prediction_bot`
 5. Save your **Bot Token** (add to `.env`)
 
 #### 2. Create Telegram Channel
 1. Create a new channel in Telegram
 2. Set channel type: **Public**
-3. Choose username: `@tara_prediction_markets`
+3. Choose username: `@Oro_prediction_markets`
 4. Add your bot as **Administrator**:
    - Go to Channel Settings → Administrators → Add Admin
-   - Select your bot: `@tara_prediction_bot`
+   - Select your bot: `@Oro_prediction_bot`
    - Enable: **Post Messages**, **Edit Messages**, **Pin Messages**
 
 #### 3. Get Channel ID
@@ -52,7 +52,7 @@ TELEGRAM_DISCUSSION_GROUP=-1009876543210
 ```
 
 #### Inline Mode
-- Type `@tara_prediction_bot` in any chat
+- Type `@Oro_prediction_bot` in any chat
 - See quick market previews
 - One-click predictions
 

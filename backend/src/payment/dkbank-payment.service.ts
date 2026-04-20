@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { randomBytes, timingSafeEqual } from "crypto";
-import { InjectRepository } from "@nestjs/typeorm";
+import { InjectRepository, InjectDataSource } from "@nestjs/typeorm";
 import { ConfigService } from "@nestjs/config";
 import { DataSource, Repository } from "typeorm";
 
@@ -32,7 +32,7 @@ interface OtpSession {
   userId: string;
 }
 
-const otpSessionKey = (paymentId: string) => `tara:otp:${paymentId}`;
+const otpSessionKey = (paymentId: string) => `Oro:otp:${paymentId}`;
 
 /** OTP window: 10 minutes to match typical DK Bank OTP validity. */
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -82,7 +82,7 @@ export class DKBankPaymentService {
   private readonly logger = new Logger(DKBankPaymentService.name);
 
   constructor(
-    private readonly dataSource: DataSource,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly dkGateway: DKGatewayService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
@@ -107,6 +107,9 @@ export class DKBankPaymentService {
     const amount = Number(dto.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException("Amount must be a positive number");
+    }
+    if (amount > 15000) {
+      throw new BadRequestException("Deposit amount cannot exceed Nu 15,000 per transaction");
     }
     const cid =
       typeof dto.cid === "string"
@@ -203,7 +206,7 @@ export class DKBankPaymentService {
       const expiresAt = new Date(now.getTime() + OTP_TTL_MS);
 
       await this.redis.setJsonEx<{ otp: string; userId: string }>(
-        `tara:tg-otp:${payment.id}`,
+        `oro:tg-otp:${payment.id}`,
         TG_OTP_TTL_S,
         { otp: generatedOtp, userId },
       );
@@ -247,7 +250,7 @@ export class DKBankPaymentService {
       await this.telegramService
         .sendMessage(
           Number(user.telegramId),
-          `🔐 <b>Tara Payment OTP</b>\n\nHi ${firstName}, your one-time code for a <b>Nu ${amount.toLocaleString()}</b> deposit:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires at ${expiresAtStr} (1 min)\n\n⚠️ <b>Tara will never ask for this code.</b> Do not share it with anyone.`,
+          `🔐 <b>Oro Payment OTP</b>\n\nHi ${firstName}, your one-time code for a <b>Nu ${amount.toLocaleString()}</b> deposit:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires at ${expiresAtStr} (1 min)\n\n⚠️ <b>Oro will never ask for this code.</b> Do not share it with anyone.`,
         )
         .catch((err) =>
           this.logger.warn(`Failed to send OTP via Telegram: ${err.message}`),
@@ -271,7 +274,7 @@ export class DKBankPaymentService {
   /**
    * Step 2: Submit the OTP to complete the payment.
    * Validates Telegram OTP, then executes debit_request on DK Bank to actually debit the account.
-   * Polls DK for final status and credits Tara balance on SUCCESS.
+   * Polls DK for final status and credits Oro balance on SUCCESS.
    */
   async confirmPayment(
     userId: string,
@@ -304,7 +307,7 @@ export class DKBankPaymentService {
     const tgOtpSession = await this.redis.getJson<{
       otp: string;
       userId: string;
-    }>(`tara:tg-otp:${paymentId}`);
+    }>(`oro:tg-otp:${paymentId}`);
 
     if (!tgOtpSession) {
       throw new BadRequestException(
@@ -330,13 +333,72 @@ export class DKBankPaymentService {
     this.logger.log(`[OTP] Telegram OTP verified for payment ${payment.id}`);
 
     // Clear Telegram OTP from Redis immediately after validation
-    await this.redis.del(`tara:tg-otp:${paymentId}`);
+    await this.redis.del(`oro:tg-otp:${paymentId}`);
 
-    // Telegram OTP verified — credit Tara balance directly.
-    // We never call DK account_auth/debit_request so no DK SMS is ever triggered.
-    // Security is enforced by: JWT auth + CID ownership + Telegram phone hash + this OTP.
+    // ── Step 2: Call DK Bank to actually debit the user's account ────────────
+    const isStagingDepositBypass =
+      this.configService.get<string>("DK_STAGING_DEPOSIT_BYPASS") === "true";
+
+    const meta = payment.metadata || {};
+
+    if (isStagingDepositBypass) {
+      this.logger.warn(
+        `[STAGING] Skipping real DK debit for payment ${payment.id} — DK_STAGING_DEPOSIT_BYPASS active`,
+      );
+    } else {
+      // ── Step 2a: account_auth — authorize the transaction (get bfsTxnId) ──
+      const stanNumber = this.dkGateway.generateStanNumber();
+      let bfsTxnId: string;
+      let txDatetime: string;
+
+      try {
+        const authResult = await this.dkGateway.authorizeTransaction({
+          customerAccountNumber: meta.customerAccountNumber,
+          customerAccountName: meta.customerAccountName,
+          customerPhone: payment.customerPhone ?? "",
+          amount: Number(payment.amount),
+          description: payment.description ?? "DK Bank deposit",
+          stanNumber,
+        });
+        bfsTxnId = authResult.bfsTxnId;
+        txDatetime = authResult.txDatetime;
+        payment.dkInquiryId = bfsTxnId;
+        await this.paymentRepo.save(payment);
+      } catch (e: any) {
+        payment.status = PaymentStatus.FAILED;
+        payment.failureReason = e?.message || "DK account authorization failed";
+        await this.paymentRepo.save(payment);
+        throw new BadRequestException(payment.failureReason);
+      }
+
+      // ── Step 2b: debit_request — execute the pull payment with the OTP ───
+      // In production, account_auth triggers a DK SMS OTP to the customer's
+      // phone; the user enters that OTP in the TMA (same field). In staging
+      // this path is never reached because isStagingDepositBypass is true.
+      try {
+        const execResult = await this.dkGateway.executeTransactionWithOtp({
+          bfsTxnId,
+          otp,
+          stanNumber,
+          txDatetime,
+          sourceAccountNumber: meta.customerAccountNumber,
+          sourceAccountName: meta.customerAccountName,
+          amount: Number(payment.amount),
+          description: payment.description ?? "DK Bank deposit",
+        });
+        payment.dkTxnStatusId = execResult.txnStatusId;
+        await this.paymentRepo.save(payment);
+      } catch (e: any) {
+        payment.status = PaymentStatus.FAILED;
+        payment.failureReason = e?.message || "DK debit request failed";
+        await this.paymentRepo.save(payment);
+        throw new BadRequestException(payment.failureReason);
+      }
+    }
+
+    // ── Step 3: Credit Oro balance ───────────────────────────────────────────
     this.logger.log(
-      `[Payment] Crediting Tara balance for payment ${payment.id}`,
+      `[Payment] Crediting Oro balance for payment ${payment.id}`,
     );
 
     await this.applyDKStatusUpdate({
@@ -354,7 +416,7 @@ export class DKBankPaymentService {
       await this.otpRepo.save(otpRecord);
     }
     await this.redis.del(otpSessionKey(payment.id));
-    await this.redis.del(`tara:cache:balance:${userId}`);
+    await this.redis.del(`oro:cache:balance:${userId}`);
 
     return {
       success: true,
@@ -561,21 +623,61 @@ export class DKBankPaymentService {
           `[CREDITS] Crediting ${payment.amount} to user ${params.userId} from DK payment ${payment.id}`,
         );
 
+        const depositAmount = Number(payment.amount);
+
         await em.save(
           Transaction,
           em.create(Transaction, {
             type: TransactionType.DEPOSIT,
-            amount: Number(payment.amount),
+            amount: depositAmount,
             balanceBefore,
-            balanceAfter: balanceBefore + Number(payment.amount),
+            balanceAfter: balanceBefore + depositAmount,
             paymentId: payment.id,
             userId: params.userId,
-            note: `DK Bank deposit confirmed (dk_payment: ${payment.id})`,
+            note: `DK Bank deposit confirmed`,
           }),
         );
 
+        // ── 5% first-deposit bonus for referred users ──────────────────────
+        // Fires once: only if this is the user's very first deposit and
+        // they were referred by someone (referredByUserId is set).
+        const user = await em.getRepository(User).findOne({
+          where: { id: params.userId },
+          select: ["id", "referredByUserId"],
+        });
+
+        if (user?.referredByUserId) {
+          const priorDepositCount = await em
+            .getRepository(Transaction)
+            .count({
+              where: { userId: params.userId, type: TransactionType.DEPOSIT },
+            });
+
+          // priorDepositCount is now 1 (the one we just saved) — so 1 means first deposit
+          if (priorDepositCount === 1) {
+            const bonusAmount = Math.round(depositAmount * 0.05 * 100) / 100;
+            const balAfterDeposit = balanceBefore + depositAmount;
+
+            await em.save(
+              Transaction,
+              em.create(Transaction, {
+                type: TransactionType.REFERRAL_BONUS,
+                amount: bonusAmount,
+                balanceBefore: balAfterDeposit,
+                balanceAfter: balAfterDeposit + bonusAmount,
+                userId: params.userId,
+                note: `Welcome bonus — 5% on your first deposit`,
+              }),
+            );
+
+            this.logger.log(
+              `[Referral] First-deposit bonus ${bonusAmount} BTN credited to referred user ${params.userId}`,
+            );
+          }
+        }
+
         // Invalidate cached balance so the next /users/me returns the updated value
-        await this.redis.del(`tara:cache:balance:${params.userId}`);
+        await this.redis.del(`oro:cache:balance:${params.userId}`);
       } else if (mapped === PaymentStatus.FAILED) {
         payment.status = PaymentStatus.FAILED;
         payment.failureReason = params.dkStatusDesc || "Payment failed";
@@ -663,7 +765,7 @@ export class DKBankPaymentService {
     const now = new Date();
 
     await this.redis.setJsonEx<{ otp: string; userId: string }>(
-      `tara:tg-otp:${payment.id}`,
+      `oro:tg-otp:${payment.id}`,
       TG_OTP_TTL_S,
       { otp: generatedOtp, userId },
     );
@@ -686,7 +788,7 @@ export class DKBankPaymentService {
     await this.telegramService
       .sendMessage(
         Number(user.telegramId),
-        `🏦 <b>Tara Withdrawal OTP</b>\n\nHi ${firstName}, your one-time code to withdraw <b>Nu ${amount.toLocaleString()}</b> to your DK Bank account:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires in 1 minute\n\n⚠️ <b>Tara will never ask for this code.</b> Do not share it with anyone.`,
+        `🏦 <b>Oro Withdrawal OTP</b>\n\nHi ${firstName}, your one-time code to withdraw <b>Nu ${amount.toLocaleString()}</b> to your DK Bank account:\n\n<code>${generatedOtp}</code>\n\n⏳ Expires in 1 minute\n\n⚠️ <b>Oro will never ask for this code.</b> Do not share it with anyone.`,
       )
       .catch((err) =>
         this.logger.warn(
@@ -749,7 +851,7 @@ export class DKBankPaymentService {
     const tgOtpSession = await this.redis.getJson<{
       otp: string;
       userId: string;
-    }>(`tara:tg-otp:${paymentId}`);
+    }>(`oro:tg-otp:${paymentId}`);
     if (!tgOtpSession) {
       throw new BadRequestException(
         "OTP has expired. Please initiate a new withdrawal.",
@@ -775,7 +877,7 @@ export class DKBankPaymentService {
     }
 
     // OTP is valid — delete it immediately to prevent replay
-    await this.redis.del(`tara:tg-otp:${paymentId}`);
+    await this.redis.del(`oro:tg-otp:${paymentId}`);
 
     // ── Atomic: balance re-check + DK transfer + ledger debit ────────────────
     const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -816,15 +918,61 @@ export class DKBankPaymentService {
         );
       }
 
-      // ── Call DK Gateway: push funds from merchant vault to user account ───
-      const transferResult = await this.dkGateway.transferToAccount({
-        accountNumber:
-          user?.dkAccountNumber ?? lockedPayment.metadata?.dkAccountNumber,
-        amount: withdrawalAmount,
-        currency: "BTN",
-        reference: lockedPayment.id,
-        description: `Tara withdrawal for user ${userId}`,
+      // Bonus credits are play money — they cannot be sent to DK Bank directly.
+      // Only the real (non-bonus) portion of the balance is withdrawable.
+      const lockedUser = await em.findOne(User, {
+        where: { id: userId },
+        select: ["id", "bonusBalance"],
       });
+      const bonusBalance = Number(lockedUser?.bonusBalance ?? 0);
+      const realWithdrawable = balanceBefore - bonusBalance;
+
+      if (realWithdrawable < withdrawalAmount) {
+        throw new BadRequestException(
+          `Insufficient withdrawable balance. ` +
+            `Nu ${bonusBalance.toFixed(2)} of your balance is bonus credit and cannot be withdrawn. ` +
+            `Withdrawable: Nu ${Math.max(0, realWithdrawable).toFixed(2)}.`,
+        );
+      }
+
+      // ── Call DK Gateway: push funds from merchant vault to user account ───
+      // Uses /v1/initiate/transaction which works in both staging and production.
+      // No bypass needed — this endpoint is confirmed working in DK staging.
+      const isStagingWithdrawalBypass =
+        this.configService.get<string>("DK_STAGING_WITHDRAWAL_BYPASS") ===
+        "true";
+
+      let transferResult: {
+        txnId: string | null;
+        txnStatusId?: string | null;
+        inquiryId?: string | null;
+        status: string;
+        statusDesc: string;
+        raw?: unknown;
+      };
+      if (isStagingWithdrawalBypass) {
+        this.logger.warn(
+          `[STAGING] Skipping real DK transfer for payment ${lockedPayment.id} — DK_STAGING_WITHDRAWAL_BYPASS active`,
+        );
+        transferResult = {
+          txnId: `STAGING-${Date.now()}`,
+          status: "SUCCESS",
+          statusDesc: "Staging bypass — no real transfer",
+        };
+      } else {
+        transferResult = await this.dkGateway.transferToAccount({
+          accountNumber:
+            user?.dkAccountNumber ?? lockedPayment.metadata?.dkAccountNumber,
+          accountName:
+            user?.dkAccountName ??
+            lockedPayment.metadata?.dkAccountName ??
+            undefined,
+          amount: withdrawalAmount,
+          currency: "BTN",
+          reference: lockedPayment.id,
+          description: `oro withdrawal for user ${userId}`,
+        });
+      }
 
       const transferSucceeded =
         typeof transferResult?.status === "string" &&
@@ -852,7 +1000,7 @@ export class DKBankPaymentService {
           balanceAfter: balanceBefore - withdrawalAmount,
           paymentId: lockedPayment.id,
           userId,
-          note: `DK Bank withdrawal confirmed (txn: ${transferResult?.txnId ?? "n/a"})`,
+          note: `DK Bank withdrawal confirmed`,
         }),
       );
 
@@ -869,8 +1017,8 @@ export class DKBankPaymentService {
       otpRecord.verifiedAt = new Date();
       await this.otpRepo.save(otpRecord);
     }
-    await this.redis.del(`tara:otp:${paymentId}`);
-    await this.redis.del(`tara:cache:balance:${userId}`);
+    await this.redis.del(`oro:otp:${paymentId}`);
+    await this.redis.del(`oro:cache:balance:${userId}`);
 
     if (result.status === "failed") {
       await this.paymentRepo.save(

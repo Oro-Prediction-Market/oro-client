@@ -17,10 +17,10 @@ export function useAuth() {
     // Token changed in another tab (login or logout)
     const onStorage = () => setIsAuthenticated(isTokenValid());
 
-    window.addEventListener("tara:unauthorized", onUnauthorized);
+    window.addEventListener("oro:unauthorized", onUnauthorized);
     window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener("tara:unauthorized", onUnauthorized);
+      window.removeEventListener("oro:unauthorized", onUnauthorized);
       window.removeEventListener("storage", onStorage);
     };
   }, []);

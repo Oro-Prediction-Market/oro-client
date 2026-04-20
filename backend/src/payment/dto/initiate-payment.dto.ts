@@ -7,12 +7,13 @@ import {
   IsNumber,
   IsOptional,
   IsUUID,
+  Max,
 } from "class-validator";
 
 export class InitiatePaymentDto {
   @ApiProperty({
     description: "Payment description",
-    example: "Tara Credits top-up",
+    example: "Oro Credits top-up",
     minLength: 3,
     maxLength: 500,
   })
@@ -22,9 +23,10 @@ export class InitiatePaymentDto {
   @MaxLength(500)
   description: string;
 
-  @ApiProperty({ description: "Amount in BTN", example: 100 })
+  @ApiProperty({ description: "Amount in BTN", example: 100, maximum: 15000 })
   @IsNumber()
   @IsNotEmpty()
+  @Max(15000, { message: "Deposit amount cannot exceed Nu 15,000 per transaction" })
   amount: number;
 
   @ApiProperty({

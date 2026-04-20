@@ -5,32 +5,68 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from "typeorm";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { User } from "./user.entity";
 import { Market } from "./market.entity";
 
+export enum DisputeBondStatus {
+  /** Bond has been locked, outcome not yet finalised */
+  LOCKED = "locked",
+  /** Objector was right — bond returned + reward paid */
+  REWARDED = "rewarded",
+  /** Objector was wrong — bond forfeited to reward pool */
+  FORFEITED = "forfeited",
+  /** Market auto-resolved (zero objections) — not applicable */
+  NOT_APPLICABLE = "not_applicable",
+}
+
+@Index(["userId"])
+@Index(["bondStatus"])
 @Entity("disputes")
 export class Dispute {
   @ApiProperty({ example: "uuid" })
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @ApiProperty({ example: 10, description: "Bond amount in credits" })
-  @Column({ type: "decimal", precision: 18, scale: 2 })
+  @ApiProperty({
+    example: "The outcome shown on the live stream was different",
+    description: "Reason the user is objecting to the proposed outcome",
+  })
+  @Column({ type: "text" })
+  reason: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      "Set after admin finalises resolution: true = admin agreed with the objector, false = objection overruled",
+  })
+  @Column({ type: "boolean", nullable: true, default: null })
+  upheld: boolean | null;
+
+  /**
+   * The bond the objector locked when raising this objection.
+   * Calculated as max(10, 2% of their position in this market).
+   * Forfeited if wrong, returned + rewarded if right.
+   */
+  @ApiProperty({
+    example: 50,
+    description: "BTN bond locked with this objection",
+  })
+  @Column({ type: "decimal", precision: 18, scale: 2, default: 0 })
   bondAmount: number;
 
-  @ApiPropertyOptional({ example: "The match result was different", description: "Reason for disputing" })
-  @Column({ type: "text", nullable: true })
-  reason: string | null;
-
-  @ApiPropertyOptional({ description: "DK Bank payment ID used as bond (null if paid from credits)" })
-  @Column({ type: "uuid", nullable: true })
-  bondPaymentId: string | null;
-
-  @ApiProperty({ example: false, description: "Whether the bond has been refunded" })
-  @Column({ default: false })
-  bondRefunded: boolean;
+  @ApiProperty({
+    enum: DisputeBondStatus,
+    description: "Current state of the locked bond",
+  })
+  @Column({
+    type: "enum",
+    enum: DisputeBondStatus,
+    default: DisputeBondStatus.LOCKED,
+  })
+  bondStatus: DisputeBondStatus;
 
   @ApiProperty()
   @CreateDateColumn()
