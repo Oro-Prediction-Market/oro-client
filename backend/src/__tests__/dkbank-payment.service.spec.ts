@@ -140,6 +140,7 @@ function makeDataSource(overrides: any = {}) {
     }),
     save: jest.fn().mockImplementation((_e: any, d: any) => Promise.resolve(d)),
     create: jest.fn().mockImplementation((_e: any, d: any) => d),
+    findOne: jest.fn().mockResolvedValue({ id: "user-1", bonusBalance: 0 }),
     ...overrides,
   };
   return {
@@ -945,6 +946,9 @@ describe("Merchant vault → user DK account (withdrawal flow)", () => {
               .fn()
               .mockImplementation((_e: any, d: any) => Promise.resolve(d)),
             create: jest.fn().mockImplementation((_e: any, d: any) => d),
+            findOne: jest
+              .fn()
+              .mockResolvedValue({ id: "user-1", bonusBalance: 0 }),
           });
         }),
         _em: null,
