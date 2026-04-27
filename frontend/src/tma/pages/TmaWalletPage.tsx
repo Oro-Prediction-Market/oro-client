@@ -1950,19 +1950,25 @@ export const TmaWalletPage: FC = () => {
                 {payError && (
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "12px 14px",
                       borderRadius: 10,
                       background: "rgba(220,38,38,0.08)",
                       border: "1px solid rgba(220,38,38,0.25)",
+                      padding: "12px 14px",
                       fontSize: 13,
-                      color: "#dc2626",
                     }}
                   >
-                    <XCircle size={14} color="#dc2626" />
-                    <span>{payError}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#dc2626" }}>
+                      <XCircle size={14} color="#dc2626" />
+                      <span>{payError}</span>
+                    </div>
+                    <a
+                      href="https://t.me/OroPredictBot"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: "inline-block", marginTop: 6, fontSize: 12, color: "#2775d0", fontWeight: 700, textDecoration: "none" }}
+                    >
+                      Need help? Contact support →
+                    </a>
                   </div>
                 )}
                 <button
@@ -2187,21 +2193,27 @@ export const TmaWalletPage: FC = () => {
                 {payError && (
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "12px 14px",
                       borderRadius: 10,
                       background: "rgba(220,38,38,0.08)",
                       border: "1px solid rgba(220,38,38,0.25)",
+                      padding: "12px 14px",
                       fontSize: 13,
-                      color: "#dc2626",
                       width: "100%",
                       boxSizing: "border-box",
                     }}
                   >
-                    <XCircle size={14} color="#dc2626" />
-                    <span>{payError}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#dc2626" }}>
+                      <XCircle size={14} color="#dc2626" />
+                      <span>{payError}</span>
+                    </div>
+                    <a
+                      href="https://t.me/OroPredictBot"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: "inline-block", marginTop: 6, fontSize: 12, color: "#2775d0", fontWeight: 700, textDecoration: "none" }}
+                    >
+                      Need help? Contact support →
+                    </a>
                   </div>
                 )}
                 <button

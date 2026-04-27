@@ -1053,6 +1053,23 @@ export const TmaFeedPage: FC = () => {
       >
         <div className="mesh-bg" />
 
+        {/* ── Personalized greeting ── */}
+        {user && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: "var(--text-subtle)", fontWeight: 600, marginBottom: 2 }}>
+              {(() => {
+                const h = new Date().getHours();
+                if (h < 12) return "Good morning";
+                if (h < 17) return "Good afternoon";
+                return "Good evening";
+              })()}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-main)", letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>
+              {user.firstName ?? (user.username ? `@${user.username}` : "Oracle")} 👋
+            </div>
+          </div>
+        )}
+
         {/* ── Search bar ── */}
         <div style={{ position: "relative", marginBottom: 20 }}>
           <svg

@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import {
   getMarkets,
   getRecentActivity,
+  getMe,
   type Market,
   type ActivityEvent,
+  type AuthUser,
 } from "@/api/client";
 import { TmaBetModal } from "@/tma/components/TmaBetModal";
 import { PwaMarketCard } from "../components/PwaMarketCard";
@@ -167,6 +169,11 @@ export function PwaFeedPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeBet, setActiveBet] = useState<ActiveBet | null>(null);
+  const [me, setMe] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    getMe().then(setMe).catch(() => {});
+  }, []);
   const {
     searchQuery,
     selectedCategory,
@@ -332,6 +339,23 @@ export function PwaFeedPage() {
         @media (max-width: 767px) { .section-title { display: none; } }
       `}</style>
       <div className="mesh-bg" />
+
+      {/* ── Personalized greeting ── */}
+      {me && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-subtle)", fontWeight: 600, marginBottom: 2 }}>
+            {(() => {
+              const h = new Date().getHours();
+              if (h < 12) return "Good morning";
+              if (h < 17) return "Good afternoon";
+              return "Good evening";
+            })()}
+          </div>
+          <div style={{ fontSize: "1.6rem", fontWeight: 900, color: "var(--text-main)", letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>
+            {me.firstName ?? (me.username ? `@${me.username}` : "Oracle")} 👋
+          </div>
+        </div>
+      )}
 
       <PwaSetupChecklist />
 
