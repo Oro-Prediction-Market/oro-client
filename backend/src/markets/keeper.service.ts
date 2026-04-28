@@ -99,7 +99,9 @@ export class KeeperService {
     // Safety: force-release the lock after 55s so a hung run never blocks the next tick
     const lockTimeout = setTimeout(() => {
       if (this.expiryRunning) {
-        this.logger.warn("[Keeper] Expiry Watcher force-released after timeout");
+        this.logger.warn(
+          "[Keeper] Expiry Watcher force-released after timeout",
+        );
         this.expiryRunning = false;
       }
     }, 55_000);
@@ -529,7 +531,11 @@ export class KeeperService {
     // Register each outcome as a short key — well under 64 bytes
     const buttons = await Promise.all(
       (market.outcomes ?? []).map(async (o) => {
-        const key = await this.telegram.registerProposeKey(market.id, o.id, DEFAULT_WINDOW_MINS);
+        const key = await this.telegram.registerProposeKey(
+          market.id,
+          o.id,
+          DEFAULT_WINDOW_MINS,
+        );
         return [{ text: o.label, callbackData: `p:${key}` }];
       }),
     );
