@@ -39,6 +39,9 @@ import {
   EyeOff,
   Zap,
   Gift,
+  X,
+  Medal,
+  Award,
 } from "lucide-react";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1813,6 +1816,266 @@ function LeaderboardTab({
   );
 }
 
+// ── Duels onboarding modal ────────────────────────────────────────────────────
+
+const DUELS_ONBOARDING_KEY = "oro_duels_onboarding_done";
+
+const visualCard = (accentColor: string): React.CSSProperties => ({
+  background: "var(--bg-card)",
+  border: "1px solid var(--glass-border)",
+  borderTop: `3px solid ${accentColor}`,
+  borderRadius: 14,
+  padding: "14px 14px 12px",
+  marginBottom: 18,
+  textAlign: "left" as const,
+});
+
+function WhatIsDuelsVisual() {
+  return (
+    <div style={visualCard("#f59e0b")}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        {/* Challenger */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--bg-main)", border: "1.5px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "var(--text-muted)" }}>P</div>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-main)" }}>@Pema</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", padding: "1px 6px", borderRadius: 99 }}>Thimphu</span>
+        </div>
+        {/* VS */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Swords size={14} color="#f59e0b" />
+          </div>
+          <span style={{ fontSize: 10, fontWeight: 800, color: "#f59e0b", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)", padding: "1px 8px", borderRadius: 99 }}>Nu 100</span>
+        </div>
+        {/* Opponent */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--bg-main)", border: "1.5px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "var(--text-muted)" }}>K</div>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-main)" }}>@Kinley</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", padding: "1px 6px", borderRadius: 99 }}>Paro</span>
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-subtle)", fontWeight: 600, textAlign: "center", borderTop: "1px solid var(--glass-border)", paddingTop: 8 }}>
+        NCA Finals 2024 · winner takes <span style={{ color: "#f59e0b", fontWeight: 800 }}>Nu 180</span>
+      </div>
+    </div>
+  );
+}
+
+function OpenFeedVisual() {
+  const items = [
+    { name: "@Pema_D", outcome: "Thimphu Club", stake: "Nu 100", time: "12h left", ghost: false },
+    { name: "@Sonam", outcome: "Paro Warriors", stake: "Free", time: "8h left", ghost: false },
+    { name: "???", outcome: "???", stake: "Hidden", time: "5h left", ghost: true },
+  ];
+  return (
+    <div style={visualCard("#6366f1")}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 10 }}>
+        <Users size={10} color="#818cf8" />
+        <span style={{ fontSize: 10, fontWeight: 800, color: "#818cf8", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>Open Challenges</span>
+      </div>
+      {items.map((item, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: i < items.length - 1 ? 8 : 0, marginBottom: i < items.length - 1 ? 8 : 0, borderBottom: i < items.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: item.ghost ? "#a78bfa" : "var(--text-main)", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{item.name} · {item.outcome}</div>
+            <div style={{ fontSize: 10, color: "var(--text-subtle)", fontWeight: 600, marginTop: 1 }}>{item.stake} · {item.time}</div>
+          </div>
+          <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 800, color: "#fff", background: item.ghost ? "linear-gradient(135deg,#a78bfa,#7c3aed)" : "linear-gradient(135deg,#f59e0b,#d97706)", padding: "4px 10px", borderRadius: 8 }}>
+            {item.ghost ? <>👻 Accept</> : <><Swords size={10} /> Accept</>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DuelLeaderboardVisual() {
+  const rows = [
+    { icon: <Trophy size={13} color="#f59e0b" />, name: "@Pema_D", wins: 7, earned: "Nu 1,260", isMe: false },
+    { icon: <Medal size={13} color="#94a3b8" />,  name: "@Kinley", wins: 5, earned: "Nu 840",   isMe: false },
+    { icon: <Award size={13} color="#b45309" />,  name: "You",     wins: 2, earned: "Nu 360",   isMe: true  },
+  ];
+  return (
+    <div style={visualCard("#22c55e")}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 10 }}>
+        <Trophy size={10} color="#22c55e" />
+        <span style={{ fontSize: 10, fontWeight: 800, color: "#22c55e", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>This Week's Top Duelers</span>
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 8, background: r.isMe ? "rgba(34,197,94,0.08)" : "transparent", border: r.isMe ? "1px solid rgba(34,197,94,0.2)" : "1px solid transparent", marginBottom: 4 }}>
+          {r.icon}
+          <span style={{ flex: 1, fontSize: 11, fontWeight: r.isMe ? 800 : 600, color: r.isMe ? "#22c55e" : "var(--text-main)" }}>{r.name}</span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: "#22c55e" }}>{r.wins}W</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-subtle)" }}>{r.earned}</span>
+        </div>
+      ))}
+      <div style={{ fontSize: 9, color: "var(--text-subtle)", marginTop: 8, fontWeight: 600, textAlign: "center" as const }}>Resets every Monday</div>
+    </div>
+  );
+}
+
+function HowToChallengeVisual() {
+  const steps = [
+    { n: "1", icon: <Target size={13} color="#3b82f6" />,  label: "Place a bet on any open market" },
+    { n: "2", icon: <Swords size={13} color="#f59e0b" />,  label: "Create a duel — set stake & pick a card" },
+    { n: "3", icon: <Send size={13} color="#6366f1" />,    label: "Share the link — opponent has 24h to accept" },
+  ];
+  return (
+    <div style={visualCard("#3b82f6")}>
+      {steps.map((s, i) => (
+        <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: i < steps.length - 1 ? 10 : 0, marginBottom: i < steps.length - 1 ? 10 : 0, borderBottom: i < steps.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
+          <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--bg-main)", border: "1px solid var(--glass-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {s.icon}
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-main)", flex: 1 }}>{s.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const DUELS_STEPS = [
+  {
+    visual: <WhatIsDuelsVisual />,
+    title: "Prediction Duels",
+    body: "Challenge any predictor head-to-head on a live market. Pick the same event, back different outcomes — whoever's right wins the pot.",
+  },
+  {
+    visual: <OpenFeedVisual />,
+    title: "Open Feed",
+    body: "Browse duels created by other users and accept any you like. Watch for Ghost duels — the stake is hidden until you commit.",
+  },
+  {
+    visual: <DuelLeaderboardVisual />,
+    title: "Weekly Leaderboard",
+    body: "Duel wins stack up on the weekly board. Top predictor at reset earns bragging rights — and the board refreshes every Monday.",
+  },
+  {
+    visual: <HowToChallengeVisual />,
+    title: "How to challenge",
+    body: "Place a bet on any market, create a duel on it, then share the link. Equip a Power Card for an edge — unlock them by winning duels.",
+  },
+];
+
+function DuelsOnboardingModal({
+  onDone,
+  onGoToFeed,
+}: {
+  onDone: () => void;
+  onGoToFeed: () => void;
+}) {
+  const [step, setStep] = useState(0);
+
+  function finish(goToFeed?: boolean) {
+    localStorage.setItem(DUELS_ONBOARDING_KEY, "1");
+    onDone();
+    if (goToFeed) onGoToFeed();
+  }
+
+  const s = DUELS_STEPS[step];
+  const isLast = step === DUELS_STEPS.length - 1;
+
+  return (
+    <div style={{
+      position: "fixed",
+      inset: 0,
+      zIndex: 9999,
+      background: "rgba(0,0,0,0.85)",
+      backdropFilter: "blur(12px)",
+      WebkitBackdropFilter: "blur(12px)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "24px 20px",
+    }}>
+      <div style={{
+        width: "100%",
+        maxWidth: 380,
+        background: "var(--bg-card, #1a1f2e)",
+        borderRadius: 24,
+        border: "1px solid var(--glass-border, rgba(255,255,255,0.08))",
+        padding: "28px 22px 22px",
+        position: "relative",
+        textAlign: "center",
+      }}>
+        {/* Skip */}
+        <button
+          onClick={() => finish()}
+          style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", cursor: "pointer", color: "var(--text-subtle, #64748b)", padding: 4 }}
+        >
+          <X size={18} />
+        </button>
+
+        {/* Step dots */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 20 }}>
+          {DUELS_STEPS.map((_, i) => (
+            <div key={i} style={{
+              width: i === step ? 20 : 6,
+              height: 6,
+              borderRadius: 99,
+              background: i === step ? "#f59e0b" : "var(--glass-border, rgba(255,255,255,0.12))",
+              transition: "width 0.25s ease",
+            }} />
+          ))}
+        </div>
+
+        {/* Visual */}
+        {s.visual}
+
+        {/* Text */}
+        <h2 style={{ fontSize: 20, fontWeight: 900, color: "var(--text-main, #f8fafc)", margin: "0 0 8px", letterSpacing: "-0.02em" }}>
+          {s.title}
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--text-muted, #94a3b8)", lineHeight: 1.6, margin: "0 0 20px", fontWeight: 500 }}>
+          {s.body}
+        </p>
+
+        {/* CTA */}
+        {isLast ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              onClick={() => finish()}
+              style={{
+                width: "100%", padding: "14px",
+                background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                border: "none", borderRadius: 14, color: "#fff",
+                fontSize: 15, fontWeight: 800, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}
+            >
+              <Swords size={16} /> Create my first duel
+            </button>
+            <button
+              onClick={() => finish(true)}
+              style={{
+                width: "100%", padding: "11px",
+                background: "transparent",
+                border: "1px solid var(--glass-border, rgba(255,255,255,0.1))",
+                borderRadius: 14, color: "var(--text-muted, #94a3b8)",
+                fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              Browse Open Feed first
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setStep((n) => n + 1)}
+            style={{
+              width: "100%", padding: "14px",
+              background: "linear-gradient(135deg, #f59e0b, #d97706)",
+              border: "none", borderRadius: 14, color: "#fff",
+              fontSize: 15, fontWeight: 800, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            }}
+          >
+            Next <ChevronRight size={18} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export const TmaChallengesPage: FC = () => {
@@ -1835,6 +2098,9 @@ export const TmaChallengesPage: FC = () => {
   const [cardToast, setCardToast] = useState<string | null>(null);
 
   const isEligible = totalBetCount >= MIN_PREDICTIONS_REQUIRED;
+  const [showDuelsOnboarding, setShowDuelsOnboarding] = useState(
+    () => typeof window !== "undefined" && !localStorage.getItem(DUELS_ONBOARDING_KEY),
+  );
   const currentUserId = user?.id;
   const userName = user?.username
     ? `@${user.username}`
@@ -2012,7 +2278,7 @@ export const TmaChallengesPage: FC = () => {
           gap: 10,
         }}
       >
-        <div
+        {/* <div
           className="duels-header-icon"
           style={{
             width: 40,
@@ -2029,7 +2295,7 @@ export const TmaChallengesPage: FC = () => {
           }}
         >
           <Swords size={20} color="#f59e0b" />
-        </div>
+        </div> */}
         <div style={{ marginTop: -5 }}>
           <h1
             className="duels-header-title"
@@ -2144,6 +2410,14 @@ export const TmaChallengesPage: FC = () => {
         </>
       )}
       </div>
+
+      {/* Duels first-time onboarding modal */}
+      {isEligible && showDuelsOnboarding && (
+        <DuelsOnboardingModal
+          onDone={() => setShowDuelsOnboarding(false)}
+          onGoToFeed={() => setTab("open")}
+        />
+      )}
 
       {/* Card unlock toast */}
       {cardToast && (

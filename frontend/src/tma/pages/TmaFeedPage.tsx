@@ -11,11 +11,10 @@ import {
 import { useAuth } from "@/tma/hooks/useAuth";
 import { TmaBetModal } from "@/tma/components/TmaBetModal";
 import { Link } from "@/tma/components/Link/Link";
-import { Flame, X, Sparkles } from "lucide-react";
+import { Flame, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { BetShareCard } from "@/components/BetShareCard";
 import { getCategoryVisual } from "@/helpers/visuals";
-import { OracleOrbit } from "@/tma/components/OracleOrbit";
 
 // Live Activity Ticker
 
@@ -854,7 +853,7 @@ export const TmaFeedPage: FC = () => {
   const [bettedMarketIds, setBettedMarketIds] = useState<Set<string>>(
     new Set(),
   );
-  const [isOrbitOpen, setIsOrbitOpen] = useState(false);
+  const [fundBannerDismissed, setFundBannerDismissed] = useState(false);
 
   const loadMore = useCallback(() => {
     setVisibleCount((c) => c + PAGE_SIZE);
@@ -1067,6 +1066,81 @@ export const TmaFeedPage: FC = () => {
             <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-main)", letterSpacing: "-0.03em", fontFamily: "var(--font-display)" }}>
               {user.firstName ?? (user.username ? `@${user.username}` : "Oracle")} 👋
             </div>
+          </div>
+        )}
+
+        {/* ── Zero-balance funding banner ── */}
+        {user && Number(user.balance) === 0 && !fundBannerDismissed && (
+          <div
+            style={{
+              marginBottom: 18,
+              borderRadius: 16,
+              background: "linear-gradient(135deg, rgba(124,58,237,0.18), rgba(167,139,250,0.1))",
+              border: "1px solid rgba(167,139,250,0.3)",
+              padding: "14px 16px",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: "rgba(167,139,250,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 18,
+                flexShrink: 0,
+              }}
+            >
+              💜
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-main)", marginBottom: 2 }}>
+                Fund your wallet to start predicting
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600 }}>
+                +10% bonus on your first deposit
+              </div>
+            </div>
+            <button
+              onClick={() => navigate("/wallet")}
+              style={{
+                flexShrink: 0,
+                padding: "8px 14px",
+                background: "linear-gradient(135deg, #a78bfa, #7c3aed)",
+                border: "none",
+                borderRadius: 10,
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Fund now
+            </button>
+            <button
+              onClick={() => setFundBannerDismissed(true)}
+              style={{
+                position: "absolute",
+                top: 8,
+                right: 8,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--text-subtle)",
+                fontSize: 14,
+                lineHeight: 1,
+                padding: 2,
+              }}
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -1531,32 +1605,6 @@ export const TmaFeedPage: FC = () => {
         />
       )}
 
-      {/* ── Oracle Orbit Pulse Button ── */}
-      <button
-        onClick={() => setIsOrbitOpen(true)}
-        style={{
-          position: "fixed",
-          bottom: 90,
-          right: 20,
-          width: 40,
-          height: 40,
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, #2775d0, #1a5bb5)",
-          border: "none",
-          boxShadow: "0 8px 24px rgba(39, 117, 208, 0.4)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "#fff",
-          zIndex: 1000,
-          cursor: "pointer",
-          animation: "pulseGlow 2.5s ease-in-out infinite",
-        }}
-      >
-        <Sparkles size={24} />
-      </button>
-
-      <OracleOrbit isOpen={isOrbitOpen} onClose={() => setIsOrbitOpen(false)} />
     </Page>
   );
 };

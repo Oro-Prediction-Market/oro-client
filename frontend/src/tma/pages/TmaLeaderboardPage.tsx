@@ -1,4 +1,4 @@
-import { FC, useEffect, useRef, useState } from "react";
+import { FC, useCallback, useEffect, useRef, useState } from "react";
 import { Spinner } from "@telegram-apps/telegram-ui";
 import { Page } from "@/tma/components/Page";
 import { useAuth } from "@/tma/hooks/useAuth";
@@ -86,84 +86,91 @@ function percentileLabel(rank: number, total: number) {
   return { text: `Top ${pct}% of predictors`, color: "#94a3b8" };
 }
 
-// ── Leaderboard row ───────────────────────────────────────────────────────────
+// ── Table helpers ─────────────────────────────────────────────────────────────
 
-const RANK_STYLES: Record<
-  number,
-  { bg: string; border: string; avatarBorder: string; animation: string }
-> = {
-  1: {
-    bg: "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05))",
-    border: "1px solid rgba(245,158,11,0.4)",
-    avatarBorder: "2.5px solid #f59e0b",
-    animation: "rank1Pulse 2.5s ease-in-out infinite",
-  },
-  2: {
-    bg: "linear-gradient(135deg, rgba(148,163,184,0.12), rgba(148,163,184,0.04))",
-    border: "1px solid rgba(148,163,184,0.3)",
-    avatarBorder: "2.5px solid #94a3b8",
-    animation: "rank2Shimmer 3s ease-in-out infinite",
-  },
-  3: {
-    bg: "linear-gradient(135deg, rgba(180,83,9,0.12), rgba(180,83,9,0.04))",
-    border: "1px solid rgba(180,83,9,0.3)",
-    avatarBorder: "2.5px solid #b45309",
-    animation: "rank3Glow 3.5s ease-in-out infinite",
-  },
-};
+const COL = "32px 26px 1fr 46px 54px 64px";
 
-function LeaderRow({
+function fmtVol(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function TableHeader() {
+  const cell: React.CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--text-subtle)",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  };
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: COL,
+        gap: 6,
+        padding: "8px 14px 8px",
+        borderBottom: "1px solid var(--glass-border)",
+        alignItems: "center",
+      }}
+    >
+      <div style={cell}>#</div>
+      <div />
+      <div style={cell}>User</div>
+      <div style={{ ...cell, textAlign: "right" }}>Picks</div>
+      <div style={{ ...cell, textAlign: "right" }}>Win %</div>
+      <div style={{ ...cell, textAlign: "right" }}>Vol</div>
+    </div>
+  );  
+}
+
+function TableRow({
   entry,
   onTap,
 }: {
   entry: LeaderboardEntry;
   onTap?: () => void;
 }) {
-  const medal = rankMedal(entry.rank);
   const color = tierColor(entry.reputationTier);
-  const rankStyle = RANK_STYLES[entry.rank];
   const displayName = entry.username
     ? `@${entry.username}`
     : entry.firstName + (entry.lastName ? ` ${entry.lastName}` : "");
+
+  const rankColor =
+    entry.rank === 1 ? "#f59e0b" : entry.rank === 2 ? "#94a3b8" : entry.rank === 3 ? "#b45309" : "var(--text-subtle)";
+
+  const winColor =
+    entry.winRate >= 65 ? "#22c55e" : entry.winRate >= 50 ? "var(--text-main)" : "#f59e0b";
 
   return (
     <div
       onClick={onTap}
       style={{
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: COL,
+        gap: 6,
+        padding: "9px 14px",
         alignItems: "center",
-        gap: 8,
-        padding: "5px 12px",
-        background: rankStyle
-          ? rankStyle.bg
-          : entry.isMe
-            ? `linear-gradient(135deg, ${color}18, ${color}08)`
-            : "transparent",
-        borderRadius: rankStyle || entry.isMe ? 14 : 0,
-        border: rankStyle
-          ? rankStyle.border
-          : entry.isMe
-            ? `1px solid ${color}33`
-            : "none",
-        position: "relative",
-        animation: rankStyle ? rankStyle.animation : "none",
+        borderBottom: "1px solid var(--glass-border)",
+        background: entry.isMe ? `${color}0d` : "transparent",
+        borderLeft: entry.isMe ? `3px solid ${color}` : "3px solid transparent",
         cursor: onTap ? "pointer" : "default",
+        transition: "background 0.15s",
       }}
     >
       {/* Rank */}
       <div
         style={{
-          width: 26,
-          flexShrink: 0,
+          fontSize: entry.rank <= 3 ? 16 : 12,
+          fontWeight: 900,
+          color: rankColor,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 12,
-          fontWeight: 900,
-          color: "var(--text-subtle)",
         }}
       >
-        {medal ?? `#${entry.rank}`}
+        {entry.rank === 1 ? "🥇" : entry.rank === 2 ? "🥈" : entry.rank === 3 ? "🥉" : `${entry.rank}`}
       </div>
 
       {/* Avatar */}
@@ -172,13 +179,8 @@ function LeaderRow({
           width: 26,
           height: 26,
           borderRadius: "50%",
-          flexShrink: 0,
           overflow: "hidden",
-          border: rankStyle
-            ? rankStyle.avatarBorder
-            : entry.isMe
-              ? `2px solid ${color}`
-              : "2px solid var(--glass-border)",
+          border: entry.isMe ? `2px solid ${color}` : "1.5px solid var(--glass-border)",
           background: "var(--bg-secondary)",
           display: "flex",
           alignItems: "center",
@@ -186,21 +188,18 @@ function LeaderRow({
           fontSize: 10,
           fontWeight: 800,
           color: "var(--text-muted)",
+          flexShrink: 0,
         }}
       >
         {entry.photoUrl ? (
-          <img
-            src={entry.photoUrl}
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
+          <img src={entry.photoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           (entry.firstName?.[0] ?? "?").toUpperCase()
         )}
       </div>
 
       {/* Name + tier */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ minWidth: 0 }}>
         <div
           style={{
             fontSize: 12,
@@ -209,18 +208,23 @@ function LeaderRow({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
           }}
         >
-          {displayName}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+            {displayName}
+          </span>
           {entry.isMe && (
             <span
               style={{
-                marginLeft: 6,
-                fontSize: 10,
+                flexShrink: 0,
+                fontSize: 9,
                 fontWeight: 700,
                 color,
                 background: `${color}22`,
-                padding: "1px 6px",
+                padding: "1px 5px",
                 borderRadius: 99,
               }}
             >
@@ -228,71 +232,31 @@ function LeaderRow({
             </span>
           )}
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 3,
-            marginTop: 1,
-          }}
-        >
-          {tierIcon(entry.reputationTier, 10)}
-          <span
-            style={{
-              fontSize: 9,
-              color: "var(--text-subtle)",
-              fontWeight: 600,
-            }}
-          >
+        <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 1 }}>
+          {tierIcon(entry.reputationTier, 9)}
+          <span style={{ fontSize: 9, color: "var(--text-subtle)", fontWeight: 600 }}>
             {tierLabel(entry.reputationTier)}
-          </span>
-          <span style={{ fontSize: 9, color: "var(--text-subtle)" }}>·</span>
-          <span style={{ fontSize: 9, color: "var(--text-subtle)" }}>
-            {entry.totalPredictions} picks
           </span>
         </div>
       </div>
 
-      {/* Win rate + total spent */}
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 900,
-            color:
-              entry.winRate >= 65
-                ? "#22c55e"
-                : entry.winRate >= 50
-                  ? "var(--text-main)"
-                  : "#f59e0b",
-            letterSpacing: "-0.02em",
-          }}
-        >
+      {/* Picks */}
+      <div style={{ textAlign: "right", fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>
+        {entry.totalPredictions}
+      </div>
+
+      {/* Win % */}
+      <div style={{ textAlign: "right" }}>
+        <span style={{ fontSize: 13, fontWeight: 900, color: winColor, letterSpacing: "-0.02em" }}>
           {entry.winRate}%
-        </div>
-        <div
-          style={{
-            fontSize: 9,
-            color: "var(--text-subtle)",
-            fontWeight: 700,
-            textTransform: "uppercase",
-          }}
-        >
-          win rate
-        </div>
-        {entry.totalBetAmount > 0 && (
-          <div
-            style={{
-              marginTop: 3,
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--text-subtle)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Nu {entry.totalBetAmount.toLocaleString()} spent
-          </div>
-        )}
+        </span>
+      </div>
+
+      {/* Volume */}
+      <div style={{ textAlign: "right" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)" }}>
+          {entry.totalBetAmount > 0 ? `Nu ${fmtVol(entry.totalBetAmount)}` : "—"}
+        </span>
       </div>
     </div>
   );
@@ -1353,8 +1317,22 @@ export const TmaLeaderboardPage: FC = () => {
   const [myWeeklyDeposit, setMyWeeklyDeposit] = useState(0);
   const [period, setPeriod] = useState<Period>("all");
 
-  // Suppress unused ref warning — kept for future scroll-to-self feature
-  const _listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  const loadMore = useCallback(() => {
+    setVisibleCount((c) => c + 20);
+  }, []);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
 
   useEffect(() => {
     Promise.all([
@@ -1616,90 +1594,62 @@ export const TmaLeaderboardPage: FC = () => {
         </div>
       </div>
 
-      {/* ── Scrollable list ── */}
+      {/* ── Scrollable table ── */}
       <div className="lb-max-wrap">
-      <div
-        className="lb-list"
-        ref={_listRef}
-        style={{
-          padding: "8px 12px",
-          paddingBottom: selfEntry ? 100 : 20,
-          minHeight: "100vh",
-        }}
-      >
-        {board.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "60px 0",
-              color: "var(--text-subtle)",
-            }}
-          >
-            <Trophy
-              size={48}
-              strokeWidth={1.5}
-              style={{ marginBottom: 12, opacity: 0.4 }}
-            />
-            <p style={{ fontWeight: 600 }}>No ranked predictors yet.</p>
-            <p style={{ fontSize: 12, marginTop: 4 }}>
-              Be the first to make predictions!
-            </p>
-          </div>
-        ) : (
-          <>
-            {shownBoard.map((entry, i) => (
-              <div key={entry.id}>
-                <LeaderRow
+        <div
+          className="lb-list"
+          style={{ paddingBottom: selfEntry ? 100 : 32, minHeight: "100vh" }}
+        >
+          {board.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-subtle)" }}>
+              <Trophy size={48} strokeWidth={1.5} style={{ marginBottom: 12, opacity: 0.4 }} />
+              <p style={{ fontWeight: 600 }}>No ranked predictors yet.</p>
+              <p style={{ fontSize: 12, marginTop: 4 }}>Be the first to make predictions!</p>
+            </div>
+          ) : (
+            <>
+              <TableHeader />
+
+              {shownBoard.map((entry) => (
+                <TableRow
+                  key={entry.id}
                   entry={entry}
                   onTap={entry.isMe ? () => setShowMyStats(true) : undefined}
                 />
-                {i < shownBoard.length - 1 && <div style={{ height: 4 }} />}
-              </div>
-            ))}
+              ))}
 
-            {/* Ellipsis gap when self is outside visible window */}
-            {!myEntry &&
-              selfEntry &&
-              rankToShow &&
-              rankToShow > visibleCount && (
-                <div style={{ padding: "6px 16px", textAlign: "center" }}>
-                  <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>
-                    · · ·
-                  </span>
+              {/* Ellipsis gap when self is outside visible window */}
+              {!myEntry && selfEntry && rankToShow && rankToShow > visibleCount && (
+                <div style={{ padding: "8px 0", textAlign: "center", borderBottom: "1px solid var(--glass-border)" }}>
+                  <span style={{ fontSize: 11, color: "var(--text-subtle)", letterSpacing: "0.1em" }}>· · ·</span>
                 </div>
               )}
 
-            {/* Show more */}
-            {visibleCount < board.length && (
-              <button
-                className="lb-show-more"
-                onClick={() =>
-                  setVisibleCount((c) => Math.min(c + 20, board.length))
-                }
-                style={{
-                  width: "calc(100% - 32px)",
-                  margin: "10px 16px 0",
-                  padding: "11px",
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--glass-border)",
-                  borderRadius: 12,
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
-              >
-                <TrendingUp size={14} />
-                Show more · {board.length - visibleCount} remaining
-              </button>
-            )}
-          </>
-        )}
-      </div>
+              {/* Scroll sentinel — triggers next page when it enters the viewport */}
+              {visibleCount < board.length && (
+                <div
+                  ref={sentinelRef}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    padding: "20px 0",
+                    color: "var(--text-subtle)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  Loading…
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Pinned self row (hidden when sheet is open) ── */}
