@@ -36,6 +36,7 @@ import { ReportingModule } from "./reporting/reporting.module";
 import { ReconciliationModule } from "./reconciliation/reconciliation.module";
 import { Reconciliation } from "./entities/reconciliation.entity";
 import { EventsModule } from "./events/events.module";
+import { UserEvent } from "./entities/user-event.entity";
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { EventsModule } from "./events/events.module";
           TelegramGroup,
           GroupMembership,
           Reconciliation,
+          UserEvent,
         ],
         synchronize: false,
         logging: false,

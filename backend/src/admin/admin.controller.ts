@@ -1036,4 +1036,76 @@ export class AdminController {
     );
     return { triggered: job };
   }
+
+  // ── Behavioral Analytics ──────────────────────────────────────────────────
+  @Get("behavioral-analytics")
+  @ApiOperation({ summary: "Aggregated user event metrics for admin dashboard" })
+  async behavioralAnalytics() {
+    const db = this.dataSource;
+
+    const [
+      eventBreakdown,
+      dau,
+      topPages,
+      platformSplit,
+      conversionFunnel,
+    ] = await Promise.all([
+      // Total events per type over last 30 days
+      db.query(`
+        SELECT "eventType", COUNT(*)::int AS count
+        FROM user_events
+        WHERE "createdAt" >= NOW() - INTERVAL '30 days'
+        GROUP BY "eventType"
+        ORDER BY count DESC
+      `),
+
+      // Daily active users (unique users who opened the app) — last 14 days
+      db.query(`
+        SELECT DATE("createdAt") AS date, COUNT(DISTINCT "userId")::int AS dau
+        FROM user_events
+        WHERE "eventType" = 'app.open'
+          AND "createdAt" >= NOW() - INTERVAL '14 days'
+        GROUP BY DATE("createdAt")
+        ORDER BY date ASC
+      `),
+
+      // Most viewed pages (page.view events) — last 30 days
+      db.query(`
+        SELECT meta->>'page' AS page, COUNT(*)::int AS views
+        FROM user_events
+        WHERE "eventType" = 'page.view'
+          AND "createdAt" >= NOW() - INTERVAL '30 days'
+        GROUP BY meta->>'page'
+        ORDER BY views DESC
+        LIMIT 6
+      `),
+
+      // TMA vs PWA split — last 30 days
+      db.query(`
+        SELECT platform, COUNT(DISTINCT "userId")::int AS users
+        FROM user_events
+        WHERE "createdAt" >= NOW() - INTERVAL '30 days'
+          AND platform IS NOT NULL
+        GROUP BY platform
+      `),
+
+      // Onboarding funnel: app opens → market views → bet modal opens
+      db.query(`
+        SELECT
+          COUNT(DISTINCT CASE WHEN "eventType" = 'app.open' THEN "userId" END)::int AS opened,
+          COUNT(DISTINCT CASE WHEN "eventType" = 'market.view' THEN "userId" END)::int AS viewed_market,
+          COUNT(DISTINCT CASE WHEN "eventType" = 'bet.modal.open' THEN "userId" END)::int AS opened_bet_modal
+        FROM user_events
+        WHERE "createdAt" >= NOW() - INTERVAL '30 days'
+      `),
+    ]);
+
+    return {
+      eventBreakdown,
+      dau,
+      topPages,
+      platformSplit,
+      conversionFunnel: conversionFunnel[0] ?? { opened: 0, viewed_market: 0, opened_bet_modal: 0 },
+    };
+  }
 }
