@@ -1049,6 +1049,7 @@ export class AdminController {
       topPages,
       platformSplit,
       conversionFunnel,
+      categoryStats,
     ] = await Promise.all([
       // Total events per type over last 30 days
       db.query(`
@@ -1070,11 +1071,16 @@ export class AdminController {
       `),
 
       // Most viewed pages (page.view events) — last 30 days
+      // Exclude null pages and any that contain Telegram auth material
       db.query(`
         SELECT meta->>'page' AS page, COUNT(*)::int AS views
         FROM user_events
         WHERE "eventType" = 'page.view'
           AND "createdAt" >= NOW() - INTERVAL '30 days'
+          AND meta->>'page' IS NOT NULL
+          AND meta->>'page' NOT LIKE '%tgWebApp%'
+          AND meta->>'page' NOT LIKE '%initData%'
+          AND meta->>'page' NOT LIKE '%query_id%'
         GROUP BY meta->>'page'
         ORDER BY views DESC
         LIMIT 6
@@ -1098,6 +1104,20 @@ export class AdminController {
         FROM user_events
         WHERE "createdAt" >= NOW() - INTERVAL '30 days'
       `),
+
+      // Category betting stats — bets placed, unique bettors, total volume per category
+      db.query(`
+        SELECT
+          m.category,
+          COUNT(p.id)::int                          AS bets,
+          COUNT(DISTINCT p."userId")::int           AS bettors,
+          COALESCE(SUM(p.amount), 0)::float         AS volume
+        FROM positions p
+        JOIN markets m ON m.id = p."marketId"
+        WHERE p."placedAt" >= NOW() - INTERVAL '30 days'
+        GROUP BY m.category
+        ORDER BY volume DESC
+      `),
     ]);
 
     return {
@@ -1106,6 +1126,7 @@ export class AdminController {
       topPages,
       platformSplit,
       conversionFunnel: conversionFunnel[0] ?? { opened: 0, viewed_market: 0, opened_bet_modal: 0 },
+      categoryStats,
     };
   }
 }

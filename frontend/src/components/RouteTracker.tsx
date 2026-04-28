@@ -10,6 +10,8 @@ const ROUTE_LABELS: Record<string, string> = {
   "/profile": "profile",
 };
 
+const KNOWN_PATHS = new Set(Object.keys(ROUTE_LABELS));
+
 /** Drop inside HashRouter — fires page.view on every route change. */
 export function RouteTracker() {
   const location = useLocation();
@@ -20,7 +22,11 @@ export function RouteTracker() {
     if (location.pathname === prevPath.current) return;
     prevPath.current = location.pathname;
 
-    const page = ROUTE_LABELS[location.pathname] ?? (location.pathname.replace("/", "") || "feed");
+    // Only track recognised app routes — reject anything that looks like
+    // Telegram init data leaking into the hash path on first load.
+    if (!KNOWN_PATHS.has(location.pathname)) return;
+
+    const page = ROUTE_LABELS[location.pathname];
     track("page.view", { page });
   }, [location.pathname, track]);
 
