@@ -96,6 +96,14 @@ export class KeeperService {
     this.lastRunAt = new Date();
     this.addLog("info", `Expiry Watcher: Scanning markets...`);
 
+    // Safety: force-release the lock after 55s so a hung run never blocks the next tick
+    const lockTimeout = setTimeout(() => {
+      if (this.expiryRunning) {
+        this.logger.warn("[Keeper] Expiry Watcher force-released after timeout");
+        this.expiryRunning = false;
+      }
+    }, 55_000);
+
     // Track markets opened this tick so we never close them in the same run
     const justOpenedIds = new Set<string>();
 
@@ -186,6 +194,7 @@ export class KeeperService {
         );
       }
     } finally {
+      clearTimeout(lockTimeout);
       this.expiryRunning = false;
     }
   }
