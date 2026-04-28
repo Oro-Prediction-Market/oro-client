@@ -16,6 +16,7 @@ import { Challenge } from "./entities/challenge.entity";
 import { Season } from "./entities/season.entity";
 import { TelegramGroup } from "./entities/telegram-group.entity";
 import { GroupMembership } from "./entities/group-membership.entity";
+import { UserEvent } from "./entities/user-event.entity";
 
 dotenv.config();
 
@@ -50,6 +51,7 @@ export const AppDataSource = new DataSource({
     Season,
     TelegramGroup,
     GroupMembership,
+    UserEvent,
   ],
   migrations: [__dirname + "/migrations/*{.ts,.js}"],
   subscribers: [],

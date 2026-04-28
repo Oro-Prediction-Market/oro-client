@@ -35,6 +35,7 @@ import { LeaguesModule } from "./leagues/leagues.module";
 import { ReportingModule } from "./reporting/reporting.module";
 import { ReconciliationModule } from "./reconciliation/reconciliation.module";
 import { Reconciliation } from "./entities/reconciliation.entity";
+import { EventsModule } from "./events/events.module";
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { Reconciliation } from "./entities/reconciliation.entity";
     LeaguesModule,
     ReportingModule,
     ReconciliationModule,
+    EventsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

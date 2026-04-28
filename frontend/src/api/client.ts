@@ -648,3 +648,22 @@ export interface ReferralStats {
 export function getReferralStats(): Promise<ReferralStats> {
   return request<ReferralStats>("/users/me/referral");
 }
+
+// ── Behavioural event tracking ────────────────────────────────────────────────
+
+export type TrackEventPayload = {
+  eventType: string;
+  sessionId?: string;
+  platform?: "tma" | "pwa";
+  meta?: Record<string, any>;
+};
+
+/** Fire-and-forget — never throws, never blocks UI. */
+export function trackEvent(payload: TrackEventPayload): void {
+  request<void>("/events", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }).catch(() => {
+    // Silently discard — tracking must never break the user flow
+  });
+}

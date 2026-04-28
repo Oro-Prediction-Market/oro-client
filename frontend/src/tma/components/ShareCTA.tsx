@@ -1,6 +1,7 @@
 import { FC } from "react";
 import { Share, Send, Trophy, Sparkles } from "lucide-react";
 import { useAuth } from "@/tma/hooks/useAuth";
+import { trackEvent } from "@/api/client";
 
 declare global {
   interface Window {
@@ -32,6 +33,7 @@ export const ShareCTA: FC<ShareCTAProps> = ({
   const refLink = `https://t.me/${botUsername}/app?startapp=ref_${user?.telegramId || user?.id || ""}`;
 
   const handleShare = () => {
+    trackEvent({ eventType: "share.tap", platform: "tma", meta: { context: type } });
     let shareText = "";
 
     if (type === "win") {

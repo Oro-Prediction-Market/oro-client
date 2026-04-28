@@ -414,12 +414,12 @@ export class ParimutuelEngine implements OnModuleInit {
 
   // ── Referral bonus ─────────────────────────────────────────────────────────
   /**
-   * Credits the referrer a flat Nu 50 bonus + 5% of the referred user's first bet.
-   * Capped at Nu 50 total. Idempotent: `referralBonusTriggered` ensures exactly once.
+   * Credits the referrer a flat Nu 25 bonus + 5% of the referred user's first bet,
+   * capped at Nu 75 total. Idempotent: `referralBonusTriggered` ensures exactly once.
    */
-  static readonly REFERRAL_FLAT_BONUS = 50; // Nu 50 flat
+  static readonly REFERRAL_FLAT_BONUS = 25; // Nu 25 flat
   static readonly REFERRAL_BET_PCT = 0.05; // 5% of first bet
-  static readonly REFERRAL_CAP = 50; // total cap Nu 50
+  static readonly REFERRAL_CAP = 75; // total cap Nu 75
 
   // ── Referral prize pool (funded from house edge) ──────────────────────────
   /** % of each market's houseAmount contributed to the referral prize fund */
@@ -447,7 +447,7 @@ export class ParimutuelEngine implements OnModuleInit {
 
     if (!referrer) return;
 
-    // Nu 50 flat + 5% of the first bet, capped at Nu 50
+    // Nu 25 flat + 5% of the first bet, capped at Nu 75
     const pct =
       Math.round(betAmount * ParimutuelEngine.REFERRAL_BET_PCT * 100) / 100;
     const bonus = Math.min(

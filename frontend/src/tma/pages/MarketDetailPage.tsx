@@ -16,9 +16,11 @@ import {
 import { Link } from "@/tma/components/Link/Link";
 import { ShareCTA } from "@/tma/components/ShareCTA";
 import { useMarketSocket } from "@/tma/hooks/useMarketSocket";
+import { useTrack } from "@/hooks/useTrack";
 
 export const MarketDetailPage: FC = () => {
   const { id } = useParams<{ id: string }>();
+  const track = useTrack();
   const [market, setMarket] = useState<Market | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +68,7 @@ export const MarketDetailPage: FC = () => {
       try {
         const data = await getMarket(id);
         setMarket(data);
+        track("market.view", { marketId: id, marketTitle: data.title });
       } catch (err: any) {
         setError(err.message);
       } finally {
